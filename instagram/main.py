@@ -3,8 +3,8 @@ from process import open_follower_modal, scroll_to_bottom
 from get_follow_list_requests import extract_cookies, get_follow_list
 
 if __name__ == "__main__":
-    username = "ID 입력력"
-    password = "비밀번호 입력"
+    username = input("아이디 입력: ")
+    password = input("비밀번호 입력: ")
 
     driver = login(username, password)
 

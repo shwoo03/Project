@@ -25,3 +25,6 @@ Selenium으로 자동 로그인 → 세션 쿠키 확보
 https://www.instagram.com/api/v1/friendships/{user_id}/{follow_type}/ 형식의 API 호출     
 CSRF Token, User-Agent, SessionID 등 헤더 조작을 통해 API 우회 성공   
 JSON 응답을 파싱하여 사용자 리스트 추출    
+
+
+## 결과

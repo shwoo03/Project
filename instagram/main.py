@@ -1,5 +1,4 @@
 from login import login
-from process import open_follower_modal, scroll_to_bottom
 from get_follow_list_requests import extract_cookies, get_follow_list
 
 if __name__ == "__main__":

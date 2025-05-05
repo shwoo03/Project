@@ -14,13 +14,8 @@
 
 
 ## 구조 
-instagram/
-├── login.py                     # 로그인 자동화 및 쿠키 관리
-├── get_follow_list_requests.py  # API를 활용한 팔로워/팔로잉 수집
-├── main.py                      # 전체 실행 흐름 및 출력
-├── requirements.txt             # 필요 패키지 목록
-├── install.sh / install.bat     # 자동 설치 스크립트 (선택)
-└── README.md                    # 설명 문서
+![image](https://github.com/user-attachments/assets/aac61be2-9c29-4cdd-a2ed-86d8ad9006cf)
+
 
 
 

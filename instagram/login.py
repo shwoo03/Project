@@ -17,7 +17,7 @@ def create_driver():
     options = Options()
 
     # 탐지 방지 옵션
-    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--disable-blink-features=AutomationControlled")  # selenium 탐지 방지
     options.add_experimental_option("excludeSwitches", ["enable-automation"]) # 자동화 안내 문구 제거 
     options.add_experimental_option("useAutomationExtension", False)  # 자동화 확장 프로그램 비활성화 
 
@@ -54,7 +54,7 @@ def create_driver():
     return driver
 
 
-# 쿠키 저장 (없으면 자동으로 생성해줌)
+# 쿠키 저장
 def save_cookies(driver, path=COOKIE_PATH):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as f:

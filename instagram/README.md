@@ -28,3 +28,4 @@ JSON 응답을 파싱하여 사용자 리스트 추출
 
 
 ## 결과
+![image](https://github.com/user-attachments/assets/7082ccb9-4464-4b4a-a9ef-1408b487d394)

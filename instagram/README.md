@@ -29,3 +29,8 @@ JSON 응답을 파싱하여 사용자 리스트 추출
 
 ## 결과
 ![image](https://github.com/user-attachments/assets/7082ccb9-4464-4b4a-a9ef-1408b487d394)
+
+
+## 기타
+해당 프로그램에서는 사용자 ID, PW 값을 로컬에서 처리하므로 개인정보 유출에대한 위험이 없습니다.      
+2FA 계정은 사용이 힘들 수 있습니다.     

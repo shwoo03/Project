@@ -16,7 +16,7 @@ def get_follow_list(user_id, follow_type, cookies, limit=None):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         "X-CSRFToken": cookies.get("csrftoken", ""),
-        "X-IG-App-ID": "936619743392459",
+        "X-IG-App-ID": "936619743392459",   # 웹/ 모바일 인지 확인하는 값임 사용자마다 모두 같음 
         "Referer": f"https://www.instagram.com/{user_id}/"
     }
 

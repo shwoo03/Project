@@ -31,11 +31,6 @@
 - **API 구조 변경 시 유지보수 필요**  
   → 인스타그램 API나 HTML 구조가 변경되면 코드 수정이 필요할 수 있습니다.
 
----
-
-## 📂 프로젝트 디렉터리
-
-👉 [GitHub Repository 바로가기](https://github.com/shwoo03/Project/tree/main/instagram)     
 <br>
 ---   
 ## 2. 미정 

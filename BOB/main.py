@@ -1,6 +1,4 @@
 import requests
-import json
-import sys
 
 if __name__ == "__main__":
     url = "https://www.kitribob.kr/board/post/retrieve/1?current_page=1&per_page=15&st=subject&q="

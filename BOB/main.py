@@ -1,6 +1,7 @@
 import requests
 import winsound
 import datetime
+import time
 
 
 def get_response_and_parse_to_json():
@@ -32,16 +33,21 @@ if __name__ == "__main__":
     first_item = get_json_first_item(data)
 
 
-    print(f"최신 게시글 제목: {first_item.get('subject', '제목 없음')}")
-    print(f"최신 게시글 날짜: {first_item.get('regdate', '날짜 없음')}")
-    print(f"최신 게시글 링크: https://www.kitribob.kr/board/detail/1/{first_item.get('board_no', '번호 없음')}?current_page=1&per_page=15&st=subject&q=")
 
-    base_date = "2025-06-15"
-    base_datetime = datetime.datetime.strptime(base_date, "%Y-%m-%d")
-    post_date_str = first_item.get('regdate', '')
-    if post_date_str:
-        post_datetime = datetime.datetime.strptime(post_date_str.split()[0], "%Y-%m-%d")
+    while True:
+        print(f"최신 게시글 제목: {first_item.get('subject', '제목 없음')}")
+        print(f"최신 게시글 날짜: {first_item.get('regdate', '날짜 없음')}")
+        print(f"최신 게시글 링크: https://www.kitribob.kr/board/detail/1/{first_item.get('board_no', '번호 없음')}?current_page=1&per_page=15&st=subject&q=")
+
+        base_date = "2025-06-15"
+        base_datetime = datetime.datetime.strptime(base_date, "%Y-%m-%d")
+        post_date_str = first_item.get('regdate', '')
+        if post_date_str:
+            post_datetime = datetime.datetime.strptime(post_date_str.split()[0], "%Y-%m-%d")
+            
+            if post_datetime > base_datetime:
+                print("새로운 글 발견 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                winsound.Beep(2000, 1000000)
+                break
         
-        if post_datetime > base_datetime:
-            print(f"새로운 글이 발견되었습니다!")
-            winsound.Beep(1000, 10000)
+        time.sleep(30)

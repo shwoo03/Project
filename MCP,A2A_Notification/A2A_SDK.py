@@ -1,0 +1,67 @@
+import requests
+from bs4 import BeautifulSoup
+from datetime import datetime
+import os
+
+def get_latest_tag_time(github_tags_url):
+    response = requests.get(github_tags_url)
+    response.raise_for_status()
+    soup = BeautifulSoup(response.text, "html.parser")
+    time_tags = soup.find_all("relative-time")
+    if not time_tags:
+        return None
+    latest_time_str = time_tags[0]["datetime"]
+    try:
+        latest_time = datetime.strptime(latest_time_str, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        latest_time = datetime.strptime(latest_time_str, "%Y-%m-%d %H:%M:%S UTC")
+    return latest_time
+
+def read_check_times(filepath):
+    times = {}
+    if not os.path.exists(filepath):
+        return times
+    with open(filepath, "r", encoding="utf-8") as f:
+        for line in f:
+            if "=" in line:
+                key, date_str = line.split("=")
+                key = key.strip()
+                date_str = date_str.strip()
+                try:
+                    times[key] = datetime.strptime(date_str, "%Y-%m-%d:%H:%M")
+                except Exception:
+                    times[key] = None
+    return times
+
+def write_check_times(filepath, times):
+    with open(filepath, "w", encoding="utf-8") as f:
+        for key, dt in times.items():
+            if dt:
+                f.write(f"{key} = {dt.strftime('%Y-%m-%d:%H:%M')}\n")
+
+def send_discord_webhook(webhook_url, content):
+    data = {"content": content}
+    response = requests.post(webhook_url, json=data)
+    response.raise_for_status()
+
+def main():
+    time_file = "c:\\Users\\dntmd\\OneDrive\\Desktop\\Project\\MCP,A2A_Notification\\time.txt"
+    webhook_url = "https://discordapp.com/api/webhooks/1414626304598343810/-3jW1nDpt84Chx3PRdiOqhSCg8FvQ9IUSeITgxvogzYDdFXWw4Pci1c6yr8o44txK-Tf"
+    repos = {
+        "a2a_python_sdk": "https://github.com/a2aproject/a2a-python/tags",
+        "a2a_js_sdk": "https://github.com/a2aproject/a2a-js/tags",
+        "a2a_java_sdk": "https://github.com/a2aproject/a2a-java/tags",
+        "a2a_dotnet_sdk": "https://github.com/a2aproject/a2a-dotnet/tags"
+    }
+
+    check_times = read_check_times(time_file)
+
+    for key, url in repos.items():
+        latest_tag_time = get_latest_tag_time(url)
+        last_check_time = check_times.get(key)
+        if latest_tag_time and (last_check_time is None or latest_tag_time > last_check_time):
+            message = f"[{key}] 새로운 태그가 등록되었습니다! {latest_tag_time.strftime('%Y-%m-%d %H:%M')}"
+            send_discord_webhook(webhook_url, message)
+            check_times[key] = datetime.now()
+
+    write_check_times(time_file, check_times)

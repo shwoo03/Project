@@ -1,0 +1,7 @@
+mcp_python_sdk = 2025-09-09:00:01
+typescript_sdk = 2025-09-09:00:01
+mcp_typescript_sdk = 2025-09-09:00:09
+a2a_python_sdk = 2025-09-09:00:09
+a2a_js_sdk = 2025-09-09:00:09
+a2a_java_sdk = 2025-09-09:00:09
+a2a_dotnet_sdk = 2025-09-09:00:09

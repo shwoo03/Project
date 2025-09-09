@@ -100,28 +100,46 @@
 - **시간 비교 여유값 적용**  
   → 1분의 여유를 두어 시간 오차로 인한 오작동 방지
 
-### 📁 파일 구조
+### 📁 파일 구조 (단일 스크립트 통합 버전)
 
 ```
 MCP,A2A_Notification/
-├── main.py           # 메인 실행 파일
-├── MCP_SDK.py        # MCP SDK 모니터링
-├── A2A_SDK.py        # A2A SDK 모니터링  
-├── lang.py           # LangChain/LangGraph 모니터링
-├── A2A_ADK.py        # Google ADK 모니터링
-├── fast_mcp.py       # FastMCP 모니터링
-├── time.txt          # 마지막 확인 시간 저장
-└── cron.log          # 실행 로그
+├── main.py          # 통합 모니터링 실행 스크립트
+├── config.py        # 디스코드 Webhook / 모니터링 대상 저장소 설정
+├── .env.example     # 환경변수 예시 (실제 .env는 제외)
+├── time.txt         # 마지막 감지된 태그 시간 기록
+└── cron.log         # 주기 실행 로그(선택)
 ```
+
+이전 버전의 분리된 `MCP_SDK.py`, `A2A_SDK.py` 등은 `config.py`와 반복 로직 통합으로 제거되었습니다.
 
 ### 🚀 사용 방법
 
-```bash
-# 한 번 실행
-python main.py
+### 🛠 준비
+1. Python 3.10+ 설치
+2. 필요한 패키지 설치
+  ```bash
+  pip install requests beautifulsoup4 python-dotenv
+  ```
+3. `.env.example`을 복사해 `.env` 생성 후 Webhook URL 입력
+  ```bash
+  copy MCP,A2A_Notification\.env.example MCP,A2A_Notification\.env  # Windows
+  ```
 
-# cron을 통한 주기적 실행 (예: 5분마다)
-*/5 * * * * cd /path/to/project && python main.py >> cron.log 2>&1
+### ▶ 실행
+```bash
+python MCP,A2A_Notification/main.py
+```
+
+### ⏱ 주기 실행 (Windows 작업 스케줄러 예시)
+1. 작업 스케줄러 > 작업 만들기
+2. 트리거: 5분 마다
+3. 동작: 프로그램 시작 > `python` 인수: `c:\path\to\Project\MCP,A2A_Notification\main.py`
+4. (선택) 출력 로그를 `cron.log`로 리다이렉션하려면 배치 스크립트 사용
+
+### ⏱ 주기 실행 (Linux / WSL cron 예시)
+```bash
+*/5 * * * * /usr/bin/python3 /path/to/Project/MCP,A2A_Notification/main.py >> /path/to/Project/MCP,A2A_Notification/cron.log 2>&1
 ```
 
 ### ⚠️ 주의사항

@@ -2,6 +2,10 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import os
+from dotenv import load_dotenv
+
+# .env 파일 로드
+load_dotenv()
 
 def get_latest_tag_time(github_tags_url):
     response = requests.get(github_tags_url)
@@ -51,7 +55,11 @@ def send_discord_webhook(webhook_url, content):
 
 def main():
     time_file = os.path.join(os.path.dirname(__file__), "time.txt")
-    webhook_url = "https://discordapp.com/api/webhooks/1414626304598343810/-3jW1nDpt84Chx3PRdiOqhSCg8FvQ9IUSeITgxvogzYDdFXWw4Pci1c6yr8o44txK-Tf"
+    webhook_url = os.getenv('DISCORD_WEBHOOK_URL')
+    if not webhook_url:
+        print("ERROR: DISCORD_WEBHOOK_URL 환경변수가 설정되지 않았습니다.")
+        return
+    
     repos = {
         "adk_python": "https://github.com/google/adk-python/tags",
         "adk_java": "https://github.com/google/adk-java/tags"

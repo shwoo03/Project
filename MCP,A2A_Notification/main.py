@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""GitHub 저장소 태그 모니터링 및 Discord 알림 시스템
-
-단일 스크립트 버전. 이전 브랜치에서 분리되어 있던 MCP_SDK, A2A_SDK 등은
-하나의 구성(`config.py`)으로 통합되었습니다.
-"""
 
 from __future__ import annotations
 
@@ -12,8 +7,8 @@ from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
 
-try:  # 선택적 .env 로드
-    from dotenv import load_dotenv  # type: ignore
+try:  
+    from dotenv import load_dotenv  
     load_dotenv()
 except Exception:
     pass

@@ -1,6 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 
 def get_latest_tag_time(github_tags_url):
@@ -66,7 +66,8 @@ def main():
         latest_tag_time = get_latest_tag_time(url)
         last_check_time = check_times.get(key)
         if latest_tag_time:
-            if last_check_time is None or latest_tag_time > last_check_time:
+            # 1분의 여유를 두어 비교 (최신 태그 시간이 마지막 체크 시간 + 1분보다 클 때만 알림)
+            if last_check_time is None or latest_tag_time > (last_check_time + timedelta(minutes=1)):
                 message = f"[{key}] 새로운 태그가 등록되었습니다! {latest_tag_time.strftime('%Y-%m-%d %H:%M')}\n태그 페이지: {url}"
                 send_discord_webhook(webhook_url, message)
                 check_times[key] = latest_tag_time

@@ -44,3 +44,93 @@
 ### 주요 기능
 - 최신 공지사항 게시물 제목 및 날짜 확인 
 - url 제공
+
+<br>
+
+---
+
+## 3. 🔔 GitHub 태그 모니터링 알림 시스템
+
+개발 관련 주요 SDK 및 라이브러리의 **새로운 태그(릴리즈) 등록을 자동으로 모니터링**하여 Discord 웹훅으로 실시간 알림을 제공하는 시스템입니다.
+
+### 🔧 사용 기술
+
+- **Python**
+  - `requests` – GitHub 페이지 크롤링 및 Discord 웹훅 전송
+  - `beautifulsoup4` – HTML 파싱을 통한 태그 정보 추출
+  - `datetime` – 시간 비교 및 포맷팅
+
+### 📊 모니터링 대상
+
+- **MCP (Model Context Protocol)**
+  - `mcp_python_sdk` – Python SDK
+  - `mcp_typescript_sdk` – TypeScript SDK
+
+- **A2A Project**
+  - `a2a_python_sdk` – Python SDK
+  - `a2a_js_sdk` – JavaScript SDK
+  - `a2a_java_sdk` – Java SDK
+  - `a2a_dotnet_sdk` – .NET SDK
+
+- **LangChain AI**
+  - `langchain` – LangChain 메인 라이브러리
+  - `langgraph` – LangGraph 라이브러리
+
+- **Google ADK**
+  - `adk_python` – Python ADK
+  - `adk_java` – Java ADK
+
+- **FastMCP**
+  - `fast_mcp` – FastMCP 라이브러리
+
+### ✅ 주요 기능
+
+- **실시간 태그 모니터링**  
+  → GitHub의 태그 페이지를 주기적으로 확인하여 새로운 릴리즈 감지
+
+- **중복 알림 방지**  
+  → 이전에 확인한 태그는 `time.txt`에 기록하여 중복 알림 방지
+
+- **Discord 실시간 알림**  
+  → 새로운 태그 발견 시 Discord 웹훅을 통해 즉시 알림 전송
+
+- **태그 페이지 링크 제공**  
+  → 알림과 함께 해당 GitHub 태그 페이지 URL 제공
+
+- **시간 비교 여유값 적용**  
+  → 1분의 여유를 두어 시간 오차로 인한 오작동 방지
+
+### 📁 파일 구조
+
+```
+MCP,A2A_Notification/
+├── main.py           # 메인 실행 파일
+├── MCP_SDK.py        # MCP SDK 모니터링
+├── A2A_SDK.py        # A2A SDK 모니터링  
+├── lang.py           # LangChain/LangGraph 모니터링
+├── A2A_ADK.py        # Google ADK 모니터링
+├── fast_mcp.py       # FastMCP 모니터링
+├── time.txt          # 마지막 확인 시간 저장
+└── cron.log          # 실행 로그
+```
+
+### 🚀 사용 방법
+
+```bash
+# 한 번 실행
+python main.py
+
+# cron을 통한 주기적 실행 (예: 5분마다)
+*/5 * * * * cd /path/to/project && python main.py >> cron.log 2>&1
+```
+
+### ⚠️ 주의사항
+
+- **GitHub 접근 제한**  
+  → 과도한 요청 시 GitHub에서 일시적으로 접근을 제한할 수 있습니다.
+
+- **Discord 웹훅 URL 보안**  
+  → 웹훅 URL이 코드에 하드코딩되어 있으므로 공개 저장소 업로드 시 주의가 필요합니다.
+
+- **의존성 경고**  
+  → `urllib3` 및 `chardet` 버전 불일치 경고가 발생할 수 있으나 기능에는 영향을 주지 않습니다.

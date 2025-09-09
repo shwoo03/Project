@@ -28,8 +28,13 @@ def read_check_times(filepath):
                 key = key.strip()
                 date_str = date_str.strip()
                 try:
-                    times[key] = datetime.strptime(date_str, "%Y-%m-%d:%H:%M")
+                    # 여러 포맷 시도
+                    try:
+                        times[key] = datetime.strptime(date_str, "%Y-%m-%d:%H:%M")
+                    except Exception:
+                        times[key] = datetime.strptime(date_str, "%Y-%m-%d %H:%M")
                 except Exception:
+                    print(f"[경고] {key}의 시간 파싱 실패: {date_str}")
                     times[key] = None
     return times
 
@@ -45,7 +50,7 @@ def send_discord_webhook(webhook_url, content):
     response.raise_for_status()
 
 def main():
-    time_file = "c:\\Users\\dntmd\\OneDrive\\Desktop\\Project\\MCP,A2A_Notification\\time.txt"
+    time_file = os.path.join(os.path.dirname(__file__), "time.txt")
     webhook_url = "https://discordapp.com/api/webhooks/1414626304598343810/-3jW1nDpt84Chx3PRdiOqhSCg8FvQ9IUSeITgxvogzYDdFXWw4Pci1c6yr8o44txK-Tf"
     repos = {
         "mcp_python_sdk": "https://github.com/modelcontextprotocol/python-sdk/tags",
@@ -54,12 +59,15 @@ def main():
 
     check_times = read_check_times(time_file)
 
+    updated = False
     for key, url in repos.items():
         latest_tag_time = get_latest_tag_time(url)
         last_check_time = check_times.get(key)
-        if latest_tag_time and (last_check_time is None or latest_tag_time > last_check_time):
-            message = f"[{key}] 새로운 태그가 등록되었습니다! {latest_tag_time.strftime('%Y-%m-%d %H:%M')}"
-            send_discord_webhook(webhook_url, message)
-            check_times[key] = datetime.now()
-
-    write_check_times(time_file, check_times)
+        if latest_tag_time:
+            if last_check_time is None or latest_tag_time > last_check_time:
+                message = f"[{key}] 새로운 태그가 등록되었습니다! {latest_tag_time.strftime('%Y-%m-%d %H:%M')}"
+                send_discord_webhook(webhook_url, message)
+                check_times[key] = latest_tag_time
+                updated = True
+    if updated:
+        write_check_times(time_file, check_times)

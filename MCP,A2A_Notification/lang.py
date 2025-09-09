@@ -53,10 +53,8 @@ def main():
     time_file = os.path.join(os.path.dirname(__file__), "time.txt")
     webhook_url = "https://discordapp.com/api/webhooks/1414626304598343810/-3jW1nDpt84Chx3PRdiOqhSCg8FvQ9IUSeITgxvogzYDdFXWw4Pci1c6yr8o44txK-Tf"
     repos = {
-        "a2a_python_sdk": "https://github.com/a2aproject/a2a-python/tags",
-        "a2a_js_sdk": "https://github.com/a2aproject/a2a-js/tags",
-        "a2a_java_sdk": "https://github.com/a2aproject/a2a-java/tags",
-        "a2a_dotnet_sdk": "https://github.com/a2aproject/a2a-dotnet/tags"
+        "langchain": "https://github.com/langchain-ai/langchain/tags",
+        "langgraph": "https://github.com/langchain-ai/langgraph/tags"
     }
 
     check_times = read_check_times(time_file)
@@ -73,3 +71,4 @@ def main():
                 updated = True
     if updated:
         write_check_times(time_file, check_times)
+

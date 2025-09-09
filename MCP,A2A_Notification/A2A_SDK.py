@@ -67,7 +67,7 @@ def main():
         last_check_time = check_times.get(key)
         if latest_tag_time:
             if last_check_time is None or latest_tag_time > last_check_time:
-                message = f"[{key}] 새로운 태그가 등록되었습니다! {latest_tag_time.strftime('%Y-%m-%d %H:%M')}"
+                message = f"[{key}] 새로운 태그가 등록되었습니다! {latest_tag_time.strftime('%Y-%m-%d %H:%M')}\n태그 페이지: {url}"
                 send_discord_webhook(webhook_url, message)
                 check_times[key] = latest_tag_time
                 updated = True

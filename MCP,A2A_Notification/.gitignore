@@ -1,0 +1,26 @@
+# 환경 변수 파일
+.env
+
+# 로컬 설정 파일
+config_local.py
+
+# Python 캐시 파일
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# 로그 파일
+*.log
+cron.log
+
+# IDE 설정 파일
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS 생성 파일
+.DS_Store
+Thumbs.db

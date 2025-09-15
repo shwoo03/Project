@@ -25,5 +25,8 @@ REPOS = {
     },
     "FastMCP": {
         "fast_mcp": "https://github.com/jlowin/fastmcp/tags"
+    },
+    "GenAI": {
+        "genai": "https://github.com/googleapis/python-genai/tags"
     }
 }

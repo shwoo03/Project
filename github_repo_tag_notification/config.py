@@ -46,6 +46,14 @@ REPOS: dict[str, list[dict[str, object]]] = {
             tags_url="https://github.com/langflow-ai/langflow/tags",
             webhook_env="DISCORD_WEBHOOK_URL_LANGFLOW",
         ),
+        _repo(
+            key="langchain-chat-ollama",
+            tags_url=(
+                "https://github.com/langchain-ai/langchain/releases"
+                "?q=tag%3A%22langchain-ollama%3D%3D0%22&expanded=true"
+            ),
+            webhook_env="DISCORD_WEBHOOK_langchain_chat_ollama",
+        ),
     ],
     "n8n": [
         _repo(

@@ -1,0 +1,20 @@
+# Keep environment files and local artifacts out of Git
+.env
+.env.*
+*.env
+
+# Python typical ignores
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+env/
+venv/
+.venv/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.DS_Store
+

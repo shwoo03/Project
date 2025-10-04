@@ -23,15 +23,16 @@ PROGRESS_CANDIDATES = [
     "처리 중", "처리중",
     "진행 중", "진행중",
     "제보 완료", "제보완료",
-    "제보 전", "제보전",
     "디벨롭중", "디벨롭 중", "개발중", "개발 중",
+    "제보 전", "제보전",
     "In progress", "In Progress", "Processing"
 ]
 ACCEPTED_CANDIDATES = [
     "Accepted", "수락됨", "승인됨", "완료", "Done", "Resolved"
 ]
 REJECTED_CANDIDATES = [
-    "폐기", "무시", "Invalid", "Rejected", "Duplicate", "중복", "취소", "Canceled", "Cancelled"
+    "폐기", "무시", "Invalid", "Rejected", "Duplicate", "중복", "취소", "Canceled", "Cancelled",
+    "분석을 제대로 하자", "폐기"
 ]
 
 

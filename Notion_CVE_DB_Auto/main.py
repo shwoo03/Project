@@ -23,6 +23,7 @@ PROGRESS_CANDIDATES = [
     "처리 중", "처리중",
     "진행 중", "진행중",
     "제보 완료", "제보완료",
+    "제보 전", "제보전",
     "디벨롭중", "디벨롭 중", "개발중", "개발 중",
     "In progress", "In Progress", "Processing"
 ]

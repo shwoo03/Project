@@ -1,5 +1,5 @@
 from notion_client import Client
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple, Any
 import os
 from dotenv import load_dotenv
 
@@ -13,204 +13,145 @@ if not NOTION_TOKEN or not DATABASE_ID:
 
 notion = Client(auth=NOTION_TOKEN)
 
-# 속성 이름 (DB에 맞게 조정)
-STATUS_PROP = "제보 상태"   # Status/Select 속성명
-DATE_PROP = "발견 날짜"      # Date 속성명 (없으면 생성일로 정렬)
-CVE_PROP = "CVE NUM"        # Text(리치 텍스트) 또는 Title 속성명
+"""
+ID 자동작성 형식 변경:
+ - 형식: {Target}-{취약점 유형}-{번호(3자리, 001부터)}
+ - 번호는 Target별로 따로 매김 (타입 상관없이 같은 Target 묶음)
+ - 부여 순서: '발견 날짜' 오름차순(가장 오래된 것부터) 1부터 증가
+ - 날짜 속성이 없으면 생성일(created_time) 기준으로 오름차순 정렬
+ - 상태값(처리 중/Accepted/폐기 등)은 무시하고 DB의 모든 항목을 대상으로 함
+"""
 
-# 후보 상태명: 실제 DB 옵션 이름과 다를 수 있어 광범위하게 매칭
-PROGRESS_CANDIDATES = [
-    "처리 중", "처리중",
-    "진행 중", "진행중",
-    "제보 완료", "제보완료",
-    "디벨롭중", "디벨롭 중", "개발중", "개발 중",
-    "제보 전", "제보전",
-    "In progress", "In Progress", "Processing"
-]
-ACCEPTED_CANDIDATES = [
-    "Accepted", "수락됨", "승인됨", "완료", "Done", "Resolved"
-]
-REJECTED_CANDIDATES = [
-    "폐기", "무시", "Invalid", "Rejected", "Duplicate", "중복", "취소", "Canceled", "Cancelled",
-    "분석을 제대로 하자", "폐기"
-]
+# 속성 이름 (DB에 맞게 조정/환경변수로 오버라이드 가능)
+DATE_PROP = os.getenv("NOTION_DATE_PROP", "발견 날짜")
+TARGET_PROP = os.getenv("NOTION_TARGET_PROP", "Target")
+TYPE_PROP = os.getenv("NOTION_TYPE_PROP", "취약점 유형")
 
-
-def _norm(s: str) -> str:
-    return "".join(s.split()).lower()
+# 상태/접두 관련 로직은 제거됨 (상태값 무시)
 
 
 def _retrieve_db() -> Dict:
     return notion.databases.retrieve(database_id=DATABASE_ID)
 
 
-def _status_filter_key(db: Dict) -> str:
-    prop = db["properties"].get(STATUS_PROP)
-    if not prop:
-        raise RuntimeError(f"상태 속성 '{STATUS_PROP}' 를 DB에서 찾을 수 없습니다.")
-    t = prop.get("type")
-    if t in ("status", "select"):
-        return t
-    raise RuntimeError(f"상태 속성 '{STATUS_PROP}' 타입이 status/select 가 아닙니다: {t}")
+# 과거 상태/별도 속성 로직 삭제됨
 
 
-def _cve_prop_type(db: Dict) -> str:
-    prop = db["properties"].get(CVE_PROP)
-    if not prop:
-        raise RuntimeError(f"CVE 속성 '{CVE_PROP}' 를 DB에서 찾을 수 없습니다.")
-    t = prop.get("type")
-    if t in ("rich_text", "title"):
-        return t
-    raise RuntimeError(f"CVE 속성 '{CVE_PROP}' 타입이 텍스트가 아닙니다: {t}")
-
-
-def _date_sort_spec(db: Dict) -> List[Dict]:
+def _date_sort_spec(db: Dict, direction: str = "ascending") -> List[Dict]:
     # 날짜 속성이 있으면 그 속성으로, 없으면 생성일(created_time) 기준 정렬
     if DATE_PROP in db.get("properties", {}) and db["properties"][DATE_PROP].get("type") == "date":
-        return [{"property": DATE_PROP, "direction": "ascending"}]
-    return [{"timestamp": "created_time", "direction": "ascending"}]
+        return [{"property": DATE_PROP, "direction": direction}]
+    return [{"timestamp": "created_time", "direction": direction}]
 
 
-def _build_status_prefix_map(db: Dict) -> Dict[str, str]:
-    # DB에 실제 존재하는 옵션 이름들만 선별해서 매핑한다.
-    prop_def = db["properties"][STATUS_PROP]
-    kind = prop_def["type"]
-    options = prop_def[kind].get("options", [])
-    present: Dict[str, str] = { _norm(o["name"]): o["name"] for o in options }
-
-    mapping: Dict[str, str] = {}
-    for cand in PROGRESS_CANDIDATES:
-        if _norm(cand) in present:
-            mapping[present[_norm(cand)]] = "P"
-    for cand in ACCEPTED_CANDIDATES:
-        if _norm(cand) in present:
-            mapping[present[_norm(cand)]] = "A"
-    for cand in REJECTED_CANDIDATES:
-        if _norm(cand) in present:
-            mapping[present[_norm(cand)]] = "X"
-
-    return mapping
-
-
-def _build_group_status_map(db: Dict) -> Dict[str, List[str]]:
-    # 실제 DB에 존재하는 옵션만 그룹(P/A/X)으로 수집
-    prop_def = db["properties"][STATUS_PROP]
-    kind = prop_def["type"]
-    options = prop_def[kind].get("options", [])
-    present: Dict[str, str] = { _norm(o["name"]): o["name"] for o in options }
-
-    groups: Dict[str, List[str]] = {"P": [], "A": [], "X": []}
-    for cand in PROGRESS_CANDIDATES:
-        key = _norm(cand)
-        if key in present and present[key] not in groups["P"]:
-            groups["P"].append(present[key])
-    for cand in ACCEPTED_CANDIDATES:
-        key = _norm(cand)
-        if key in present and present[key] not in groups["A"]:
-            groups["A"].append(present[key])
-    for cand in REJECTED_CANDIDATES:
-        key = _norm(cand)
-        if key in present and present[key] not in groups["X"]:
-            groups["X"].append(present[key])
-
-    # 비어있는 그룹은 제거
-    return {k: v for k, v in groups.items() if v}
+def _extract_plain_text(prop_obj: Dict[str, Any]) -> str:
+    t = prop_obj.get("type")
+    if t == "select":
+        opt = prop_obj.get("select") or {}
+        return (opt.get("name") or "").strip()
+    if t == "multi_select":
+        opts = prop_obj.get("multi_select") or []
+        names = [str(o.get("name") or "").strip() for o in opts if o]
+        return "/".join([n for n in names if n])
+    if t == "title":
+        items = prop_obj.get("title") or []
+        return "".join([(i.get("plain_text") or "") for i in items]).strip()
+    if t == "rich_text":
+        items = prop_obj.get("rich_text") or []
+        return "".join([(i.get("plain_text") or "") for i in items]).strip()
+    if t == "url":
+        return (prop_obj.get("url") or "").strip()
+    if t == "email":
+        return (prop_obj.get("email") or "").strip()
+    if t == "phone_number":
+        return (prop_obj.get("phone_number") or "").strip()
+    if t == "number":
+        num = prop_obj.get("number")
+        return "" if num is None else str(num)
+    return ""
 
 
-def query_pages_by_status(status_value: str, filter_key: str, sorts: List[Dict]):
-    results = []
-    cursor: Optional[str] = None
-    while True:
-        resp = notion.databases.query(
-            **{
-                "database_id": DATABASE_ID,
-                "filter": {
-                    "property": STATUS_PROP,
-                    filter_key: {"equals": status_value},
-                },
-                "sorts": sorts,
-                "start_cursor": cursor,
-            }
-        )
-        results.extend(resp["results"])
-        if not resp.get("has_more"):
-            break
-        cursor = resp.get("next_cursor")
-    return results
+def _get_group_key(page: Dict) -> Optional[Tuple[str, str]]:
+    props = page.get("properties", {})
+    target_obj = props.get(TARGET_PROP)
+    type_obj = props.get(TYPE_PROP)
+    if not target_obj or not type_obj:
+        return None
+    target = _extract_plain_text(target_obj)
+    vtype = _extract_plain_text(type_obj)
+    if not target or not vtype:
+        return None
+    return (target, vtype)
 
 
-def query_pages_by_status_group(status_values: List[str], filter_key: str, sorts: List[Dict]):
+def _query_all_pages_sorted(sorts: List[Dict]) -> List[Dict]:
     results: List[Dict] = []
     cursor: Optional[str] = None
-    if not status_values:
-        return results
-
-    if len(status_values) == 1:
-        base_filter = {
-            "property": STATUS_PROP,
-            filter_key: {"equals": status_values[0]},
-        }
-    else:
-        base_filter = {
-            "or": [
-                {"property": STATUS_PROP, filter_key: {"equals": s}} for s in status_values
-            ]
-        }
-
     while True:
         resp = notion.databases.query(
             **{
                 "database_id": DATABASE_ID,
-                "filter": base_filter,
                 "sorts": sorts,
                 "start_cursor": cursor,
             }
         )
-        results.extend(resp["results"])
+        results.extend(resp.get("results", []))
         if not resp.get("has_more"):
             break
         cursor = resp.get("next_cursor")
     return results
 
 
-def update_page_text(page_id: str, text_value: str, cve_prop_type: str):
-    if cve_prop_type == "title":
-        value = {
-            "title": [
-                {"type": "text", "text": {"content": text_value}}
-            ]
-        }
-    else:
-        value = {
-            "rich_text": [
-                {"type": "text", "text": {"content": text_value}}
-            ]
-        }
-    notion.pages.update(page_id=page_id, properties={CVE_PROP: value})
+def _title_prop_name(db: Dict) -> str:
+    for name, prop in db.get("properties", {}).items():
+        if prop.get("type") == "title":
+            return name
+    raise RuntimeError("이 데이터베이스에 'title' 타입 속성이 없습니다. Notion DB 설정을 확인하세요.")
+
+
+def update_page_title(page_id: str, title_prop: str, new_title: str):
+    value = {
+        "title": [
+            {"type": "text", "text": {"content": new_title}}
+        ]
+    }
+    notion.pages.update(page_id=page_id, properties={title_prop: value})
 
 
 def main():
     db = _retrieve_db()
-    filter_key = _status_filter_key(db)  # 'status' 또는 'select'
-    cve_prop_type = _cve_prop_type(db)   # 'rich_text' 또는 'title'
-    sorts = _date_sort_spec(db)
+    # 상태값은 무시. 제목 생성만 수행.
+    title_prop = _title_prop_name(db)
+    sorts = _date_sort_spec(db, "ascending")  # 발견 날짜 오름차순
 
-    # 그룹(P/A/X)별 상태 묶음을 생성하고, 그룹 단위로 연속 번호 매김
-    groups = _build_group_status_map(db)
-    if not groups:
-        print("경고: 상태 후보와 일치하는 DB 옵션이 없어 아무 것도 변경하지 않았습니다.")
-        return
+    pages = _query_all_pages_sorted(sorts)
+    print(f"총 {len(pages)}건 수집됨. 제목을 '{TARGET_PROP}-{TYPE_PROP}-번호(3자리, 오름차순)' 으로 수정합니다.")
 
-    for prefix, status_names in groups.items():
-        pages = query_pages_by_status_group(status_names, filter_key, sorts)
-        print(f"[{prefix}그룹: {', '.join(status_names)}] {len(pages)}건: 날짜 오름차순 정렬 후 번호 부여")
-        for idx, page in enumerate(pages, start=1):
-            code = f"{prefix}{idx}"
-            update_page_text(page["id"], code, cve_prop_type)
-            title = page.get("properties", {}).get("Name", {}).get("title", [{}])[0].get("plain_text", "")
-            print(f" - {code} 적용 (page: {page['id']})")
+    # Target별 그룹핑 (오름차순 정렬된 순서를 유지)
+    from collections import OrderedDict
+    groups: Dict[str, List[Tuple[Dict, str]]] = OrderedDict()
+    skipped = 0
+    for p in pages:
+        key = _get_group_key(p)
+        if not key:
+            skipped += 1
+            continue
+        target, vtype = key
+        groups.setdefault(target, []).append((p, vtype))
 
-    print("모든 대상 상태에 대해 CVE NUM 텍스트 업데이트 완료!")
+    updated = 0
+    for target, items in groups.items():
+        print(f"Target '{target}': {len(items)}건 오름차순 번호(3자리) 부여")
+        for idx, (page, vtype) in enumerate(items, start=1):
+            idx3 = f"{idx:03d}"
+            new_title = f"{target}-{vtype}-{idx3}"
+            update_page_title(page["id"], title_prop, new_title)
+            updated += 1
+            print(f" - '{new_title}' 적용 (page: {page['id']})")
+
+    if skipped:
+        print(f"참고: {skipped}건은 '{TARGET_PROP}', '{TYPE_PROP}' 속성이 없어 스킵했습니다.")
+    print(f"완료: {updated}건 제목 업데이트. 형식: '{{Target}}-{{취약점 유형}}-{{번호(3자리)}}' (번호는 Target별 오름차순)")
 
 
 if __name__ == "__main__":

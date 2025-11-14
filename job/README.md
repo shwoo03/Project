@@ -22,7 +22,7 @@ NOTION_EMPLOYMENT_PROP=고용형태
 NOTION_EXPERIENCE_PROP=경력
 NOTION_LOCATION_PROP=근무지
 NOTION_DETAIL_LOCATION_PROP=상세 근무지
-NOTION_DEADLINE_PROP=마감일
+NOTION_DEADLINE_PROP=날짜
 NOTION_TAGS_PROP=태그
 NOTION_JOB_ID_PROP=Job ID
 NOTION_SOURCE_PROP=선택        # 소스(엔키/티오리)를 담을 select 속성 이름 (예: 선택, 플랫폼 등)
@@ -57,6 +57,8 @@ THEORI_COMPANY_NAME=Theori
 THEORI_SOURCE_LABEL=티오리
 THEORI_DRY_RUN=false
 ```
+
+> Theori API에는 마감일 정보가 없기 때문에 현재는 `created_at` 날짜를 마감 칸에 채워 넣습니다. 추후 API에서 마감일을 제공하면 자동으로 업데이트됩니다.
 
 ## 동작 방식
 1. `.env`를 읽어 노션/디스코드 자격 증명을 확보합니다.

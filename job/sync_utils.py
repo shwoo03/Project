@@ -40,7 +40,7 @@ def build_property_map() -> Dict[str, Optional[str]]:
         "experience": os.getenv("NOTION_EXPERIENCE_PROP", "\uacbd\ub825"),
         "location": os.getenv("NOTION_LOCATION_PROP", "\uadfc\ubb34\uc9c0"),
         "detail_location": os.getenv("NOTION_DETAIL_LOCATION_PROP", "\uc0c1\uc138 \uadfc\ubb34\uc9c0"),
-        "due_date": os.getenv("NOTION_DEADLINE_PROP", "\ub9c8\uac10\uc77c"),
+        "due_date": os.getenv("NOTION_DEADLINE_PROP", "\ub0a0\uc9dc"),
         "tags": os.getenv("NOTION_TAGS_PROP", "\ud0dc\uadf8"),
         "job_id": os.getenv("NOTION_JOB_ID_PROP", "Job ID"),
         "source": os.getenv("NOTION_SOURCE_PROP", "\ud50c\ub7ab\ud3fc"),
@@ -171,6 +171,13 @@ class NotionClient:
             data = resp.json()
             for page in data.get("results", []):
                 props = page.get("properties", {})
+                title_property = props.get(self.title_property) or {}
+                title_rich = title_property.get("title") or []
+                title_link = None
+                if title_rich:
+                    link_info = title_rich[0].get("text", {}).get("link")
+                    if link_info:
+                        title_link = link_info.get("url")
                 title = self._extract_text(props.get(self.title_property))
                 source_value = None
                 if source_prop and source_prop in props:
@@ -185,6 +192,7 @@ class NotionClient:
                         "page_id": page_id,
                         "source": source_value,
                         "due_date": due_date_value,
+                        "title_link": title_link,
                     }
                 if link_prop and link_prop in props:
                     link_value = self._extract_text(props.get(link_prop))
@@ -200,6 +208,7 @@ class NotionClient:
                         )
                         meta["source"] = source_value
                         meta["due_date"] = due_date_value
+                        meta["title_link"] = title_link
             if not data.get("has_more"):
                 break
             payload["start_cursor"] = data.get("next_cursor")
@@ -209,13 +218,16 @@ class NotionClient:
         self,
         job: JobPosting,
     ) -> Dict[str, Any]:
+        title_text: Dict[str, Any] = {
+            "content": job.title,
+        }
+        if job.url:
+            title_text["link"] = {"url": job.url}
         props: Dict[str, Any] = {
             self.title_property: {
                 "title": [
                     {
-                        "text": {
-                            "content": job.title,
-                        }
+                        "text": title_text,
                     }
                 ]
             }
@@ -320,6 +332,36 @@ class NotionClient:
                     "date": {
                         "start": value,
                     }
+                }
+            }
+        }
+        resp = self.session.patch(
+            f"https://api.notion.com/v1/pages/{page_id}",
+            json=payload,
+            timeout=DEFAULT_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return True
+
+    def update_title_link(
+        self,
+        page_id: str,
+        title: str,
+        url: Optional[str],
+    ) -> bool:
+        if not title:
+            return False
+        title_text: Dict[str, Any] = {"content": title}
+        if url:
+            title_text["link"] = {"url": url}
+        payload = {
+            "properties": {
+                self.title_property: {
+                    "title": [
+                        {
+                            "text": title_text,
+                        }
+                    ]
                 }
             }
         }

@@ -222,8 +222,8 @@ def main() -> None:
                     except requests.HTTPError as exc:
                         print(
                             f"[ERROR] Failed to update source for {job.title}: {exc}",
-                            file=sys.stderr,
-                        )
+                                file=sys.stderr,
+                            )
                 due_iso = job.due_date_iso()
                 if due_iso:
                     existing_due = meta.get("due_date")
@@ -242,6 +242,25 @@ def main() -> None:
                         except requests.HTTPError as exc:
                             print(
                                 f"[ERROR] Failed to update due date for {job.title}: {exc}",
+                                file=sys.stderr,
+                            )
+                if job.url:
+                    existing_link = meta.get("title_link")
+                    if existing_link != job.url:
+                        try:
+                            notion.update_title_link(
+                                meta["page_id"],
+                                job.title,
+                                job.url,
+                            )
+                            meta["title_link"] = job.url
+                            updated = True
+                            print(
+                                f"[INFO] Updated link for existing Notion entry {job.title}."
+                            )
+                        except requests.HTTPError as exc:
+                            print(
+                                f"[ERROR] Failed to update link for {job.title}: {exc}",
                                 file=sys.stderr,
                             )
             if updated:

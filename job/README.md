@@ -1,67 +1,83 @@
-# JOB
+# Job Scraper & Notifier
 
-엔키 채용 페이지와 더오리(Theori) 채용 페이지를 크롤링해 노션 데이터베이스에 동기화하고, 신규 공고가 생기면 디스코드 웹훅으로 알려줍니다.
+> Enki(엔키)와 Theori(티오리)의 채용 공고를 크롤링하여 Notion에 동기화하고 Discord로 알림을 보내는 자동화 도구입니다.
 
-## 환경 변수
-모든 스크립트는 `job/.env`(또는 동일한 키를 갖는 시스템 환경 변수)에서 값을 읽습니다.
+## 🚀 주요 기능
 
-```
-NOTION_TOKEN=
-NOTION_DATABASE_ID=
-DISCORD_WEBHOOK_URL=
-```
+- **자동 크롤링**: Enki와 Theori의 최신 채용 공고를 수집합니다.
+- **중복 방지**: MongoDB를 사용하여 이미 처리된 공고는 건너뜁니다.
+- **Notion 동기화**: 새로운 공고를 Notion 데이터베이스에 자동으로 추가합니다.
+- **Discord 알림**: 신규 공고 발견 시 Discord 웹훅으로 즉시 알림을 전송합니다.
+- **자동 정리**: 채용 사이트에서 내려간 공고는 DB에서도 자동으로 정리합니다.
 
-선택 속성 이름을 바꾸고 싶다면 아래 키로 덮어쓸 수 있습니다.
+## 🛠️ 기술 스택
 
-```
-NOTION_LINK_PROP=Link
-NOTION_COMPANY_PROP=회사
-NOTION_TEAM_PROP=팀
-NOTION_ROLE_PROP=직무
-NOTION_EMPLOYMENT_PROP=고용형태
-NOTION_EXPERIENCE_PROP=경력
-NOTION_LOCATION_PROP=근무지
-NOTION_DETAIL_LOCATION_PROP=상세 근무지
-NOTION_DEADLINE_PROP=날짜
-NOTION_TAGS_PROP=태그
-NOTION_JOB_ID_PROP=Job ID
-NOTION_SOURCE_PROP=선택        # 소스(엔키/티오리)를 담을 select 속성 이름 (예: 선택, 플랫폼 등)
-```
+- **Language**: Python 3.8+
+- **Database**: MongoDB (Firestore 호환)
+- **Libraries**: `requests`, `beautifulsoup4`, `pymongo`
 
-## 실행 방법
-### Enki (엔키)
+## ⚙️ 설치 및 설정
+
+### 1. 필수 라이브러리 설치
+
 ```bash
-cd job
-python enki.py           # 실제 동기화
-python enki.py --dry-run # 노션/디스코드 호출 없이 확인
+pip install -r requirements.txt
 ```
 
-추가 옵션
-```
-ENKI_GUIDE_URL=https://enki.career.greetinghr.com/ko/guide?employments=INTERN_WORKER
-ENKI_SOURCE_LABEL=엔키      # 노션 select 값
-ENKI_DRY_RUN=true          # 항상 드라이런
+### 2. 환경 변수 설정 (`.env`)
+
+프로젝트 루트에 `.env` 파일을 생성하고 아래 내용을 채워주세요.
+
+```ini
+# Notion 설정
+NOTION_TOKEN=your_notion_token
+NOTION_DATABASE_ID=your_database_id
+NOTION_SOURCE_PROP=선택  # 소스(엔키/티오리)를 구분할 Select 속성 이름
+
+# Discord 설정
+DISCORD_WEBHOOK_URL=your_discord_webhook_url
+
+# MongoDB 설정
+MONGO_URI=your_mongodb_connection_string
+MONGO_DB_NAME=webhook
 ```
 
-### Theori (티오리)
+## 🏃 실행 방법
+
+### 전체 실행
+
+모든 크롤러(Enki, Theori)를 순차적으로 실행합니다.
+
 ```bash
-cd job
-python theori.py           # 실제 동기화
-python theori.py --dry-run # 노션/디스코드 호출 없이 확인
+python main.py
 ```
 
-추가 옵션
-```
-THEORI_API_URL=https://theori.io/api/service/position
-THEORI_COMPANY_NAME=Theori
-THEORI_SOURCE_LABEL=티오리
-THEORI_DRY_RUN=false
+### 개별 실행
+
+특정 크롤러만 실행할 수 있습니다.
+
+```bash
+python enki.py
+python theori.py
 ```
 
-> Theori API에는 마감일 정보가 없기 때문에 현재는 `created_at` 날짜를 마감 칸에 채워 넣습니다. 추후 API에서 마감일을 제공하면 자동으로 업데이트됩니다.
+### 테스트 실행 (Dry Run)
 
-## 동작 방식
-1. `.env`를 읽어 노션/디스코드 자격 증명을 확보합니다.
-2. 각 소스에서 최신 채용 공고를 가져와 `JobPosting` 객체로 정규화합니다.
-3. 노션 데이터베이스를 조회해 기존 링크·타이틀·외부 ID를 인덱싱하고, 중복이 없을 때만 새 페이지를 생성합니다.
-4. 신규 공고가 존재하면 소스 이름을 포함한 메시지로 디스코드 웹훅에 알립니다.
+Notion이나 DB에 실제로 쓰지 않고 로그만 확인합니다.
+
+```bash
+python main.py --dry-run
+```
+
+## 📂 프로젝트 구조
+
+```
+.
+├── main.py          # 메인 실행 파일 (모든 크롤러 관리)
+├── enki.py          # Enki 크롤러
+├── theori.py        # Theori 크롤러
+├── sync_utils.py    # Notion 동기화 및 공통 로직 (Core Logic)
+├── db_utils.py      # MongoDB 연결 및 CRUD 관리
+├── requirements.txt # 의존성 패키지 목록
+└── .env             # 환경 변수 (비공개)
+```

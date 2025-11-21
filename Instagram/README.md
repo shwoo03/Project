@@ -1,41 +1,54 @@
-﻿# Instagram Automation
+# 인스타그램 팔로워 추적기
 
-Python scripts to automate Instagram login, fetch cookies, and compare follower/following lists.
+## 1. 프로젝트 개요
+이 프로젝트는 인스타그램 팔로워 및 팔로잉 목록의 변경 사항을 추적하기 위해 설계된 Python 기반 자동화 도구입니다. Playwright를 사용하여 안전하게 로그인하고, Requests를 사용하여 효율적으로 데이터를 수집하는 하이브리드 방식을 사용합니다. 결과는 MongoDB 데이터베이스에 저장되며, 요약 보고서는 Webhook을 통해 디스코드 서버로 전송됩니다.
 
-## Prerequisites
+## 2. 주요 기능
+1. **자동 로그인**: Playwright를 사용하여 실제 브라우저 로그인을 시뮬레이션하고 인증 쿠키를 추출합니다.
+2. **데이터 수집**: 인스타그램 내부 API를 사용하여 팔로워 및 팔로잉 사용자 전체 목록을 가져옵니다.
+3. **변경 감지**: 현재 상태를 데이터베이스 기록과 비교하여 새로운 팔로워와 언팔로워를 식별합니다.
+4. **데이터베이스 통합**: 과거 데이터와 최신 상태를 MongoDB에 저장합니다.
+5. **알림**: 클릭 가능한 프로필 링크가 포함된 형식화된 보고서를 디스코드에 전송합니다.
 
-- Python 3.10+
-- Chrome browser (for Selenium)
+## 3. 설치 및 설정
 
-Install dependencies:
+### 3.1 필수 조건
+1. Python 3.10 이상
+2. MongoDB (로컬 또는 Atlas)
+3. Google Chrome 또는 Chromium 브라우저
 
-```bash
-pip install -r requirements.txt
-```
+### 3.2 설치 단계
+1. 저장소를 복제하거나 소스 코드를 다운로드합니다.
+2. requirements 파일을 사용하여 필요한 Python 패키지를 설치합니다.
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Playwright 브라우저를 설치합니다.
+   ```bash
+   playwright install chromium
+   ```
 
-## Environment Variables
+## 4. 구성
+프로젝트 루트 디렉토리에 `.env` 파일을 생성하고 다음 변수를 구성합니다:
 
-Secrets are loaded from a `.env` file at the project root. Copy the example file and fill in your credentials:
+1. **USERNAME**: 인스타그램 사용자 이름.
+2. **PASSWORD**: 인스타그램 비밀번호.
+3. **MONGO_URI**: MongoDB 연결 문자열 (예: mongodb://localhost:27017/).
+4. **DISCORD_WEBHOOK**: 보고서를 받을 디스코드 채널의 Webhook URL.
 
-```bash
-cp .env.example .env
-```
-
-Update `.env` with your Instagram account details:
-
-```
-INSTAGRAM_USERNAME=your_instagram_username
-INSTAGRAM_PASSWORD=your_instagram_password
-```
-
-> Keep `.env` out of version control. Your actual credentials should never be committed.
-
-## Usage
-
-Run the main script after setting the environment variables:
-
+## 5. 사용법
+Python을 사용하여 메인 스크립트를 실행합니다:
 ```bash
 python main.py
 ```
 
-The script will log into Instagram, collect the follower/following data, and print the accounts that do not mutually follow.
+## 6. 출력 상세
+1. **콘솔 출력**: 데이터 수집 및 로그인 상태의 실시간 진행 상황을 표시합니다.
+2. **데이터베이스**:
+   - `Instagram_Latest`: 팔로워 및 팔로잉의 최신 스냅샷을 저장합니다.
+   - `Instagram_History`: 변경 로그(새로 팔로우한/언팔로우한 사용자)를 저장합니다.
+3. **디스코드 Webhook**: 다음을 포함하는 메시지를 전송합니다:
+   - 팔로워 및 팔로잉 총 수.
+   - 나를 맞팔로우하지 않는 사용자 목록.
+   - 내가 맞팔로우하지 않는 사용자 목록.
+   - 사용자 프로필로 바로 가는 링크.

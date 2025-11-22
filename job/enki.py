@@ -115,7 +115,8 @@ def parse_jobs():
                         "직군": "",
                         "직무": "",
                         "경력사항": "",
-                        "고용형태": ""
+                        "고용형태": "",
+                        "마감기한": ""
                     }
                     
                     spans = detail_soup.find_all("span")
@@ -129,10 +130,6 @@ def parse_jobs():
                                 
                                 if value_span:
                                     fields[text] = value_span.text.strip()
-                                else:
-                                    # 2. 혹시 구조가 다를 경우 대비 (Parent -> Parent -> Next Sibling 등)
-                                    # 제공된 HTML 기준으로는 1번이 맞음.
-                                    pass
                             except:
                                 pass
 
@@ -144,6 +141,7 @@ def parse_jobs():
                         "duty": fields["직무"],
                         "experience": fields["경력사항"],
                         "type": fields["고용형태"],
+                        "deadline": fields["마감기한"],
                         "scraped_at": datetime.datetime.now()
                     }
                     
@@ -174,6 +172,7 @@ def send_discord_webhook(job, webhook_url):
             {"name": "직군", "value": job['group'], "inline": True},
             {"name": "직무", "value": job['duty'], "inline": True},
             {"name": "고용형태", "value": job['type'], "inline": True},
+            {"name": "마감기한", "value": job['deadline'], "inline": True},
             {"name": "경력사항", "value": job['experience'], "inline": False},
         ],
         "footer": {"text": f"Enki Job Notification • {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"}

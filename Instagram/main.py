@@ -28,11 +28,11 @@ def get_env_var():
 
 def set_playwright_and_login(username, password):
     """
-        playwright 셋팅 및 로그인 수행 (Race Condition 해결 버전)
+    playwright 셋팅 및 로그인 수행 (Stealth 적용 + Race Condition 해결)
     """
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=True, # 디버깅 시에는 False로 변경하여 브라우저 화면을 확인하세요.
+            headless=True, # 디버깅 시 False
             channel="chrome",
             args=[
                 "--disable-blink-features=AutomationControlled", 
@@ -52,17 +52,27 @@ def set_playwright_and_login(username, password):
             java_script_enabled=True,
         )
 
-        context.add_init_script(
-            """
+        context.add_init_script("""
+            // 1. WebDriver 속성 제거
             Object.defineProperty(navigator, 'webdriver', {
                 get: () => undefined
             });
-            """
-        )
+
+            // 2. Chrome 객체 모킹 (Headless에서도 일반 크롬처럼 보이게)
+            if (!window.chrome) {
+                window.chrome = {
+                    runtime: {}
+                };
+            }
+
+            // 3. 플러그인 목록 가짜 생성 (Headless는 이게 비어있음)
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5]
+            });
+        """)
         
         page = context.new_page()
 
-        # 1. 로그인 페이지 접속
         print("인스타그램 접속...")
         page.goto("https://www.instagram.com/accounts/login/")
         

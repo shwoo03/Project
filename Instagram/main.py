@@ -21,40 +21,27 @@ def get_env_var():
     """
     # 시스템 환경변수 충돌 및 로딩 실패 방지를 위해 .env 파일을 직접 파싱
     env_vars = {}
-    print(f" -> [Debug] 현재 작업 경로: {os.getcwd()}")
-    env_path = os.path.join(os.getcwd(), ".env")
-    print(f" -> [Debug] .env 파일 경로: {env_path}")
-    
-    if os.path.exists(env_path):
-        print(" -> [Debug] .env 파일이 존재합니다. 읽기를 시도합니다.")
-        try:
-            # 인코딩 문제일 수 있으므로 utf-8-sig (BOM 포함) 시도
-            with open(".env", "r", encoding="utf-8-sig") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    if "=" in line:
-                        key, value = line.split("=", 1)
-                        env_vars[key.strip()] = value.strip().strip('"').strip("'")
-            print(f" -> [Debug] .env 파싱 결과 키 목록: {list(env_vars.keys())}")
-        except Exception as e:
-            print(f" -> [Warning] .env 파일을 직접 읽지 못했습니다: {e}")
-            load_dotenv() 
-            env_vars = os.environ
-    else:
-        print(" -> [Error] .env 파일을 찾을 수 없습니다!")
+    try:
+        with open(".env", "r", encoding="utf-8-sig") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    env_vars[key.strip()] = value.strip().strip('"').strip("'")
+    except Exception as e:
+        # .env 파일이 없거나 읽을 수 없는 경우
+        load_dotenv() 
+        env_vars = os.environ
 
     # 변경된 변수명(USER_ID, USER_PASSWORD)으로 조회
     user_id = env_vars.get("USER_ID")
     user_password = env_vars.get("USER_PASSWORD")
     webhook = env_vars.get("DISCORD_WEBHOOK")
-
-    print(f" -> [Debug] 최종 불러온 계정명: {user_id}")
     
     if not user_id or not user_password:
         print(" -> [Fatal Error] .env 파일에서 USER_ID 또는 USER_PASSWORD를 찾을 수 없습니다.")
-        print(f"    현재 파싱된 변수 목록: {list(env_vars.keys())}")
         return None 
 
     return {
@@ -95,7 +82,7 @@ def set_playwright_and_login(username, password):
     with sync_playwright() as p:
         # 1. 브라우저 실행
         browser = p.chromium.launch(
-            headless=False, # 디버깅 시 False
+            headless=True, # 서버 환경에서는 True여야 함
             channel="chrome",
             args=[
                 "--disable-blink-features=AutomationControlled", 

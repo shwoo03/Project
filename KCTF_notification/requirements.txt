@@ -1,0 +1,4 @@
+requests
+beautifulsoup4
+pymongo
+python-dotenv

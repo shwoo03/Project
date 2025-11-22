@@ -19,20 +19,83 @@ def get_env_var():
             DISCORD_WEBHOOK: str
             형태로 반환 
     """
-    load_dotenv()
+    # 시스템 환경변수 충돌 및 로딩 실패 방지를 위해 .env 파일을 직접 파싱
+    env_vars = {}
+    print(f" -> [Debug] 현재 작업 경로: {os.getcwd()}")
+    env_path = os.path.join(os.getcwd(), ".env")
+    print(f" -> [Debug] .env 파일 경로: {env_path}")
+    
+    if os.path.exists(env_path):
+        print(" -> [Debug] .env 파일이 존재합니다. 읽기를 시도합니다.")
+        try:
+            # 인코딩 문제일 수 있으므로 utf-8-sig (BOM 포함) 시도
+            with open(".env", "r", encoding="utf-8-sig") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" in line:
+                        key, value = line.split("=", 1)
+                        env_vars[key.strip()] = value.strip().strip('"').strip("'")
+            print(f" -> [Debug] .env 파싱 결과 키 목록: {list(env_vars.keys())}")
+        except Exception as e:
+            print(f" -> [Warning] .env 파일을 직접 읽지 못했습니다: {e}")
+            load_dotenv() 
+            env_vars = os.environ
+    else:
+        print(" -> [Error] .env 파일을 찾을 수 없습니다!")
+
+    # 변경된 변수명(USER_ID, USER_PASSWORD)으로 조회
+    user_id = env_vars.get("USER_ID")
+    user_password = env_vars.get("USER_PASSWORD")
+    webhook = env_vars.get("DISCORD_WEBHOOK")
+
+    print(f" -> [Debug] 최종 불러온 계정명: {user_id}")
+    
+    if not user_id or not user_password:
+        print(" -> [Fatal Error] .env 파일에서 USER_ID 또는 USER_PASSWORD를 찾을 수 없습니다.")
+        print(f"    현재 파싱된 변수 목록: {list(env_vars.keys())}")
+        return None 
+
     return {
-        "USERNAME": os.getenv("USERNAME"),
-        "PASSWORD": os.getenv("PASSWORD"),
-        "DISCORD_WEBHOOK": os.getenv("DISCORD_WEBHOOK") 
+        "USERNAME": user_id,
+        "PASSWORD": user_password,
+        "DISCORD_WEBHOOK": webhook
     }
+
+def save_cookies(context, path="cookies.json"):
+    """쿠키를 파일로 저장"""
+    try:
+        cookies = context.cookies()
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cookies, f, ensure_ascii=False, indent=2)
+        print(f" -> [Info] 쿠키 저장 완료: {path}")
+    except Exception as e:
+        print(f" -> [Warning] 쿠키 저장 실패: {e}")
+
+def load_cookies(context, path="cookies.json"):
+    """파일에서 쿠키 불러오기"""
+    if not os.path.exists(path):
+        return False
+    
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            cookies = json.load(f)
+            context.add_cookies(cookies)
+        print(f" -> [Info] 쿠키 불러오기 성공: {path}")
+        return True
+    except Exception as e:
+        print(f" -> [Warning] 쿠키 불러오기 실패: {e}")
+        return False
 
 def set_playwright_and_login(username, password):
     """
-    playwright 셋팅 및 로그인 수행 (Stealth 적용 + Race Condition 해결)
+    playwright 셋팅 및 로그인 수행 (Stealth 적용 + Race Condition 해결 + 쿠키 재사용)
     """
     with sync_playwright() as p:
+        # 1. 브라우저 실행
         browser = p.chromium.launch(
-            headless=True, # 디버깅 시 False
+            headless=False, # 디버깅 시 False
             channel="chrome",
             args=[
                 "--disable-blink-features=AutomationControlled", 
@@ -52,93 +115,126 @@ def set_playwright_and_login(username, password):
             java_script_enabled=True,
         )
 
+        # Stealth 스크립트 주입
         context.add_init_script("""
-            // 1. WebDriver 속성 제거
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            });
-
-            // 2. Chrome 객체 모킹 (Headless에서도 일반 크롬처럼 보이게)
-            if (!window.chrome) {
-                window.chrome = {
-                    runtime: {}
-                };
-            }
-
-            // 3. 플러그인 목록 가짜 생성 (Headless는 이게 비어있음)
-            Object.defineProperty(navigator, 'plugins', {
-                get: () => [1, 2, 3, 4, 5]
-            });
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            if (!window.chrome) { window.chrome = { runtime: {} }; }
+            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
         """)
         
         page = context.new_page()
 
-        print("인스타그램 접속...")
-        page.goto("https://www.instagram.com/accounts/login/")
+        # 2. 쿠키 로드 및 로그인 상태 확인
+        if load_cookies(context):
+            print(" -> 저장된 쿠키로 접속 시도...")
+            page.goto("https://www.instagram.com/")
+            time.sleep(3) # 페이지 로딩 대기
+
+            # 로그인 성공 여부 확인 (네비게이션 바 또는 프로필 아이콘 등)
+            # '검색', '홈', '프로필' 등의 aria-label이 있는 링크가 뜨면 로그인 성공으로 간주
+            try:
+                # 홈 버튼이나 프로필 링크가 뜰 때까지 잠시 대기
+                page.wait_for_selector('svg[aria-label="홈"]', timeout=5000)
+                print(" -> [성공] 쿠키로 로그인 유지 확인됨!")
+                
+                # 쿠키 리턴
+                cookies = context.cookies()
+                cookies_dict = {c['name']: c['value'] for c in cookies}
+                if 'ds_user_id' in cookies_dict:
+                    return cookies_dict
+                else:
+                    print(" -> [Warning] 로그인 된 것 같으나 ds_user_id가 없음. 재로그인 시도.")
+            except:
+                print(" -> [Info] 쿠키가 만료되었거나 로그인이 풀림. 다시 로그인합니다.")
+        
+        # 3. (쿠키 없거나 실패 시) 직접 로그인 진행
+        print("인스타그램 로그인 페이지 접속...")
+        try:
+            page.goto("https://www.instagram.com/accounts/login/", timeout=60000) # 60초 대기
+        except Exception as e:
+            print(f" -> [Error] 페이지 접속 실패: {e}")
+            return {}
         
         # 페이지 로딩 대기 (input 태그가 뜰 때까지)
         try:
-            page.wait_for_selector('input[name="username"]', timeout=10000)
-        except:
-            print("[Warning] 로그인 페이지 로딩이 느립니다.")
+            # 20초 동안 username 입력창 대기
+            page.wait_for_selector('input[name="username"]', timeout=20000)
+        except Exception as e:
+            print("[Error] 로그인 페이지 로딩 시간 초과. (화면이 안 떴거나 차단됨)")
+            # 디버깅용 스크린샷
+            page.screenshot(path="login_page_error.png")
+            print(" -> 'login_page_error.png' 스크린샷을 저장했습니다. 확인해보세요.")
+            return {}
 
-        # 2. 정보 입력
+        # 정보 입력
         print("아이디 및 비밀번호 입력...")
-        page.fill('input[name="username"]', username)
-        page.fill('input[name="password"]', password)
-        time.sleep(random.uniform(1, 2)) # 사람처럼 살짝 대기
-        
-        # 3. 로그인 시도
-        page.keyboard.press("Enter")
-        print("로그인 시도 중... (페이지 전환 대기)")
-
-        # 4. [핵심] URL 변경 또는 메인 화면 진입 대기
         try:
-            # 로그인 성공 시 URL이 변경됨 (최대 20초 대기)
+            page.fill('input[name="username"]', username)
+            page.fill('input[name="password"]', password)
+        except Exception as e:
+             print(f" -> [Error] 입력창을 찾을 수 없습니다: {e}")
+             page.screenshot(path="input_error.png")
+             return {}
+
+        time.sleep(random.uniform(1, 2))
+        
+        page.keyboard.press("Enter")
+        print("로그인 시도 중... (완료 대기)")
+
+        # 4. 로그인 완료 대기 (URL 변경 or 홈 화면 요소 등장)
+        try:
+            # 최대 30초 대기. 홈 화면의 특정 요소(예: svg[aria-label="홈"])가 뜰 때까지
+            # 또는 URL이 메인으로 바뀔 때까지
             page.wait_for_url("https://www.instagram.com/", timeout=20000)
             print(" -> 메인 URL 진입 성공")
         except Exception as e:
-            print(f" -> [Warning] URL 변경 감지 실패 (팝업 때문일 수 있음): {e}")
+            print(f" -> [Warning] URL 변경 감지 실패: {e}")
 
-        # 5. [추가] '정보 저장' 팝업 처리 (나중에 하기 클릭)
-        try:
-            # '나중에 하기' 버튼이 있으면 클릭 (선택자는 상황에 따라 다를 수 있음)
-            # text=나중에 하기 또는 role=button 등을 복합적으로 찾음
-            not_now_btn = page.wait_for_selector('div[role="button"]:has-text("나중에 하기")', timeout=5000)
-            if not_now_btn:
-                print(" -> '정보 저장' 팝업 발견, '나중에 하기' 클릭")
-                not_now_btn.click()
-                time.sleep(2)
-        except:
-            pass # 팝업 없으면 패스
+        # 5. 각종 팝업 처리 (정보 저장, 알림 설정 등)
+        # "나중에 하기" 버튼들을 순차적으로 찾아서 클릭
+        popups_handled = 0
+        for _ in range(3): # 최대 3번 정도 팝업이 연달아 뜰 수 있음
+            try:
+                # '나중에 하기' 또는 'Not Now' 버튼 (div 또는 button)
+                # text=나중에 하기, role=button 등을 포괄적으로 검색
+                not_now_btn = page.wait_for_selector('div[role="button"]:has-text("나중에 하기"), button:has-text("나중에 하기")', timeout=3000)
+                if not_now_btn:
+                    print(" -> 팝업 발견 ('나중에 하기'), 클릭합니다.")
+                    not_now_btn.click()
+                    time.sleep(2)
+                    popups_handled += 1
+                else:
+                    break # 팝업 없으면 루프 탈출
+            except:
+                break # 타임아웃이면 팝업 없는 것
 
+        # 6. 쿠키 추출 및 저장
         print("로그인 프로세스 완료, 쿠키 확인 중...")
-
-        # 6. 쿠키 추출 (Retry 로직 강화)
-        # 최대 20번(약 20초) 동안 ds_user_id가 생길 때까지 반복 확인
-        max_retries = 20
+        
+        # ds_user_id 확인 (최대 20초)
         cookies_dict = {}
         found_cookie = False    
-
-        for i in range(max_retries):
+        for i in range(20):
             cookies = context.cookies()
-            # ds_user_id 가 있는지 확인
             if any(c['name'] == 'ds_user_id' for c in cookies):
                 found_cookie = True
-                # 전체 쿠키를 딕셔너리로 변환
                 for cookie in cookies:
                     cookies_dict[cookie['name']] = cookie['value']
                 break
-            
             if i % 5 == 0:
-                print(f" -> 쿠키 대기 중... ({i+1}/{max_retries})")
+                print(f" -> 쿠키 생성 대기 중... ({i+1}/20)")
             time.sleep(1) 
         
         if found_cookie:
             print(f" -> 핵심 쿠키(ds_user_id) 획득 성공! (ID: {cookies_dict.get('ds_user_id')})")
+            # [중요] 성공한 쿠키 저장
+            save_cookies(context)
             return cookies_dict
         else:
             print(" -> [Error] 로그인 실패 또는 쿠키 획득 시간 초과.")
+            # 디버깅을 위해 스크린샷 저장 (선택 사항)
+            page.screenshot(path="login_failed.png")
+            print(" -> 'login_failed.png' 스크린샷을 저장했습니다.")
             return {}
 
 def create_requests_session(cookies_dict):
@@ -415,6 +511,9 @@ def send_discord_webhook(data, webhook_url):
 if __name__ == "__main__":
     # 1. 계정 정보 들고오기 
     env_vars = get_env_var()
+    if not env_vars:
+        print("프로그램을 종료합니다.")
+        exit(1)
     
     # 2. playwright 실행 및 로그인 후 쿠키 추출 
     cookies_dict = set_playwright_and_login(env_vars["USERNAME"], env_vars["PASSWORD"])
@@ -434,4 +533,3 @@ if __name__ == "__main__":
 
     # 6. 결과 디스코드로 보내기
     send_discord_webhook(results, env_vars["DISCORD_WEBHOOK"])
-

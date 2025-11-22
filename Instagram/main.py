@@ -28,21 +28,14 @@ def get_env_var():
 
 def set_playwright_and_login(username, password):
     """
-        playwright 셋팅
-
-        browser: 
-            브라우저 런치 옵션 
-
-        context:
-            컨텍스트 정교화 
-
+        playwright 셋팅 및 로그인 수행 (Race Condition 해결 버전)
     """
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=True,
+            headless=True, # 디버깅 시에는 False로 변경하여 브라우저 화면을 확인하세요.
             channel="chrome",
             args=[
-                "--disable-blink-features=AutomationControlled", # 자동화 제어 플래그 숨김 
+                "--disable-blink-features=AutomationControlled", 
                 "--no-sandbox",
                 "--disable-infobars",
                 "--window-size=1920,1080",
@@ -50,25 +43,15 @@ def set_playwright_and_login(username, password):
         )
 
         context = browser.new_context(
-            # Chrome 최신 버전의 User Agent 설정 
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-
-            # 뷰포트 설정 
             viewport= {"width": 1920, "height": 1080},
-
-            # 지역 및 시간대 설정 
             locale="ko-KR",
             timezone_id="Asia/Seoul",
-
-            # 권한 자동 거절 (위치, 알림 팝업이 스크립트 막는거 방지)
             permissions=["geolocation"],
-            geolocation={"latitude": 37.5665, "longitude": 126.9780}, # 서울 좌표
-
-            # Webdriver 속성 제거 
+            geolocation={"latitude": 37.5665, "longitude": 126.9780},
             java_script_enabled=True,
         )
 
-        # 팀지 우회 스크립트 주입 
         context.add_init_script(
             """
             Object.defineProperty(navigator, 'webdriver', {
@@ -79,32 +62,74 @@ def set_playwright_and_login(username, password):
         
         page = context.new_page()
 
-        # 로그인 수행 
+        # 1. 로그인 페이지 접속
         print("인스타그램 접속...")
         page.goto("https://www.instagram.com/accounts/login/")
-        page.wait_for_timeout(random.randint(500, 1500))
+        
+        # 페이지 로딩 대기 (input 태그가 뜰 때까지)
+        try:
+            page.wait_for_selector('input[name="username"]', timeout=10000)
+        except:
+            print("[Warning] 로그인 페이지 로딩이 느립니다.")
 
-        # 정보 입력 
+        # 2. 정보 입력
         print("아이디 및 비밀번호 입력...")
         page.fill('input[name="username"]', username)
         page.fill('input[name="password"]', password)
-        page.wait_for_timeout(random.randint(500, 1500))
-        page.keyboard.press("Enter")
-        page.wait_for_timeout(5000)  # 로그인 처리 대기
-        print("로그인 완료!")
-
-        # 쿠키 추출 
-        """
-            나오는 값: 
-                csrftoken, mid, 
-        """
-        cookies = context.cookies()
-        cookies_dict = {}
-        for cookie in cookies:
-            cookies_dict[cookie['name']] = cookie['value']
+        time.sleep(random.uniform(1, 2)) # 사람처럼 살짝 대기
         
-        print("쿠키 추출 완료!")
-        return cookies_dict
+        # 3. 로그인 시도
+        page.keyboard.press("Enter")
+        print("로그인 시도 중... (페이지 전환 대기)")
+
+        # 4. [핵심] URL 변경 또는 메인 화면 진입 대기
+        try:
+            # 로그인 성공 시 URL이 변경됨 (최대 20초 대기)
+            page.wait_for_url("https://www.instagram.com/", timeout=20000)
+            print(" -> 메인 URL 진입 성공")
+        except Exception as e:
+            print(f" -> [Warning] URL 변경 감지 실패 (팝업 때문일 수 있음): {e}")
+
+        # 5. [추가] '정보 저장' 팝업 처리 (나중에 하기 클릭)
+        try:
+            # '나중에 하기' 버튼이 있으면 클릭 (선택자는 상황에 따라 다를 수 있음)
+            # text=나중에 하기 또는 role=button 등을 복합적으로 찾음
+            not_now_btn = page.wait_for_selector('div[role="button"]:has-text("나중에 하기")', timeout=5000)
+            if not_now_btn:
+                print(" -> '정보 저장' 팝업 발견, '나중에 하기' 클릭")
+                not_now_btn.click()
+                time.sleep(2)
+        except:
+            pass # 팝업 없으면 패스
+
+        print("로그인 프로세스 완료, 쿠키 확인 중...")
+
+        # 6. 쿠키 추출 (Retry 로직 강화)
+        # 최대 20번(약 20초) 동안 ds_user_id가 생길 때까지 반복 확인
+        max_retries = 20
+        cookies_dict = {}
+        found_cookie = False    
+
+        for i in range(max_retries):
+            cookies = context.cookies()
+            # ds_user_id 가 있는지 확인
+            if any(c['name'] == 'ds_user_id' for c in cookies):
+                found_cookie = True
+                # 전체 쿠키를 딕셔너리로 변환
+                for cookie in cookies:
+                    cookies_dict[cookie['name']] = cookie['value']
+                break
+            
+            if i % 5 == 0:
+                print(f" -> 쿠키 대기 중... ({i+1}/{max_retries})")
+            time.sleep(1) 
+        
+        if found_cookie:
+            print(f" -> 핵심 쿠키(ds_user_id) 획득 성공! (ID: {cookies_dict.get('ds_user_id')})")
+            return cookies_dict
+        else:
+            print(" -> [Error] 로그인 실패 또는 쿠키 획득 시간 초과.")
+            return {}
 
 def create_requests_session(cookies_dict):
     """
@@ -399,3 +424,4 @@ if __name__ == "__main__":
 
     # 6. 결과 디스코드로 보내기
     send_discord_webhook(results, env_vars["DISCORD_WEBHOOK"])
+

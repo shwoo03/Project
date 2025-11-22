@@ -41,11 +41,12 @@ WSL 환경에서 매일 특정 시간(예: 오전 9시)에 스크립트를 자�
 2.  **스케줄 추가**
     파일 맨 아래에 다음 줄을 추가합니다. (경로는 실제 프로젝트 경로로 수정해주세요)
     ```cron
-    # 매일 오전 9시에 실행 (로그는 cron.log에 저장)
-    0 9 * * * /usr/bin/python3 /mnt/c/Users/dntmd/OneDrive/Desktop/my/프로젝트/Project/KCTF_notification/main.py >> /mnt/c/Users/dntmd/OneDrive/Desktop/my/프로젝트/Project/KCTF_notification/cron.log 2>&1
+    # 매시 5분에 실행 (예: 1:05, 2:05, 3:05 ...)
+    5 * * * * cd /home/shwoo03/Project/KCTF_notification && /usr/bin/python3 main.py > /dev/null 2>&1
     ```
-    *   `/usr/bin/python3`: 파이썬 실행 파일 경로 ( `which python3` 로 확인 가능)
-    *   `/mnt/c/...`: 윈도우 파일 시스템의 절대 경로
+    *   `5 * * * *`: 매 시간 5분에 실행합니다.
+    *   코드 내부에 "하루 1회 실행 체크" 로직이 있으므로, 매시간 실행되더라도 실제 크롤링과 알림은 **하루에 한 번(가장 먼저 실행된 시점)**만 수행됩니다.
+    *   `cd ... && ...`: 해당 디렉토리로 이동 후 실행해야 `.env` 파일을 잘 찾을 수 있습니다.
 
 3.  **Cron 서비스 시작** (WSL을 켤 때마다 필요할 수 있음)
     ```bash

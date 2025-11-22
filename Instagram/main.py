@@ -11,12 +11,13 @@ import datetime
 
 def get_env_var():
     """
-        .env 파일에서 ID, PW, Webhook URL 불러오기 
+        .env 파일에서 ID, PW, Webhook URL, MONGO_URI 불러오기 
         
         return: dict
             USERNAME: str
             PASSWORD: str 
             DISCORD_WEBHOOK: str
+            MONGO_URI: str
             형태로 반환 
     """
     # 시스템 환경변수 충돌 및 로딩 실패 방지를 위해 .env 파일을 직접 파싱
@@ -39,6 +40,7 @@ def get_env_var():
     user_id = env_vars.get("USER_ID")
     user_password = env_vars.get("USER_PASSWORD")
     webhook = env_vars.get("DISCORD_WEBHOOK")
+    mongo_uri = env_vars.get("MONGO_URI")
     
     if not user_id or not user_password:
         print(" -> [Fatal Error] .env 파일에서 USER_ID 또는 USER_PASSWORD를 찾을 수 없습니다.")
@@ -47,7 +49,8 @@ def get_env_var():
     return {
         "USERNAME": user_id,
         "PASSWORD": user_password,
-        "DISCORD_WEBHOOK": webhook
+        "DISCORD_WEBHOOK": webhook,
+        "MONGO_URI": mongo_uri
     }
 
 def save_cookies(context, path="cookies.json"):
@@ -271,7 +274,7 @@ def requests_and_get_followers_and_following(session):
     }
 
     def fetch_all(kind):
-        users_list = []
+        users_dict = {} # 중복 제거를 위해 dict 사용 (key: user_id)
         max_id = ""
 
         print(f"{kind} 데이터 수집 시작...")
@@ -301,25 +304,27 @@ def requests_and_get_followers_and_following(session):
                 break
 
             for user in data.get("users", []):
-                    users_list.append({
-                        "id": user.get("pk"),
+                uid = user.get("pk")
+                if uid not in users_dict:
+                    users_dict[uid] = {
+                        "id": uid,
                         "username": user.get("username"),
                         "full_name": user.get("full_name")
-                    })
+                    }
 
             # 다음 페이지 커서 확인 
             next_max_id = data.get("next_max_id")
 
             if next_max_id:
                     max_id = next_max_id
-                    print(f" -> {len(users_list)}명 수집 중... (잠시 대기)")
+                    print(f" -> {len(users_dict)}명 수집 중... (잠시 대기)")
                     # [중요] Rate Limit 방지: 랜덤 딜레이
                     time.sleep(random.uniform(2, 4)) # 안전하게 시간 늘림
             else:
                 print(" -> 마지막 페이지 도달.")
                 break
             
-        return users_list
+        return list(users_dict.values())
         
     results["followers"] = fetch_all("followers")
         
@@ -329,77 +334,77 @@ def requests_and_get_followers_and_following(session):
 
     return results
 
-def save_and_get_results_to_db(results, username):
+def save_and_get_results_to_db(results, username, mongo_uri):
     """
         결과를 DB에 저장 
     """
 
-    # .env에서 MONGO_URI 불러오기 없으면 에러 발생 
-    MONGO_URI = os.getenv("MONGO_URI") 
-    if not MONGO_URI:
+    if not mongo_uri:
         print("Error: .env 파일에 MONGO_URI가 설정되지 않았습니다.")
         return
 
-    client = pymongo.MongoClient(MONGO_URI)
-    db = client.get_database('webhook')
-    
-    col_latest = db['Instagram_Latest']   # 최신 상태 저장소
-    col_history = db['Instagram_History'] # 변동 내역 저장소
-    
-    # 1. 비교를 위해 저장된 최신 상태 가져오기
-    prev_doc = col_latest.find_one({"_id": username})
-    
-    new_users = []
-    lost_users = []
+    try:
+        client = pymongo.MongoClient(mongo_uri)
+        db = client.get_database('webhook')
+        
+        col_latest = db['Instagram_Latest']   # 최신 상태 저장소
+        col_history = db['Instagram_History'] # 변동 내역 저장소
+        
+        # 1. 비교를 위해 저장된 최신 상태 가져오기
+        prev_doc = col_latest.find_one({"_id": username})
+        
+        new_users = []
+        lost_users = []
 
-    current_data = results 
-    
-    if prev_doc:
-        prev_ids = {u['id'] for u in prev_doc['followers']}
-        curr_ids = {u['id'] for u in current_data['followers']}
+        current_data = results 
         
-        # Diff 계산
-        new_ids = curr_ids - prev_ids
-        lost_ids = prev_ids - curr_ids
-        
-        # 상세 정보 매핑
-        new_users = [u for u in current_data['followers'] if u['id'] in new_ids]
-        
-        # 나간 사람 정보는 이전 문서(prev_doc)에서 찾아야 함
-        lost_users = [u for u in prev_doc['followers'] if u['id'] in lost_ids]
-    else:
-        print("첫 실행입니다. 기준 데이터를 생성합니다.")
+        if prev_doc:
+            prev_ids = {u['id'] for u in prev_doc['followers']}
+            curr_ids = {u['id'] for u in current_data['followers']}
+            
+            # Diff 계산
+            new_ids = curr_ids - prev_ids
+            lost_ids = prev_ids - curr_ids
+            
+            # 상세 정보 매핑
+            new_users = [u for u in current_data['followers'] if u['id'] in new_ids]
+            
+            # 나간 사람 정보는 이전 문서(prev_doc)에서 찾아야 함
+            lost_users = [u for u in prev_doc['followers'] if u['id'] in lost_ids]
+        else:
+            print("첫 실행입니다. 기준 데이터를 생성합니다.")
 
-    # 2. 변동이 있거나, 첫 실행이면 History에 기록
-    if new_users or lost_users or not prev_doc:
-        history_doc = {
-            "date": datetime.datetime.now(),
-            "username": username,
-            "diff": {
-                "new": new_users,
-                "lost": lost_users,
-                "new_count": len(new_users),
-                "lost_count": len(lost_users)
+        # 2. 변동이 있거나, 첫 실행이면 History에 기록
+        if new_users or lost_users or not prev_doc:
+            history_doc = {
+                "date": datetime.datetime.now(),
+                "username": username,
+                "diff": {
+                    "new": new_users,
+                    "lost": lost_users,
+                    "new_count": len(new_users),
+                    "lost_count": len(lost_users)
+                }
             }
-        }
-        col_history.insert_one(history_doc)
-        print(f"[History] 변동 사항 기록됨 (New: {len(new_users)}, Lost: {len(lost_users)})")
-    else:
-        print("[History] 변동 사항이 없어 기록을 생략합니다.")
+            col_history.insert_one(history_doc)
+            print(f"[History] 변동 사항 기록됨 (New: {len(new_users)}, Lost: {len(lost_users)})")
+        else:
+            print("[History] 변동 사항이 없어 기록을 생략합니다.")
 
-    # 3. Latest 상태 업데이트 (항상 최신으로 덮어쓰기)
-    # replace_one(filter, replacement, upsert=True)
-    col_latest.replace_one(
-        {"_id": username}, 
-        {
-            "followers": current_data["followers"],
-            "following": current_data["following"],
-            "last_updated": datetime.datetime.now()
-        },
-        upsert=True
-    )
-    print("[Latest] 최신 상태 업데이트 완료")
-
+        # 3. Latest 상태 업데이트 (항상 최신으로 덮어쓰기)
+        # replace_one(filter, replacement, upsert=True)
+        col_latest.replace_one(
+            {"_id": username}, 
+            {
+                "followers": current_data["followers"],
+                "following": current_data["following"],
+                "last_updated": datetime.datetime.now()
+            },
+            upsert=True
+        )
+        print("[Latest] 최신 상태 업데이트 완료")
+    except Exception as e:
+        print(f"[Error] DB 저장 중 오류 발생: {e}")
 def send_discord_webhook(data, webhook_url):
     """
     수집 결과를 디스코드 웹훅으로 전송 (이미지 레이아웃 복원 + 링크 기능 추가)
@@ -495,12 +500,49 @@ def send_discord_webhook(data, webhook_url):
     except Exception as e:
         print(f" -> [에러] 전송 중 예외 발생: {e}")
 
+def check_last_run(username, mongo_uri):
+    """
+    오늘 이미 실행했는지 확인
+    Return: True(이미 실행함), False(아직 안 함)
+    """
+    if not mongo_uri:
+        return False
+
+    try:
+        client = pymongo.MongoClient(mongo_uri)
+        db = client.get_database('webhook')
+        col_latest = db['Instagram_Latest']
+
+        doc = col_latest.find_one({"_id": username})
+        if not doc:
+            return False
+        
+        last_updated = doc.get("last_updated")
+        if not last_updated:
+            return False
+        
+        # 날짜 비교 (YYYY-MM-DD)
+        if last_updated.date() == datetime.datetime.now().date():
+            return True
+        
+        return False
+
+    except Exception as e:
+        print(f" -> [Warning] DB 확인 중 오류 발생: {e}")
+        return False
+
 if __name__ == "__main__":
     # 1. 계정 정보 들고오기 
     env_vars = get_env_var()
     if not env_vars:
         print("프로그램을 종료합니다.")
         exit(1)
+    
+    # [추가] 오늘 이미 실행했는지 확인
+    if check_last_run(env_vars["USERNAME"], env_vars["MONGO_URI"]):
+        print(f" -> [Info] 오늘({datetime.datetime.now().strftime('%Y-%m-%d')}) 이미 실행된 기록이 있습니다.")
+        print(" -> 스크립트를 종료합니다.")
+        exit(0)
     
     # 2. playwright 실행 및 로그인 후 쿠키 추출 
     cookies_dict = set_playwright_and_login(env_vars["USERNAME"], env_vars["PASSWORD"])
@@ -515,7 +557,7 @@ if __name__ == "__main__":
     print("[결과] 팔로잉 수:", len(results["following"]))
 
     # 5. 결과를 DB에 저장 
-    save_and_get_results_to_db(results, env_vars["USERNAME"])
+    save_and_get_results_to_db(results, env_vars["USERNAME"], env_vars["MONGO_URI"])
     print("모든 작업 완료!")
 
     # 6. 결과 디스코드로 보내기

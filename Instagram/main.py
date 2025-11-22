@@ -348,7 +348,8 @@ def save_and_get_results_to_db(results, username, mongo_uri):
         db = client.get_database('webhook')
         
         col_latest = db['Instagram_Latest']   # 최신 상태 저장소
-        col_history = db['Instagram_History'] # 변동 내역 저장소
+        col_latest = db['Instagram_Latest']   # 최신 상태 저장소
+        # col_history = db['Instagram_History'] # [삭제] 변동 내역 저장소 사용 안 함
         
         # 1. 비교를 위해 저장된 최신 상태 가져오기
         prev_doc = col_latest.find_one({"_id": username})
@@ -374,22 +375,11 @@ def save_and_get_results_to_db(results, username, mongo_uri):
         else:
             print("첫 실행입니다. 기준 데이터를 생성합니다.")
 
-        # 2. 변동이 있거나, 첫 실행이면 History에 기록
-        if new_users or lost_users or not prev_doc:
-            history_doc = {
-                "date": datetime.datetime.now(),
-                "username": username,
-                "diff": {
-                    "new": new_users,
-                    "lost": lost_users,
-                    "new_count": len(new_users),
-                    "lost_count": len(lost_users)
-                }
-            }
-            col_history.insert_one(history_doc)
-            print(f"[History] 변동 사항 기록됨 (New: {len(new_users)}, Lost: {len(lost_users)})")
+        # 2. 변동 사항 로그만 출력 (DB 저장은 안 함)
+        if new_users or lost_users:
+            print(f" -> [Diff] 변동 사항 발견 (New: {len(new_users)}, Lost: {len(lost_users)})")
         else:
-            print("[History] 변동 사항이 없어 기록을 생략합니다.")
+            print(" -> [Diff] 변동 사항 없음.")
 
         # 3. Latest 상태 업데이트 (항상 최신으로 덮어쓰기)
         # replace_one(filter, replacement, upsert=True)

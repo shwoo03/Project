@@ -52,7 +52,7 @@ files.forEach(filePath => {
                 CallExpression(pathObj) {
                     const node = pathObj.node;
 
-                    // --- 1. Identify Route Handlers ---
+                    // --- 1. Identify Express/Connect Route Handlers ---
                     if (node.callee.type === 'MemberExpression') {
                         const propertyName = node.callee.property.name;
                         const methods = ['get', 'post', 'put', 'delete', 'patch', 'use'];
@@ -66,8 +66,6 @@ files.forEach(filePath => {
                                     routePath = args[0].value;
                                 } else if (args[0].type === 'TemplateLiteral') {
                                     routePath = args[0].quasis.map(q => q.value.raw).join('{param}');
-                                } else {
-                                    // If path is not the first arg (e.g. middleware use), skip logic for now or handle differently
                                 }
 
                                 // Handlers are usually functions
@@ -80,7 +78,7 @@ files.forEach(filePath => {
                                     const analysisResult = analyzeHandler(handler.body, rules);
 
                                     routes.push({
-                                        file: path.relative(targetDir, filePath), // relative path for UI
+                                        file: path.relative(targetDir, filePath),
                                         useRelativePath: true,
                                         line: node.loc.start.line,
                                         method: propertyName.toUpperCase(),
@@ -88,12 +86,56 @@ files.forEach(filePath => {
                                         type: 'express',
                                         framework: 'express',
                                         params: Array.from(analysisResult.params),
-                                        sinks: analysisResult.sinks, // Sinks now contain flowPath
+                                        sinks: analysisResult.sinks,
                                         sanitizers: analysisResult.sanitizers,
                                         riskLevel: analysisResult.sinks.length > 0 ? 'critical' : 'low'
                                     });
                                 }
                             }
+                        }
+                    }
+                },
+
+                // --- 2. Identify Next.js App Router Handlers ---
+                ExportNamedDeclaration(pathObj) {
+                    const node = pathObj.node;
+                    if (node.declaration && node.declaration.type === 'FunctionDeclaration') {
+                        const funcName = node.declaration.id.name;
+                        const methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
+
+                        // Check if file is route.ts or route.js
+                        if (methods.includes(funcName) && (filePath.endsWith('route.ts') || filePath.endsWith('route.js'))) {
+
+                            // Derive path from file structure
+                            // e.g. /path/to/src/app/api/auth/route.ts -> /api/auth
+                            let relativePath = path.relative(targetDir, filePath).replace(/\\/g, '/');
+                            let routePath = '/' + relativePath;
+
+                            // Normalize Next.js App Router path
+                            // Remove src/app or app prefix
+                            routePath = routePath.replace(/^.*\/app\//, '/');
+                            // Remove /route.ts suffix
+                            routePath = routePath.replace(/\/route\.(ts|js)$/, '');
+
+                            // Handle [param] syntax -> {param}
+                            routePath = routePath.replace(/\[([^\]]+)\]/g, '{$1}');
+                            if (routePath === '') routePath = '/'; // Root route
+
+                            const analysisResult = analyzeHandler(node.declaration.body, rules);
+
+                            routes.push({
+                                file: path.relative(targetDir, filePath),
+                                useRelativePath: true,
+                                line: node.loc.start.line,
+                                method: funcName,
+                                path: routePath,
+                                type: 'nextjs',
+                                framework: 'nextjs',
+                                params: Array.from(analysisResult.params),
+                                sinks: analysisResult.sinks,
+                                sanitizers: analysisResult.sanitizers,
+                                riskLevel: analysisResult.sinks.length > 0 ? 'critical' : 'low'
+                            });
                         }
                     }
                 }
@@ -168,6 +210,15 @@ files.forEach(filePath => {
                                 type: 'Misconfiguration',
                                 detail: 'Flask Debug Mode enabled. RCE via Werkzeug Debugger.',
                                 flowPath: ['[Config] app.run(debug=True)']
+                            });
+                        }
+
+                        // [New Rule] Generic DB Query (Trace Visibility)
+                        if (nextLine.includes('execute(') || nextLine.includes('query(') || nextLine.includes('cursor.execute')) {
+                            sinks.push({
+                                type: 'Database', // Info level sink for tracing
+                                detail: 'Database Query Execution',
+                                flowPath: ['[Python] db.execute() call']
                             });
                         }
 
@@ -265,17 +316,17 @@ function extractPyParam(line, keyword) {
 function analyzeHandler(bodyNode, rules) {
     const params = new Set();
     const sinks = [];
-    const sanitizers = []; // New collection
-    const taintedVars = new Map(); // varName -> source
+    const sanitizers = [];
+    // Map<varName, TraceStep[]>
+    // TraceStep: { type: 'source'|'assign'|'sink', label: string, line: number }
+    const taintedVars = new Map();
 
-    // Naive 1-pass traversal for taint tracking
     traverse(bodyNode, {
         noScope: true,
 
         // A. Source Identification (Sources)
         MemberExpression(path) {
             const n = path.node;
-            // req.body, req.query, req.params
             if (n.object.type === 'MemberExpression' && n.object.object.name === 'req') {
                 if (['body', 'query', 'params'].includes(n.object.property.name)) {
                     params.add(`${n.object.property.name}.${n.property.name}`);
@@ -291,21 +342,33 @@ function analyzeHandler(bodyNode, rules) {
             // 1. Direct Assignment: const cmd = req.query.cmd;
             if (isTaintedSource(n.init)) {
                 if (n.id.type === 'Identifier') {
-                    taintedVars.set(n.id.name, getSourceName(n.init));
+                    const sourceName = getSourceName(n.init);
+                    taintedVars.set(n.id.name, [
+                        { type: 'source', label: `Source: ${sourceName}`, line: n.init.loc?.start.line, varName: n.id.name },
+                        { type: 'assign', label: `Var: ${n.id.name}`, line: n.id.loc?.start.line, varName: n.id.name }
+                    ]);
                 }
             }
             // 2. Transitive Assignment: const final = cmd;
             else if (n.init.type === 'Identifier' && taintedVars.has(n.init.name)) {
                 if (n.id.type === 'Identifier') {
-                    taintedVars.set(n.id.name, taintedVars.get(n.init.name));
+                    // Inherit previous trace and add current step
+                    const prevTrace = taintedVars.get(n.init.name);
+                    taintedVars.set(n.id.name, [
+                        ...prevTrace,
+                        { type: 'assign', label: `Assigned to: ${n.id.name}`, line: n.id.loc?.start.line, varName: n.id.name }
+                    ]);
                 }
             }
             // 3. Destructuring: const { cmd } = req.body;
             else if (n.id.type === 'ObjectPattern' && isTaintedSourceObject(n.init)) {
                 n.id.properties.forEach(p => {
-                    // Assuming simplified { key } pattern
                     if (p.key.type === 'Identifier') {
-                        taintedVars.set(p.key.name, `req.${n.init.property.name}.${p.key.name}`);
+                        const sourceName = `req.${n.init.property.name}.${p.key.name}`;
+                        taintedVars.set(p.key.name, [
+                            { type: 'source', label: `Source: ${sourceName}`, line: n.init.loc?.start.line, varName: p.key.name },
+                            { type: 'assign', label: `Var: ${p.key.name}`, line: p.key.loc?.start.line, varName: p.key.name }
+                        ]);
                         params.add(`${n.init.property.name}.${p.key.name}`);
                     }
                 });
@@ -316,15 +379,12 @@ function analyzeHandler(bodyNode, rules) {
         CallExpression(path) {
             const n = path.node;
 
-            // Check against loaded rules
             rules.forEach(rule => {
-                const result = rule.isSink(n); // Plugin interface isSame for simplicity
+                const result = rule.isSink(n);
                 if (result) {
                     if (rule.type === 'sanitizer') {
-                        // Sanitizers don't need full taint flow path usually, just presence
                         sanitizers.push(result);
                     } else {
-                        // Sinks (RCE, SQLi) need taint checking
                         const args = n.arguments;
                         let isTainted = false;
                         let flowPath = [];
@@ -332,16 +392,19 @@ function analyzeHandler(bodyNode, rules) {
                         args.forEach(arg => {
                             if (arg.type === 'Identifier' && taintedVars.has(arg.name)) {
                                 isTainted = true;
-                                flowPath.push(`[Source: ${taintedVars.get(arg.name)}]`);
-                                flowPath.push(`[Var: ${arg.name}]`);
+                                flowPath = [...taintedVars.get(arg.name)];
+                                flowPath.push({ type: 'sink', label: `Sink: ${result.detail}`, line: n.loc?.start.line });
                             }
-                            // Check for BinaryExpression (concatenation)
+                            // Binary Expr (Concatenation)
                             if (arg.type === 'BinaryExpression') {
                                 const checkBinary = (node) => {
                                     if (node.type === 'Identifier' && taintedVars.has(node.name)) {
                                         isTainted = true;
-                                        flowPath.push(`[Source: ${taintedVars.get(node.name)}]`);
-                                        flowPath.push(`[Concat: ${node.name}]`);
+                                        // Merge trace if redundant? For now just take first tainted one
+                                        if (flowPath.length === 0) {
+                                            flowPath = [...taintedVars.get(node.name)];
+                                            flowPath.push({ type: 'concat', label: `Concat with: ${node.name}`, line: node.loc?.start.line });
+                                        }
                                     }
                                     if (node.left) checkBinary(node.left);
                                     if (node.right) checkBinary(node.right);
@@ -351,13 +414,16 @@ function analyzeHandler(bodyNode, rules) {
                         });
 
                         if (isTainted) {
-                            flowPath.push(`[Sink: ${result.detail}]`);
-                            sinks.push({ ...result, flowPath });
-                        }
-                        // Optional: Report untainted sinks as warnings?
-                        else if (args.length > 0 && args[0].type !== 'StringLiteral') {
-                            // For CTF, we might want to flag anything suspicious even if flow is broken
-                            // sinks.push({ ...result, flowPath: ['[Unknown Source]'] });
+                            // Ensure trace ends with sink
+                            if (flowPath[flowPath.length - 1].type !== 'sink') {
+                                flowPath.push({ type: 'sink', label: `Sink: ${result.detail}`, line: n.loc?.start.line });
+                            }
+
+                            // Transform TraceStep objects to simple strings for frontend compatibility (or update frontend!)
+                            // Actually, let's keep the objects but stringify them for the simple array, or update the transformer.
+                            // UPDATE: User wants CodeQL style, so we pass full objects.
+
+                            sinks.push({ ...result, flowPath: flowPath });
                         }
                     }
                 }

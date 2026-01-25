@@ -21,7 +21,7 @@ const CustomNode = ({ data }: NodeProps) => {
 
     return (
         <div className={`shadow-lg rounded-lg overflow-hidden min-w-[240px] transition-all bg-slate-900 
-      ${isCritical ? 'ring-2 ring-red-500 shadow-red-900/50' : 'border border-slate-700'}`}
+      ${isCritical ? 'ring-2 ring-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)] border-red-500' : 'border border-slate-700'}`}
         >
             <Handle type="target" position={Position.Top} className="w-3 h-3 bg-slate-400" />
 
@@ -33,7 +33,16 @@ const CustomNode = ({ data }: NodeProps) => {
                         {details?.path}
                     </span>
                 </div>
-                {isCritical && <ShieldAlert size={16} className="text-white animate-pulse" />}
+                {isCritical && (
+                    <div className="flex items-center gap-1">
+                        {details.sinks?.[0] && (
+                            <span className="text-[10px] bg-red-600 px-1 rounded font-bold uppercase shadow-sm">
+                                {details.sinks[0].type}
+                            </span>
+                        )}
+                        <ShieldAlert size={16} className="text-white animate-pulse" />
+                    </div>
+                )}
             </div>
 
             {/* Body */}

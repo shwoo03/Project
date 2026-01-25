@@ -85,9 +85,33 @@ export default function AiAuditor({ data }: Props) {
 
                 {analysis && (
                     <div>
-                        <div className="prose prose-invert prose-xs max-w-none">
-                            {/* @ts-ignore */}
-                            <ReactMarkdown>{analysis}</ReactMarkdown>
+                        <div className="bg-slate-900 rounded-lg p-3">
+                            {analysis ? (
+                                <div className="prose prose-invert prose-sm max-w-none">
+                                    {/* Use a simple structured render or cleaner container */}
+                                    <div className="bg-slate-950 p-4 rounded-lg border border-slate-800 shadow-inner">
+                                        <div className="text-xs text-slate-300 leading-relaxed space-y-2 font-sans">
+                                            <ReactMarkdown
+                                                components={{
+                                                    h1: ({ node, ...props }) => <h1 className="text-lg font-bold text-blue-400 border-b border-slate-700 pb-2 mb-3" {...props} />,
+                                                    h2: ({ node, ...props }) => <h2 className="text-base font-semibold text-green-400 mt-4 mb-2" {...props} />,
+                                                    strong: ({ node, ...props }) => <strong className="text-yellow-300 font-bold" {...props} />,
+                                                    code: ({ node, ...props }) => <code className="bg-slate-800 text-pink-300 px-1 py-0.5 rounded font-mono text-[10px]" {...props} />,
+                                                    ul: ({ node, ...props }) => <ul className="list-disc list-outside ml-4 space-y-1" {...props} />,
+                                                    li: ({ node, ...props }) => <li className="text-slate-300" {...props} />
+                                                }}
+                                            >
+                                                {analysis}
+                                            </ReactMarkdown>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="text-center text-slate-500 py-8 text-xs">
+                                    <Bot size={24} className="mx-auto mb-2 opacity-50" />
+                                    <p>Click "Start Audit" to analyze with AI.</p>
+                                </div>
+                            )}
                         </div>
                         <div className="mt-3 text-[10px] text-slate-500 text-right">
                             Analyzed by: {usedModel}

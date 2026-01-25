@@ -9,7 +9,11 @@ export interface RouteData {
     type: string;
     framework: string;
     params?: string[];
-    sinks?: { type: string; detail: string; flowPath?: string[] }[];
+    sinks?: {
+        type: string;
+        detail: string;
+        flowPath?: { type: string; label: string; line: number; varName?: string }[]
+    }[];
     sanitizers?: { type: string; detail: string }[];
     riskLevel?: 'critical' | 'high' | 'medium' | 'low';
 }
@@ -111,13 +115,23 @@ export function transformRoutesToGraph(routes: RouteData[]): { nodes: Node[], ed
         const children = dagreGraph.outEdges(segment);
         children?.forEach(e => {
             const childId = e.w;
+
+            // Check if the target child is critical
+            const targetNode = nodes.find(n => n.id === childId);
+            const isCriticalPath = targetNode?.data?.isCritical;
+
             edges.push({
                 id: `e-${segment}-${childId}`,
                 source: segment,
                 target: childId,
                 type: 'smoothstep',
-                animated: true,
-                style: { stroke: '#64748b' }
+                animated: isCriticalPath, // Animate if critical
+                style: {
+                    stroke: isCriticalPath ? '#ef4444' : '#64748b', // Red if critical
+                    strokeWidth: isCriticalPath ? 2 : 1
+                },
+                label: isCriticalPath ? 'Attack Vector' : undefined,
+                labelStyle: { fill: '#f87171', fontWeight: 700 }
             });
         });
     });

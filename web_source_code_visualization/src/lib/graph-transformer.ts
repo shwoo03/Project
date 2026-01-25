@@ -9,7 +9,8 @@ export interface RouteData {
     type: string;
     framework: string;
     params?: string[];
-    sinks?: { type: string; detail: string }[];
+    sinks?: { type: string; detail: string; flowPath?: string[] }[];
+    sanitizers?: { type: string; detail: string }[];
     riskLevel?: 'critical' | 'high' | 'medium' | 'low';
 }
 

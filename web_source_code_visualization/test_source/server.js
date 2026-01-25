@@ -24,10 +24,11 @@ app.post('/auth/login', (req, res) => {
     res.send('Token');
 });
 
-// Vulnerable RCE Endpoint
+// Vulnerable RCE Endpoint (Variable Propagation Test)
 app.get('/admin/system-diag', (req, res) => {
-    const cmd = req.query.cmd;
-    require('child_process').exec(cmd); // RCE Sink
+    const userCmd = req.query.cmd; // Source
+    const finalCmd = userCmd;      // Propagation
+    require('child_process').exec(finalCmd); // Sink
     res.send('Executed');
 });
 
@@ -45,7 +46,10 @@ adminRouter.get('/dashboard', (req, res) => {
     res.send('Admin Dashboard');
 });
 adminRouter.post('/ban-user', (req, res) => {
-    res.send('User Banned');
+    // Weak sanitizer test
+    let input = req.body.user;
+    input = input.replace('script', ''); // Weak sanitizer
+    res.send(`Banned ${input}`);
 });
 
 app.use('/admin', adminRouter);

@@ -23,18 +23,26 @@ class SemgrepAnalyzer:
 
         findings = []
         try:
-            # Run semgrep with Owasp Top 10 rules
-            # Outputting to JSON
-            # --no-git-ignore to scan everything usually good for CTF
+            # Custom rules path
+            custom_rules_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "rules", "custom_security.yaml")
+            
+            # If plain "semgrep scan" is run without config, it tries default. 
+            # We want ONLY custom rules.
+            if not os.path.exists(custom_rules_path):
+                 # Create empty rules file if not exists to avoid errors
+                 os.makedirs(os.path.dirname(custom_rules_path), exist_ok=True)
+                 with open(custom_rules_path, 'w') as f:
+                     f.write("rules: []\n")
+
             cmd = [
                 self.semgrep_path,
                 "scan",
-                "--config=auto",
                 "--json",
+                f"--config={custom_rules_path}",
                 project_path
             ]
             
-            print(f"Running Semgrep: {' '.join(cmd)}")
+            print(f"Running Semgrep (Custom Only): {' '.join(cmd)}")
             
             # Run command
             # Creation flags for hiding console window on Windows if needed, but subprocess usually fine

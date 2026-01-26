@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import ReactFlow, {
     Background,
     Controls,
@@ -33,10 +33,39 @@ const Visualizer = () => {
     const [loading, setLoading] = useState(false);
     const [securityFindings, setSecurityFindings] = useState<any[]>([]);
     const [scanning, setScanning] = useState(false);
-    const [codeqlQuery, setCodeqlQuery] = useState<string>("");
-    const [codeqlResult, setCodeqlResult] = useState<string | null>(null);
-    const [codeqlLoading, setCodeqlLoading] = useState(false);
-    const [showCodeQLPanel, setShowCodeQLPanel] = useState(false);
+    const [panelWidth, setPanelWidth] = useState(800);
+    const [isResizing, setIsResizing] = useState(false);
+    const sidebarRef = useRef<HTMLDivElement>(null);
+
+
+    const startResizing = useCallback((mouseDownEvent: React.MouseEvent) => {
+        setIsResizing(true);
+    }, []);
+
+    const stopResizing = useCallback(() => {
+        setIsResizing(false);
+    }, []);
+
+    const resize = useCallback(
+        (mouseMoveEvent: MouseEvent) => {
+            if (isResizing) {
+                const newWidth = window.innerWidth - mouseMoveEvent.clientX;
+                if (newWidth > 400 && newWidth < window.innerWidth - 100) {
+                    setPanelWidth(newWidth);
+                }
+            }
+        },
+        [isResizing]
+    );
+
+    useEffect(() => {
+        window.addEventListener("mousemove", resize);
+        window.addEventListener("mouseup", stopResizing);
+        return () => {
+            window.removeEventListener("mousemove", resize);
+            window.removeEventListener("mouseup", stopResizing);
+        };
+    }, [resize, stopResizing]);
 
 
     const onConnect = useCallback(
@@ -228,16 +257,17 @@ const Visualizer = () => {
                 setSecurityFindings(data.findings);
                 // Update nodes to show badges
                 setNodes((nds) => nds.map((node) => {
-                    const count = data.findings.filter((f: any) =>
+                    const nodeFindings = data.findings.filter((f: any) =>
                         node.data.file_path && node.data.file_path.includes(f.path)
-                    ).length;
+                    );
 
-                    if (count > 0) {
+                    if (nodeFindings.length > 0) {
                         return {
                             ...node,
                             data: {
                                 ...node.data,
-                                vulnerabilityCount: count,
+                                vulnerabilityCount: nodeFindings.length,
+                                findings: nodeFindings,
                                 label: `${node.data.label} 🔴`
                             },
                             style: { ...node.style, border: '2px solid red', boxShadow: '0 0 15px red' }
@@ -254,30 +284,6 @@ const Visualizer = () => {
             alert("보안 스캔 실패. 콘솔을 확인하세요.");
         } finally {
             setScanning(false);
-        }
-    };
-
-    const generateCodeQL = async () => {
-        if (!codeqlQuery.trim()) return;
-        setCodeqlLoading(true);
-        setCodeqlResult(null);
-        try {
-            const res = await fetch('http://localhost:8000/api/tools/codeql', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query: codeqlQuery, language: 'python' })
-            });
-            const data = await res.json();
-            if (data.success) {
-                setCodeqlResult(data.result);
-            } else {
-                setCodeqlResult(`Error: ${data.error}`);
-            }
-        } catch (e) {
-            console.error(e);
-            setCodeqlResult("Network error.");
-        } finally {
-            setCodeqlLoading(false);
         }
     };
 
@@ -490,41 +496,7 @@ const Visualizer = () => {
                 >
                     {scanning ? '스캔 중...' : '🛡️ 보안 스캔 (Semgrep)'}
                 </button>
-                <button
-                    onClick={() => setShowCodeQLPanel(!showCodeQLPanel)}
-                    className="px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg font-bold hover:shadow-[0_0_20px_rgba(168,85,247,0.5)] transition-all"
-                >
-                    🔮 CodeQL Studio
-                </button>
             </div>
-
-            {/* CodeQL Studio Panel */}
-            {showCodeQLPanel && (
-                <div className="absolute top-20 left-4 z-50 w-[500px] bg-black/90 backdrop-blur border border-purple-500/50 rounded-xl p-4 shadow-[0_0_30px_rgba(168,85,247,0.3)]">
-                    <div className="flex justify-between items-center mb-3">
-                        <h3 className="text-lg font-bold text-purple-400">🔮 CodeQL Studio</h3>
-                        <button onClick={() => setShowCodeQLPanel(false)} className="text-zinc-400 hover:text-white">&times;</button>
-                    </div>
-                    <textarea
-                        value={codeqlQuery}
-                        onChange={(e) => setCodeqlQuery(e.target.value)}
-                        placeholder="어떤 취약점을 찾는 쿼리를 만들까요? (예: SQL Injection, Hardcoded Password)"
-                        className="w-full h-24 bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-sm text-white resize-none focus:outline-none focus:border-purple-500"
-                    />
-                    <button
-                        onClick={generateCodeQL}
-                        disabled={codeqlLoading}
-                        className="mt-2 w-full py-2 bg-purple-600 hover:bg-purple-500 rounded-lg font-bold transition-all disabled:opacity-50"
-                    >
-                        {codeqlLoading ? '생성 중...' : '✨ CodeQL 쿼리 생성'}
-                    </button>
-                    {codeqlResult && (
-                        <div className="mt-3 max-h-60 overflow-y-auto bg-zinc-900 rounded-lg p-3 text-sm prose prose-invert prose-sm">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{codeqlResult}</ReactMarkdown>
-                        </div>
-                    )}
-                </div>
-            )}
 
             <div className="flex-1 h-full relative">
                 <ReactFlow
@@ -550,8 +522,15 @@ const Visualizer = () => {
                         initial={{ x: 300, opacity: 0 }}
                         animate={{ x: 0, opacity: 1 }}
                         exit={{ x: 300, opacity: 0 }}
-                        className="absolute right-0 top-0 bottom-0 w-[800px] bg-black/80 backdrop-blur-md border-l border-white/10 p-6 shadow-2xl z-50 overflow-y-auto"
+                        style={{ width: panelWidth }}
+                        className="absolute right-0 top-0 bottom-0 bg-black/80 backdrop-blur-md border-l border-white/10 p-6 shadow-2xl z-50 overflow-y-auto"
                     >
+                        {/* Resizing Handle */}
+                        <div
+                            onMouseDown={startResizing}
+                            className={`absolute left-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-cyan-500/50 transition-colors z-[60] ${isResizing ? 'bg-cyan-500' : 'bg-transparent'}`}
+                        />
+
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-purple-500">
                                 상세 정보 (Details)
@@ -594,16 +573,51 @@ const Visualizer = () => {
                                                 </span>
                                             )}
                                         </div>
-                                        <div className="prose prose-invert prose-sm max-w-none text-zinc-300 leading-relaxed break-words
-                                            prose-headings:text-violet-300 prose-headings:font-bold prose-h1:text-lg prose-h2:text-base prose-h3:text-sm
+                                        <div className="prose prose-invert max-w-none text-zinc-300 leading-relaxed break-words
+                                            prose-headings:font-bold prose-headings:text-violet-300
+                                            prose-h1:text-2xl prose-h1:mt-8 prose-h1:mb-4 prose-h1:pb-2 prose-h1:border-b prose-h1:border-white/10
+                                            prose-h2:text-xl prose-h2:mt-6 prose-h2:mb-3
+                                            prose-h3:text-lg prose-h3:mt-4 prose-h3:mb-2
+                                            prose-p:text-base prose-p:my-3 prose-p:leading-7
                                             prose-strong:text-violet-400 prose-strong:font-bold
-                                            prose-ul:list-disc prose-ul:pl-4 prose-ol:list-decimal prose-ol:pl-4
-                                            prose-code:text-cyan-300 prose-code:bg-white/5 prose-code:px-1 prose-code:rounded prose-code:before:content-none prose-code:after:content-none
-                                            prose-pre:bg-black/50 prose-pre:border prose-pre:border-white/10
+                                            prose-ul:list-disc prose-ul:pl-5 prose-ul:my-4 prose-li:my-1
+                                            prose-ol:list-decimal prose-ol:pl-5 prose-ol:my-4
+                                            prose-code:text-cyan-300 prose-code:bg-white/10 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:text-sm prose-code:before:content-none prose-code:after:content-none
+                                            prose-pre:bg-black/50 prose-pre:border prose-pre:border-white/10 prose-pre:my-4
                                             prose-a:text-indigo-400 prose-a:no-underline hover:prose-a:underline
                                             prose-table:border-collapse prose-th:text-left prose-th:p-2 prose-td:p-2 prose-tr:border-b prose-tr:border-white/10
                                             ">
-                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{aiAnalysis.result}</ReactMarkdown>
+                                            <ReactMarkdown 
+                                                remarkPlugins={[remarkGfm]}
+                                                components={{
+                                                    h1: ({node, ...props}) => <h1 className="text-3xl font-extrabold text-violet-300 mt-8 mb-4 border-b border-white/10 pb-2" {...props} />,
+                                                    h2: ({node, ...props}) => <h2 className="text-2xl font-bold text-violet-200 mt-6 mb-3" {...props} />,
+                                                    h3: ({node, ...props}) => <h3 className="text-xl font-bold text-violet-100 mt-5 mb-2" {...props} />,
+                                                    strong: ({node, ...props}) => <strong className="font-bold text-cyan-300" {...props} />,
+                                                    p: ({node, ...props}) => <p className="leading-relaxed my-4 text-zinc-300" {...props} />,
+                                                    li: ({node, ...props}) => <li className="my-1.5 ml-4" {...props} />,
+                                                    code({node, inline, className, children, ...props}: any) {
+                                                        const match = /language-(\w+)/.exec(className || '')
+                                                        return !inline && match ? (
+                                                            <SyntaxHighlighter
+                                                                {...props}
+                                                                style={vscDarkPlus}
+                                                                language={match[1]}
+                                                                PreTag="div"
+                                                                customStyle={{ margin: '1.5em 0', borderRadius: '0.75rem', background: '#00000060', border: '1px solid #ffffff15' }}
+                                                            >
+                                                                {String(children).replace(/\n$/, '')}
+                                                            </SyntaxHighlighter>
+                                                        ) : (
+                                                            <code className="bg-white/10 text-cyan-200 rounded px-1.5 py-0.5 font-mono text-sm" {...props}>
+                                                                {children}
+                                                            </code>
+                                                        )
+                                                    }
+                                                }}
+                                            >
+                                                {aiAnalysis.result}
+                                            </ReactMarkdown>
                                         </div>
                                     </div>
                                 )}
@@ -644,6 +658,35 @@ const Visualizer = () => {
                                                 )}
                                             </tbody>
                                         </table>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Security Findings Section */}
+                            {selectedNode.data.findings && selectedNode.data.findings.length > 0 && (
+                                <div className="mb-6 border border-red-500/30 bg-red-900/10 rounded-lg p-4">
+                                    <h3 className="text-red-400 font-bold flex items-center gap-2 mb-3">
+                                        🚨 보안 취약점 발견 ({selectedNode.data.findings.length})
+                                    </h3>
+                                    <div className="space-y-3">
+                                        {selectedNode.data.findings.map((finding: any, idx: number) => (
+                                            <div key={idx} className="bg-black/40 border border-red-500/20 rounded p-3 text-sm">
+                                                <div className="flex justify-between items-start mb-1">
+                                                    <span className="font-mono text-red-300 font-bold text-xs bg-red-900/40 px-2 py-0.5 rounded break-all">
+                                                        {finding.check_id}
+                                                    </span>
+                                                    <span className="text-xs text-zinc-500 uppercase ml-2 shrink-0">
+                                                        {finding.severity}
+                                                    </span>
+                                                </div>
+                                                <p className="text-zinc-300 mt-2 text-sm leading-relaxed">
+                                                    {finding.message}
+                                                </p>
+                                                <div className="mt-2 text-xs text-zinc-500 font-mono">
+                                                    Line: {finding.line}
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
                             )}

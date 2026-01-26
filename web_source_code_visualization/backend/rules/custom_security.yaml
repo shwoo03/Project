@@ -1,8 +1,534 @@
-rules: []
-# 이곳에 직접 작성한 Semgrep 룰을 추가하세요.
-# 예시:
-# - id: find-eval
-#   languages: [python]
-#   message: "eval() 함수 사용이 감지되었습니다."
-#   pattern: eval(...)
-#   severity: ERROR
+rules:
+  # 쿠키 조작 취약점 탐지 규칙
+  - id: flask-cookie-auth-bypass
+    languages: [python]
+    message: |
+      쿠키 기반 인증 취약점이 감지되었습니다 (Cookie Manipulation / Broken Access Control).
+      request.cookies.get()으로 가져온 값을 직접 권한 검사에 사용하면 공격자가 쿠키를 조작하여
+      권한을 상승시킬 수 있습니다. Flask session 객체를 사용하거나 서버 측에서 세션을 관리하세요.
+      CWE-284: 부적절한 접근 제어
+      CWE-565: 검증 및 무결성 확인 없이 쿠키에 의존
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $VAR = request.cookies.get(...)
+              ...
+              if $VAR == "admin":
+                  ...
+          - pattern: |
+              $VAR = request.cookies.get("username", ...)
+              ...
+              if $VAR:
+                  ...
+    metadata:
+      category: security
+      subcategory:
+        - vuln
+      cwe:
+        - "CWE-284: Improper Access Control"
+        - "CWE-565: Reliance on Cookies without Validation and Integrity Checking"
+      owasp:
+        - A01:2021 - Broken Access Control
+      references:
+        - https://owasp.org/Top10/A01_2021-Broken_Access_Control/
+        - https://cwe.mitre.org/data/definitions/284.html
+      fix: |
+        Flask의 session 객체를 사용하여 서명된 쿠키를 사용하세요:
+        from flask import session
+        session['username'] = username  # 저장
+        username = session.get('username')  # 읽기
+
+  # set_cookie로 인증 정보 저장 탐지 규칙
+  - id: flask-insecure-cookie-auth
+    languages: [python]
+    message: |
+      쿠키에 인증 정보를 직접 저장하는 취약점이 감지되었습니다.
+      set_cookie()로 username, user_id, role 등의 인증 정보를 저장하면 쿠키 조작 공격에 취약합니다.
+      Flask session 객체를 사용하거나 서버 측 세션 관리를 권장합니다.
+      CWE-565: 검증 및 무결성 확인 없이 쿠키에 의존
+    severity: WARNING
+    pattern-either:
+      - pattern: $RESP.set_cookie("username", ...)
+      - pattern: $RESP.set_cookie("user_id", ...)
+      - pattern: $RESP.set_cookie("role", ...)
+      - pattern: $RESP.set_cookie("admin", ...)
+      - pattern: $RESP.set_cookie("is_admin", ...)
+      - pattern: $RESP.set_cookie("user", ...)
+      - pattern: $RESP.set_cookie("auth", ...)
+    metadata:
+      category: security
+      subcategory:
+        - vuln
+      cwe:
+        - "CWE-565: Reliance on Cookies without Validation and Integrity Checking"
+      owasp:
+        - A01:2021 - Broken Access Control
+      fix: |
+        Flask의 session 객체를 사용하세요:
+        from flask import session
+        session['username'] = username  # set_cookie 대신 사용
+
+  # HTML 주석에 민감한 정보 탐지 규칙
+  - id: html-sensitive-info-in-comments
+    languages: [html]
+    message: |
+      HTML 주석에서 민감한 정보가 감지되었습니다 (정보 노출).
+      HTML 주석은 응답 본문에 그대로 포함되어 클라이언트에게 전송됩니다.
+      배포 전에 민감한 정보를 제거하거나 서버 사이드 주석을 사용하세요.
+      CWE-615: 소스 코드 주석에 민감한 정보 포함
+    severity: ERROR
+    pattern-either:
+      - pattern-regex: "<!--[^>]*(?i)(password|passwd|pwd)[^>]*-->"
+      - pattern-regex: "<!--[^>]*(?i)(secret|api[_-]?key|apikey)[^>]*-->"
+      - pattern-regex: "<!--[^>]*(?i)(token|auth[_-]?token|access[_-]?token)[^>]*-->"
+      - pattern-regex: "<!--[^>]*(?i)(private[_-]?key|priv[_-]?key)[^>]*-->"
+      - pattern-regex: "<!--[^>]*(?i)(credential|cred)[^>]*-->"
+      - pattern-regex: "<!--[^>]*(DH\\{[^}]+\\})[^>]*-->"
+      - pattern-regex: "<!--[^>]*(FLAG\\{[^}]+\\})[^>]*-->"
+      - pattern-regex: "<!--[^>]*(CTF\\{[^}]+\\})[^>]*-->"
+      - pattern-regex: "<!--[^>]*(?i)(flag\\s*[:=])[^>]*-->"
+    metadata:
+      category: security
+      subcategory:
+        - vuln
+      cwe:
+        - "CWE-615: Inclusion of Sensitive Information in Source Code Comments"
+      owasp:
+        - A01:2021 - Broken Access Control
+      references:
+        - https://cwe.mitre.org/data/definitions/615.html
+      fix: |
+        배포 전에 HTML 주석에서 민감한 정보를 제거하세요.
+        서버 사이드 주석(예: Jinja2의 {# 주석 #})을 사용하면 클라이언트에 전송되지 않습니다.
+
+  # JavaScript 주석에 민감한 정보 탐지 규칙
+  - id: js-sensitive-info-in-comments
+    languages: [javascript, typescript]
+    message: |
+      JavaScript 주석에서 민감한 정보가 감지되었습니다 (정보 노출).
+      JavaScript 주석은 클라이언트에 전송되어 브라우저 개발자 도구에서 확인할 수 있습니다.
+      배포 전에 민감한 정보를 제거하거나 빌드 도구를 사용하여 주석을 제거하세요.
+      CWE-615: 소스 코드 주석에 민감한 정보 포함
+    severity: ERROR
+    pattern-either:
+      - pattern-regex: "//.*(?i)(password|passwd|pwd).*"
+      - pattern-regex: "//.*(?i)(secret|api[_-]?key|apikey).*"
+      - pattern-regex: "//.*(?i)(token|auth[_-]?token|access[_-]?token).*"
+      - pattern-regex: "//.*(?i)(flag\\s*[:=]).*"
+      - pattern-regex: "//.*(DH\\{[^}]+\\}).*"
+      - pattern-regex: "//.*(FLAG\\{[^}]+\\}).*"
+      - pattern-regex: "/\\*[^*]*(?i)(password|secret|token|flag)[^*]*\\*/"
+    metadata:
+      category: security
+      subcategory:
+        - vuln
+      cwe:
+        - "CWE-615: Inclusion of Sensitive Information in Source Code Comments"
+      owasp:
+        - A01:2021 - Broken Access Control
+      fix: |
+        JavaScript 주석에서 민감한 정보를 제거하세요.
+        빌드 도구를 사용하여 프로덕션 빌드에서 모든 주석을 제거하세요.
+
+  # Python 주석에 민감한 정보 탐지 규칙
+  - id: python-sensitive-info-in-comments
+    languages: [python]
+    message: |
+      Python 주석에서 민감한 정보가 감지되었습니다 (정보 노출).
+      비밀번호, 시크릿, 플래그 등이 포함된 주석은 배포 전에 제거해야 합니다.
+      CWE-615: 소스 코드 주석에 민감한 정보 포함
+    severity: WARNING
+    pattern-either:
+      - pattern-regex: "#.*(?i)(password|passwd|pwd)\\s*[:=].*"
+      - pattern-regex: "#.*(?i)(secret|api[_-]?key)\\s*[:=].*"
+      - pattern-regex: "#.*(?i)(token)\\s*[:=].*"
+      - pattern-regex: "#.*(DH\\{[^}]+\\}).*"
+      - pattern-regex: "#.*(FLAG\\{[^}]+\\}).*"
+    metadata:
+      category: security
+      subcategory:
+        - vuln
+      cwe:
+        - "CWE-615: Inclusion of Sensitive Information in Source Code Comments"
+      fix: |
+        배포 전에 주석에서 민감한 정보를 제거하세요.
+
+  # Path Traversal 취약점 탐지 규칙
+  - id: flask-path-traversal-file-read
+    languages: [python]
+    message: |
+      Path Traversal 취약점이 감지되었습니다 (임의 파일 읽기).
+      request.args.get() 또는 request.form.get()의 사용자 입력이 검증 없이 파일 경로에 사용되었습니다.
+      공격자가 '../'를 사용하여 의도한 디렉토리를 벗어나 민감한 파일에 접근할 수 있습니다.
+      CWE-22: 경로 탐색을 통한 제한된 디렉토리 외부 접근
+    severity: ERROR
+    mode: taint
+    pattern-sources:
+      - pattern: request.args.get(...)
+      - pattern: request.form.get(...)
+    pattern-sinks:
+      - pattern: open($PATH, ...)
+      - pattern: open(f"...$PATH...", ...)
+    metadata:
+      category: security
+      subcategory:
+        - vuln
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory"
+      owasp:
+        - A01:2021 - Broken Access Control
+      references:
+        - https://owasp.org/Top10/A01_2021-Broken_Access_Control/
+        - https://cwe.mitre.org/data/definitions/22.html
+      fix: |
+        경로를 정규화하고 검증한 후 사용하세요:
+        import os
+        base_dir = os.path.abspath(UPLOAD_DIR)
+        target_path = os.path.abspath(os.path.join(base_dir, filename))
+        if not target_path.startswith(base_dir):
+            return "잘못된 접근입니다", 403
+
+  # Path Traversal - 사용자 입력을 파일 경로에 사용 탐지 규칙
+  - id: flask-user-input-in-file-path
+    languages: [python]
+    message: |
+      사용자 입력이 검증 없이 파일 경로에 사용되었습니다.
+      '../' 시퀀스를 사용한 Path Traversal 공격이 가능할 수 있습니다.
+      CWE-22: 경로 탐색을 통한 제한된 디렉토리 외부 접근
+    severity: WARNING
+    patterns:
+      - pattern: |
+          $VAR = request.args.get(...)
+          ...
+          with open(f"...{$VAR}...", ...) as $F:
+              ...
+    metadata:
+      category: security
+      subcategory:
+        - vuln
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory"
+      owasp:
+        - A01:2021 - Broken Access Control
+      fix: |
+        모든 파일 작업에 경로 검증을 적용하세요:
+        import os
+        def is_safe_path(base_dir, user_path):
+            base = os.path.abspath(base_dir)
+            target = os.path.abspath(os.path.join(base, user_path))
+            return target.startswith(base)
+
+  # Command Injection 취약점 탐지 규칙
+  - id: flask-command-injection
+    languages: [python]
+    message: |
+      Command Injection 취약점이 감지되었습니다.
+      사용자 입력이 검증 없이 시스템 명령어에 포함되어 실행됩니다.
+      공격자가 "; cat /etc/passwd" 같은 메타문자를 사용하여 임의 명령을 실행할 수 있습니다.
+      CWE-78: OS 명령어 인젝션
+    severity: ERROR
+    mode: taint
+    pattern-sources:
+      - pattern: request.form.get(...)
+      - pattern: request.args.get(...)
+    pattern-sinks:
+      - pattern: subprocess.check_output(["/bin/sh", "-c", $CMD], ...)
+      - pattern: subprocess.check_output(["sh", "-c", $CMD], ...)
+      - pattern: subprocess.call(["/bin/sh", "-c", $CMD], ...)
+      - pattern: subprocess.run(["/bin/sh", "-c", $CMD], ...)
+      - pattern: subprocess.Popen(["/bin/sh", "-c", $CMD], ...)
+      - pattern: os.system($CMD)
+      - pattern: os.popen($CMD)
+    metadata:
+      category: security
+      subcategory:
+        - vuln
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      owasp:
+        - A03:2021 - Injection
+      references:
+        - https://owasp.org/Top10/A03_2021-Injection/
+        - https://cwe.mitre.org/data/definitions/78.html
+      fix: |
+        리스트 인자 방식을 사용하여 쉘이 메타문자를 해석하지 못하게 하세요:
+        subprocess.check_output(['/bin/ping', '-c', '3', host], timeout=5)
+        
+        또는 입력 값을 검증하세요:
+        import re
+        if not re.match(r"^[a-zA-Z0-9\.]+$", host):
+            return "잘못된 입력입니다", 400
+
+  # Weak Session Entropy / Insufficient Randomness
+  - id: python-weak-session-entropy
+    languages: [python]
+    message: |
+      취약한 세션/토큰 생성이 감지되었습니다 (Insufficient Entropy).
+      os.urandom()에 너무 작은 값을 사용하면 공격자가 무차별 대입(Brute Force) 공격으로
+      세션 ID나 토큰을 예측할 수 있습니다. 최소 16바이트 이상의 길이를 권장합니다.
+      CWE-330: 불충분하게 무작위적인 값 사용
+    severity: ERROR
+    pattern-either:
+      - pattern: os.urandom(1)
+      - pattern: os.urandom(2)
+      - pattern: os.urandom(3)
+      - pattern: os.urandom(4)
+      - pattern: os.urandom(5) # 5 bytes is still too small (40 bits)
+      - pattern: random.randint(...)
+    metadata:
+      category: security
+      subcategory:
+        - vuln
+      cwe:
+        - "CWE-330: Use of Insufficiently Random Values"
+      owasp:
+        - A02:2021 - Cryptographic Failures
+      fix: |
+        안전한 길이의 난수를 사용하세요 (최소 16바이트):
+        os.urandom(16).hex()
+        # 또는 secrets 모듈 사용
+        import secrets
+        secrets.token_hex(16)
+
+  # Grafana Default Admin Account Detection
+  - id: grafana-default-admin
+    languages: [generic]
+    message: |
+      Grafana 기본 관리자 계정 설정이 감지되었습니다 (Security Misconfiguration).
+      기본 계정(admin/admin)을 사용하면 공격자가 손쉽게 시스템에 접근할 수 있습니다.
+      배포 전에 반드시 관리자 비밀번호를 변경하거나 기본 계정 생성을 비활성화하세요.
+      CWE-1392: 기본 비밀번호 사용
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          # admin_password = admin 감지 (공백 유연하게)
+          - pattern: admin_password = admin
+          - pattern: admin_password=admin
+          - pattern: admin_password = "admin"
+          - pattern: admin_password="admin"
+    paths:
+      include:
+        - "*.ini"
+        - "*.conf"
+        - "*.config"
+    metadata:
+      category: security
+      subcategory:
+        - vuln
+      cwe:
+        - "CWE-1392: Use of Default Credentials"
+      owasp:
+        - A05:2021 - Security Misconfiguration
+      fix: |
+        admin_password 값을 강력한 비밀번호로 변경하세요.
+        또는 disable_initial_admin_creation = true 로 설정하여 초기 계정 생성을 막으세요.
+
+
+  # Broken Access Control - Commented out authentication logic
+  - id: flask-commented-auth-logic
+    languages: [python]
+    message: |
+      주석 처리된 인증 로직이 감지되었습니다 (Broken Access Control).
+      개발자가 테스트나 디버깅 목적으로 인증 로직을 주석 처리한 경우,
+      권한 없는 사용자가 민감한 기능에 접근할 수 있습니다.
+      배포 전에 반드시 주석을 해제하거나 올바른 인증 로직을 적용하세요.
+      CWE-284: 부적절한 접근 제어
+    severity: ERROR
+    patterns:
+      - pattern-inside: |
+          @$APP.route(...)
+          def $FUNC(...):
+              ...
+      - pattern-either:
+          - pattern-regex: "#.*session_id.*=.*request\\.cookies\\.get"
+          - pattern-regex: "#.*if.*username.*!=.*['\"]admin['\"]:"
+          - pattern-regex: "#.*TODO.*uncomment"
+    metadata:
+      category: security
+      subcategory:
+        - vuln
+      cwe:
+        - "CWE-284: Improper Access Control"
+      owasp:
+        - A01:2021 - Broken Access Control
+      fix: |
+        주석 처리된 인증 로직을 활성화하세요.
+        @login_required 데코레이터를 사용하는 것을 권장합니다.
+
+  # Sensitive Data Exposure - Returning session storage directly
+  - id: flask-return-sensitive-storage
+    languages: [python]
+    message: |
+      민감한 데이터(세션 저장소)를 직접 반환하는 코드가 감지되었습니다 (Sensitive Data Exposure).
+      session_storage, users 등 내부 저장소 객체를 그대로 반환하면
+      모든 사용자의 세션 정보나 개인정보가 유출될 수 있습니다.
+      CWE-200: 민감한 정보의 노출
+    severity: ERROR
+    patterns:
+      - pattern-inside: |
+          @$APP.route(...)
+          def $FUNC(...):
+              ...
+      - pattern-either:
+          - pattern: return session_storage
+          - pattern: return users
+          - pattern: return user_storage
+          - pattern: return ADMIN_SESSION
+    metadata:
+      category: security
+      subcategory:
+        - vuln
+      cwe:
+        - "CWE-200: Exposure of Sensitive Information to an Unauthorized Actor"
+      owasp:
+        - A01:2021 - Broken Access Control
+      fix: |
+        내부 저장소 객체를 직접 반환하지 마세요.
+        필요한 정보만 필터링하여 반환하거나, 관리자 인증을 거친 후에만 접근하도록 제한하세요.
+
+  # f-string 또는 format으로 명령어 조합 탐지 규칙
+  - id: flask-command-injection-fstring
+    languages: [python]
+    message: |
+      Command Injection 취약점 위험이 감지되었습니다.
+      f-string 또는 format()으로 사용자 입력을 포함한 명령어 문자열을 생성하고 있습니다.
+      이 패턴은 쉘 메타문자를 통한 명령어 인젝션 공격에 취약합니다.
+      CWE-78: OS 명령어 인젝션
+    severity: ERROR
+    patterns:
+      - pattern: |
+          $VAR = request.form.get(...)
+          ...
+          $CMD = f"...{$VAR}..."
+          ...
+          subprocess.$FUNC(...)
+    metadata:
+      category: security
+      subcategory:
+        - vuln
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      owasp:
+        - A03:2021 - Injection
+      fix: |
+        쉘을 사용하지 않는 리스트 인자 방식으로 변경하세요:
+        subprocess.check_output(['/bin/ping', '-c', '3', host], timeout=5)
+
+  # Reflected XSS - Direct Return of User Input
+  - id: flask-reflected-xss
+    languages: [python]
+    message: |
+      Reflected XSS 취약점이 감지되었습니다.
+      사용자 입력(request.args/form)을 검증이나 이스케이프 없이 그대로 반환하면,
+      공격자가 악성 스크립트를 삽입하여 실행할 수 있습니다.
+      CWE-79: 웹 페이지 생성 중 부적절한 입력 중화(Cross-site Scripting)
+    severity: ERROR
+    mode: taint
+    pattern-sources:
+      - pattern: request.args.get(...)
+      - pattern: request.form.get(...)
+      - pattern: request.values.get(...)
+    pattern-sinks:
+      - pattern: return $VAR
+    pattern-sanitizers:
+      - pattern: render_template(...)
+      - pattern: redirect(...)
+      - pattern: jsonify(...)
+      - pattern: escape(...)
+      - pattern: html.escape(...)
+    metadata:
+      category: security
+      subcategory:
+        - vuln
+      cwe:
+        - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
+      owasp:
+        - A03:2021 - Injection
+      fix: |
+        사용자 입력을 그대로 반환하지 마세요.
+        항상 render_template을 사용하여 템플릿 엔진의 자동 이스케이프를 활용하거나,
+        html.escape() 함수를 사용하여 특수문자를 치환해야 합니다.
+
+
+
+  # SQL Injection - f-string or format
+  - id: flask-sql-injection
+    languages: [python]
+    message: |
+      SQL Injection 취약점이 감지되었습니다.
+      f-string 또는 format()으로 SQL 쿼리를 생성하면 공격자가 쿼리를 조작할 수 있습니다.
+      반드시 Prepared Statement(Parameterized Query)를 사용하세요.
+      CWE-89: SQL 명령어 내의 특수 요소에 대한 부적절한 중화
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: $DB.execute(f"...")
+          - pattern: $DB.execute("...".format(...))
+          - pattern: query_db(f"...")
+          - pattern: query_db("...".format(...))
+      - pattern-regex: "(?i)(select|insert|update|delete|drop|alter|create|replace|union)"
+    metadata:
+      category: security
+      subcategory:
+        - vuln
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      owasp:
+        - A03:2021 - Injection
+      fix: |
+        파라미터 바인딩을 사용하세요:
+        cursor.execute("SELECT * FROM users WHERE id=?", (user_id,))
+
+
+
+  # DOM-based XSS - innerHTML assignment (Regex based for HTML templates)
+  - id: js-dom-xss
+    languages: [regex]
+    message: |
+      DOM-based XSS 취약점이 감지되었습니다.
+      innerHTML에 사용자 입력(URL 파라미터 등)을 직접 할당하는 패턴이 감지되었습니다.
+      입력값을 검증 없이 DOM에 삽입하면 XSS 공격에 취약합니다.
+      CWE-79: 웹 페이지 생성 중 부적절한 입력 중화(Cross-site Scripting)
+    severity: ERROR
+    patterns:
+      - pattern-regex: "innerHTML\\s*=.*(location\\.search|location\\.hash|URLSearchParams|\\.get\\()"
+    metadata:
+      category: security
+      subcategory:
+        - vuln
+      cwe:
+        - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
+      owasp:
+        - A03:2021 - Injection
+      fix: |
+        innerHTML 대신 innerText 또는 textContent를 사용하세요.
+        반드시 HTML을 삽입해야 한다면 DOMPurify 같은 라이브러리로 입력을 정제(Sanitize)하세요.
+
+  # shell=True 사용 탐지 규칙
+  - id: subprocess-shell-true
+    languages: [python]
+    message: |
+      subprocess에서 shell=True 사용이 감지되었습니다.
+      shell=True와 함께 사용자 입력을 사용하면 Command Injection에 취약합니다.
+      가능하면 shell=False(기본값)을 사용하고 리스트 인자로 전달하세요.
+      CWE-78: OS 명령어 인젝션
+    severity: WARNING
+    pattern-either:
+      - pattern: subprocess.call(..., shell=True, ...)
+      - pattern: subprocess.run(..., shell=True, ...)
+      - pattern: subprocess.Popen(..., shell=True, ...)
+      - pattern: subprocess.check_output(..., shell=True, ...)
+      - pattern: subprocess.check_call(..., shell=True, ...)
+    metadata:
+      category: security
+      subcategory:
+        - audit
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      owasp:
+        - A03:2021 - Injection
+      fix: |
+        shell=True 대신 리스트 인자를 사용하세요:
+        # 위험: subprocess.run("ls -la", shell=True)
+        # 안전: subprocess.run(["ls", "-la"])

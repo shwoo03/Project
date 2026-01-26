@@ -394,10 +394,29 @@ const Visualizer = () => {
         const newNodes: Node[] = [];
         const newEdges: Edge[] = [];
 
+        // Sets to track added IDs and avoid duplicates
+        const addedNodeIds = new Set<string>();
+        const addedEdgeIds = new Set<string>();
+
+        const addNodeSafe = (node: Node, width: number, height: number) => {
+            if (!addedNodeIds.has(node.id)) {
+                addedNodeIds.add(node.id);
+                g.setNode(node.id, { label: node.data.label, width, height });
+                newNodes.push(node);
+            }
+        };
+
+        const addEdgeSafe = (edge: Edge) => {
+            if (!addedEdgeIds.has(edge.id)) {
+                addedEdgeIds.add(edge.id);
+                g.setEdge(edge.source, edge.target);
+                newEdges.push(edge);
+            }
+        };
+
         // 1. Root Project Node
         const rootId = 'PROJECT_ROOT';
-        g.setNode(rootId, { label: 'Root URL', width: 180, height: 60 });
-        newNodes.push({
+        addNodeSafe({
             id: rootId,
             position: { x: 0, y: 0 },
             data: { label: 'Root URL' },
@@ -411,7 +430,7 @@ const Visualizer = () => {
                 padding: '10px',
                 textAlign: 'center'
             }
-        });
+        }, 180, 60);
 
         // 2. Process Routes
         endpoints.forEach((ep: any) => {
@@ -439,8 +458,7 @@ const Visualizer = () => {
                     });
 
                 // Route Node (Depth 1)
-                g.setNode(routeId, { label: ep.path, width: 220, height: 70 });
-                newNodes.push({
+                addNodeSafe({
                     id: routeId,
                     position: { x: 0, y: 0 },
                     data: {
@@ -463,11 +481,10 @@ const Visualizer = () => {
                         boxShadow: '0 0 15px #00f0ff20'
                     },
                     type: 'default'
-                });
+                }, 220, 70);
 
                 // Connect Root -> Route
-                g.setEdge(rootId, routeId);
-                newEdges.push({
+                addEdgeSafe({
                     id: `e-${rootId}-${routeId}`,
                     source: rootId,
                     target: routeId,
@@ -477,7 +494,6 @@ const Visualizer = () => {
                 });
 
                 // Process Inputs & Calls (Children) - Linear Flow
-                // We want them to appear sequentially below the Route.
                 // We can chain them: Route -> Node1 -> Node2 ...
 
                 let previousNodeId = routeId;
@@ -486,6 +502,15 @@ const Visualizer = () => {
                     ep.children.forEach((child: any, i: number) => {
                         // Skip Input nodes for visualization (requested by user)
                         if (child.type === 'input') return;
+
+                        // Ensure unique ID for children if backend sends duplicates
+                        // Appending index creates unique ID within this route context if needed, 
+                        // but better to rely on backend ID if unique. 
+                        // If backend ID is not unique across tree, we might need a prefix.
+                        // Assuming backend ID might be duplicated across calls, allow it but don't add duplicate node.
+                        // However, different calls to same template should be different nodes ideally.
+                        // If endpoint returns same ID for different calls, that's a backend issue, 
+                        // but we can handle it by checking if ID exists.
 
                         const childId = child.id;
                         let childLabel = "";
@@ -506,9 +531,17 @@ const Visualizer = () => {
                             return;
                         }
 
-                        g.setNode(childId, { label: childLabel, width: 150, height: 40 });
-                        newNodes.push({
-                            id: childId,
+                        // Try to add node. If it exists, we might still want an edge if it's a shared node logic (unlikely here)
+                        // But for tree visualization, we usually want unique instances.
+                        // If we see duplicate ID, we could append a suffix to make it unique if it's actually a different call.
+                        // For now, let's just use addNodeSafe which prevents duplicates.
+
+                        // If childId is already added, it means we have a duplicate node ID.
+                        // To show all calls even if IDs clash, we should generate unique ID.
+                        const uniqueChildId = addedNodeIds.has(childId) ? `${childId}_${i}` : childId;
+
+                        addNodeSafe({
+                            id: uniqueChildId,
                             position: { x: 0, y: 0 },
                             data: {
                                 label: childLabel,
@@ -520,20 +553,17 @@ const Visualizer = () => {
                                 template_usage: child.template_usage
                             },
                             style: childStyle,
-                            type: 'default' // Using default simplifier
-                        });
+                            type: 'default'
+                        }, 150, 40);
 
-                        g.setEdge(routeId, childId);
-                        newEdges.push({
-                            id: `e-${routeId}-${childId}`,
+                        addEdgeSafe({
+                            id: `e-${routeId}-${uniqueChildId}`,
                             source: routeId,
-                            target: childId,
+                            target: uniqueChildId,
                             type: 'smoothstep',
                             markerEnd: { type: MarkerType.ArrowClosed, color: '#555' },
                             style: { stroke: '#555', strokeDasharray: '5,5' }
                         });
-
-                        // previousNodeId = childId; // No chaining
                     });
                 }
             }
@@ -544,10 +574,12 @@ const Visualizer = () => {
         // Apply calculated positions
         newNodes.forEach((node) => {
             const nodeWithPos = g.node(node.id);
-            node.position = {
-                x: nodeWithPos.x - nodeWithPos.width / 2,
-                y: nodeWithPos.y - nodeWithPos.height / 2,
-            };
+            if (nodeWithPos) {
+                node.position = {
+                    x: nodeWithPos.x - nodeWithPos.width / 2,
+                    y: nodeWithPos.y - nodeWithPos.height / 2,
+                };
+            }
         });
 
         setNodes(newNodes);
@@ -673,16 +705,16 @@ const Visualizer = () => {
                                             prose-a:text-indigo-400 prose-a:no-underline hover:prose-a:underline
                                             prose-table:border-collapse prose-th:text-left prose-th:p-2 prose-td:p-2 prose-tr:border-b prose-tr:border-white/10
                                             ">
-                                            <ReactMarkdown 
+                                            <ReactMarkdown
                                                 remarkPlugins={[remarkGfm]}
                                                 components={{
-                                                    h1: ({node, ...props}) => <h1 className="text-3xl font-extrabold text-violet-300 mt-8 mb-4 border-b border-white/10 pb-2" {...props} />,
-                                                    h2: ({node, ...props}) => <h2 className="text-2xl font-bold text-violet-200 mt-6 mb-3" {...props} />,
-                                                    h3: ({node, ...props}) => <h3 className="text-xl font-bold text-violet-100 mt-5 mb-2" {...props} />,
-                                                    strong: ({node, ...props}) => <strong className="font-bold text-cyan-300" {...props} />,
-                                                    p: ({node, ...props}) => <p className="leading-relaxed my-4 text-zinc-300" {...props} />,
-                                                    li: ({node, ...props}) => <li className="my-1.5 ml-4" {...props} />,
-                                                    code({node, inline, className, children, ...props}: any) {
+                                                    h1: ({ node, ...props }) => <h1 className="text-3xl font-extrabold text-violet-300 mt-8 mb-4 border-b border-white/10 pb-2" {...props} />,
+                                                    h2: ({ node, ...props }) => <h2 className="text-2xl font-bold text-violet-200 mt-6 mb-3" {...props} />,
+                                                    h3: ({ node, ...props }) => <h3 className="text-xl font-bold text-violet-100 mt-5 mb-2" {...props} />,
+                                                    strong: ({ node, ...props }) => <strong className="font-bold text-cyan-300" {...props} />,
+                                                    p: ({ node, ...props }) => <p className="leading-relaxed my-4 text-zinc-300" {...props} />,
+                                                    li: ({ node, ...props }) => <li className="my-1.5 ml-4" {...props} />,
+                                                    code({ node, inline, className, children, ...props }: any) {
                                                         const match = /language-(\w+)/.exec(className || '')
                                                         return !inline && match ? (
                                                             <SyntaxHighlighter

@@ -1,6 +1,7 @@
 from typing import List, Dict
 from tree_sitter import Language, Parser
 import tree_sitter_python
+import os
 from .base import BaseParser
 from models import EndpointNodes, Parameter
 
@@ -54,8 +55,53 @@ class PythonParser(BaseParser):
                 func_node = node.child_by_field_name('function')
                 if func_node:
                     func_name = get_node_text(func_node)
-                    # Check if it references a known function
-                    if func_name in defined_funcs:
+                    
+                    # 1. Check for render_template("file.html")
+                    if func_name == "render_template":
+                        args = node.child_by_field_name('arguments')
+                        if args:
+                             first_arg = args.child(1) # ( arg )
+                             if first_arg and first_arg.type == "string":
+                                 template_name = get_node_text(first_arg).strip('"\'')
+                                 # Try to find file
+                                 # Assume templates is in sibling "templates" dir (Flask standard)
+                                 # Current file_path: .../app.py -> .../templates/file.html
+                                 base_dir = os.path.dirname(file_path)
+                                 
+                                 # Heuristic search for templates dir
+                                 # 1. sibling 'templates'
+                                 # 2. parent 'templates'
+                                 
+                                 candidates = [
+                                     os.path.join(base_dir, "templates", template_name),
+                                     os.path.join(os.path.dirname(base_dir), "templates", template_name)
+                                 ]
+                                 
+                                 found_path = None
+                                 for c in candidates:
+                                     if os.path.exists(c):
+                                         found_path = c
+                                         break
+                                 
+                                 if found_path:
+                                     try:
+                                         with open(found_path, "r", encoding="utf-8") as f:
+                                             lines = f.readlines()
+                                             end_line = len(lines)
+                                     except:
+                                         end_line = 0
+
+                                     calls.append({
+                                         "name": f"Template: {template_name}",
+                                         "def_info": {
+                                             "file_path": found_path,
+                                             "start_line": 1,
+                                             "end_line": end_line
+                                         }
+                                     })
+
+                    # 2. Check if it references a known function
+                    elif func_name in defined_funcs:
                         calls.append({
                             "name": func_name,
                             "def_info": defined_funcs[func_name]

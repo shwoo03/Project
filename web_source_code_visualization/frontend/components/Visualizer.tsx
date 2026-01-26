@@ -18,11 +18,14 @@ import 'reactflow/dist/style.css';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Maximize2, X, Play, Search, Network } from 'lucide-react';
 import dagre from 'dagre';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 const Visualizer = () => {
     const [nodes, setNodes, onNodesChange] = useNodesState([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
     const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+    const [currentCode, setCurrentCode] = useState<string>("");
     const [projectPath, setProjectPath] = useState<string>("C:/Users/dntmd/OneDrive/Desktop/my/프로젝트/Project/web_source_code_visualization/xss-1/deploy");
     const [loading, setLoading] = useState(false);
 
@@ -31,8 +34,105 @@ const Visualizer = () => {
         [setEdges],
     );
 
-    const onNodeClick = (event: React.MouseEvent, node: Node) => {
+    const onNodeClick = async (event: React.MouseEvent, node: Node) => {
         setSelectedNode(node);
+        setCurrentCode("");
+
+        // --- Backtrace Logic Start ---
+        // 1. Reset all styles first
+        const resetNodes = nodes.map(n => ({
+            ...n,
+            style: { ...n.style, opacity: 0.3 } // Dim everything by default
+        }));
+        const resetEdges = edges.map(e => ({
+            ...e,
+            style: { ...e.style, stroke: '#333', strokeWidth: 1, opacity: 0.2 },
+            animated: false
+        }));
+
+        // 2. Find upstream paths
+        const upstreamNodes = new Set<string>();
+        const upstreamEdges = new Set<string>();
+        const queue = [node.id];
+        upstreamNodes.add(node.id);
+
+        while (queue.length > 0) {
+            const currentId = queue.shift();
+            // Find edges connecting to this node
+            const incomingEdges = edges.filter(e => e.target === currentId);
+            incomingEdges.forEach(e => {
+                upstreamEdges.add(e.id);
+                if (!upstreamNodes.has(e.source)) {
+                    upstreamNodes.add(e.source);
+                    queue.push(e.source);
+                }
+            });
+        }
+
+        // 3. Apply Highlight Styles
+        setNodes(resetNodes.map(n => {
+            if (upstreamNodes.has(n.id)) {
+                const isSelected = n.id === node.id;
+                return {
+                    ...n,
+                    style: {
+                        ...n.style,
+                        opacity: 1,
+                        boxShadow: isSelected ? '0 0 30px #bd00ff60' : '0 0 20px #ffae0040',
+                        border: isSelected ? '2px solid #bd00ff' : '2px solid #ffae00'
+                    }
+                };
+            }
+            return n;
+        }));
+
+        setEdges(resetEdges.map(e => {
+            if (upstreamEdges.has(e.id)) {
+                return {
+                    ...e,
+                    animated: true,
+                    style: { stroke: '#ffae00', strokeWidth: 2, opacity: 1 },
+                    zIndex: 10
+                };
+            }
+            return e;
+        }));
+        // --- Backtrace Logic End ---
+
+        if (node.data.file_path && node.data.line_number) {
+            try {
+                const res = await fetch('http://localhost:8000/api/snippet', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        file_path: node.data.file_path,
+                        start_line: node.data.line_number,
+                        end_line: node.data.end_line_number || (node.data.line_number + 20)
+                    })
+                });
+                const data = await res.json();
+                if (data.code) {
+                    setCurrentCode(data.code);
+                }
+            } catch (e) {
+                console.error("Failed to fetch code", e);
+                setCurrentCode("# Failed to load code snippet.");
+            }
+        }
+    };
+
+    const onPaneClick = () => {
+        // Reset to default view when clicking background
+        setSelectedNode(null);
+        setNodes(nds => nds.map(n => ({
+            ...n,
+            style: { ...n.style, opacity: 1, border: n.id.startsWith('PROJECT') ? '2px solid #fff' : (n.data.params ? '2px solid #00f0ff' : n.style?.border) }
+        })));
+        setEdges(eds => eds.map(e => ({
+            ...e,
+            animated: e.id.includes('PROJECT'),
+            style: { stroke: e.id.includes('PROJECT') ? '#00f0ff' : '#555', strokeWidth: e.id.includes('PROJECT') ? 2 : 1, opacity: 1 }
+        })));
     };
 
     const analyzeProject = async () => {
@@ -111,7 +211,10 @@ const Visualizer = () => {
                     position: { x: 0, y: 0 },
                     data: {
                         label: ep.path,
-                        params: [...ep.params, ...inputParams] // Merge explicit params and discovered inputs
+                        params: [...ep.params, ...inputParams],
+                        file_path: ep.file_path,
+                        line_number: ep.line_number,
+                        end_line_number: ep.end_line_number
                     },
                     style: {
                         background: '#0a0a0a',
@@ -172,7 +275,12 @@ const Visualizer = () => {
                         newNodes.push({
                             id: childId,
                             position: { x: 0, y: 0 },
-                            data: { label: childLabel },
+                            data: {
+                                label: childLabel,
+                                file_path: child.file_path,
+                                line_number: child.line_number,
+                                end_line_number: child.end_line_number
+                            },
                             style: childStyle,
                             type: 'default' // Using default simplifier
                         });
@@ -240,6 +348,7 @@ const Visualizer = () => {
                     onEdgesChange={onEdgesChange}
                     onConnect={onConnect}
                     onNodeClick={onNodeClick}
+                    onPaneClick={onPaneClick}
                     fitView
                     className="bg-black/50"
                 >
@@ -255,7 +364,7 @@ const Visualizer = () => {
                         initial={{ x: 300, opacity: 0 }}
                         animate={{ x: 0, opacity: 1 }}
                         exit={{ x: 300, opacity: 0 }}
-                        className="absolute right-0 top-0 bottom-0 w-96 bg-black/80 backdrop-blur-md border-l border-white/10 p-6 shadow-2xl z-50 overflow-y-auto"
+                        className="absolute right-0 top-0 bottom-0 w-[800px] bg-black/80 backdrop-blur-md border-l border-white/10 p-6 shadow-2xl z-50 overflow-y-auto"
                     >
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-purple-500">
@@ -303,6 +412,35 @@ const Visualizer = () => {
                                     </div>
                                 </div>
                             )}
+
+                            {/* Code Snippet Viewer */}
+                            <div>
+                                <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">
+                                    소스 코드 (Source Code)
+                                </label>
+                                <div className="rounded-lg overflow-hidden border border-white/10 text-sm">
+                                    {currentCode ? (
+                                        <SyntaxHighlighter
+                                            language="python"
+                                            style={vscDarkPlus}
+                                            showLineNumbers={true}
+                                            startingLineNumber={selectedNode.data.line_number || 1}
+                                            customStyle={{ margin: 0, padding: '1.5rem', background: '#0a0a0a' }}
+                                        >
+                                            {currentCode}
+                                        </SyntaxHighlighter>
+                                    ) : (
+                                        <div className="p-8 text-center text-zinc-600 bg-[#0a0a0a]">
+                                            {selectedNode.data.file_path ? "로드 중..." : "소스 코드를 찾을 수 없습니다."}
+                                        </div>
+                                    )}
+                                </div>
+                                {selectedNode.data.file_path && (
+                                    <p className="text-xs text-zinc-600 mt-2 font-mono text-right">
+                                        {selectedNode.data.file_path}:{selectedNode.data.line_number}
+                                    </p>
+                                )}
+                            </div>
                         </div>
                     </motion.div>
                 )}

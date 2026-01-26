@@ -48,15 +48,18 @@ class PythonParser(BaseParser):
             return params
 
         # Helper to find function calls inside a block
-        def extract_calls(node, defined_funcs: List[str]) -> List[str]:
+        def extract_calls(node, defined_funcs: Dict[str, Dict]) -> List[Dict]:
             calls = []
             if node.type == 'call':
                 func_node = node.child_by_field_name('function')
                 if func_node:
                     func_name = get_node_text(func_node)
-                    # Simple check: is it a direct call to a known function?
+                    # Check if it references a known function
                     if func_name in defined_funcs:
-                        calls.append(func_name)
+                        calls.append({
+                            "name": func_name,
+                            "def_info": defined_funcs[func_name]
+                        })
             
             for child in node.children:
                 calls.extend(extract_calls(child, defined_funcs))
@@ -100,14 +103,14 @@ class PythonParser(BaseParser):
                 inputs.extend(extract_inputs(child))
             return inputs
 
-        def traverse_clean(node, defined_funcs: List[str]):
+        def traverse_clean(node, defined_funcs: Dict[str, Dict]):
             should_recurse = True
             
             if node.type == 'decorated_definition':
+                # ... (decorator logic remains same) ...
                 decorator = node.child_by_field_name('decorator')
                 definition = node.child_by_field_name('definition')
                 
-                # Fallback if field access fails
                 if not decorator:
                     for child in node.children:
                         if child.type == 'decorator':
@@ -120,9 +123,10 @@ class PythonParser(BaseParser):
                             break
 
                 if decorator and definition:
+                    # ... (route extraction logic) ...
                     decorator_text = get_node_text(decorator)
                     if "@app." in decorator_text or "route" in decorator_text:
-                        # Extract Route
+                        # ...
                         method = "GET"
                         path = "/"
                         try:
@@ -139,18 +143,14 @@ class PythonParser(BaseParser):
                         inputs = extract_inputs(definition) # Inside body
                         calls = extract_calls(definition, defined_funcs) # Internal calls
                         
-                        # Merge explicit params and discovered inputs
-                        # For node graph:
-                        # Route -> Inputs -> Calls
-                        
                         children_nodes = []
                         
                         # Add Inputs as nodes
                         for inp in inputs:
                             children_nodes.append(EndpointNodes(
                                 id=f"{file_path}:{node.start_point.row}:input:{inp['name']}",
-                                path=inp['name'], # Param name
-                                method=inp['source'], # GET/POST
+                                path=inp['name'], 
+                                method=inp['source'],
                                 language="python",
                                 file_path=file_path,
                                 line_number=node.start_point.row + 1,
@@ -158,14 +158,17 @@ class PythonParser(BaseParser):
                             ))
                             
                         # Add Calls as nodes
-                        for call in calls:
+                        for call_info in calls:
+                             def_info = call_info['def_info']
                              children_nodes.append(EndpointNodes(
-                                id=f"{file_path}:{node.start_point.row}:call:{call}",
-                                path=call,
+                                id=f"{file_path}:{node.start_point.row}:call:{call_info['name']}",
+                                path=call_info['name'],
                                 method="CALL",
                                 language="python",
-                                file_path=file_path,
-                                line_number=node.start_point.row + 1,
+                                # Use Definition Location
+                                file_path=def_info['file_path'], 
+                                line_number=def_info['start_line'],
+                                end_line_number=def_info['end_line'],
                                 type="child"
                             ))
 
@@ -176,7 +179,7 @@ class PythonParser(BaseParser):
                             language="python",
                             file_path=file_path,
                             line_number=node.start_point.row + 1,
-                            params=params, # Function signature params
+                            params=params, 
                             children=children_nodes,
                             type="root",
                             end_line_number=node.end_point.row + 1
@@ -184,11 +187,9 @@ class PythonParser(BaseParser):
                         should_recurse = False 
 
             elif node.type == 'function_definition':
-                # Standalone function
                 name_node = node.child_by_field_name('name')
                 func_name = get_node_text(name_node)
                 
-                # Check if this function is actually used? We will list all for now.
                 params = extract_params(node)
                 inputs = extract_inputs(node)
                 calls = extract_calls(node, defined_funcs)
@@ -204,14 +205,17 @@ class PythonParser(BaseParser):
                         line_number=node.start_point.row + 1,
                         type="input"
                     ))
-                for call in calls:
+                for call_info in calls:
+                        def_info = call_info['def_info']
                         children_nodes.append(EndpointNodes(
-                        id=f"{file_path}:{node.start_point.row}:call:{call}",
-                        path=call,
+                        id=f"{file_path}:{node.start_point.row}:call:{call_info['name']}",
+                        path=call_info['name'],
                         method="CALL",
                         language="python",
-                        file_path=file_path,
-                        line_number=node.start_point.row + 1,
+                        # Use Definition Location
+                        file_path=def_info['file_path'],
+                        line_number=def_info['start_line'],
+                        end_line_number=def_info['end_line'],
                         type="child"
                     ))
 
@@ -232,12 +236,18 @@ class PythonParser(BaseParser):
                 for child in node.children:
                     traverse_clean(child, defined_funcs)
 
-        # 1. Pre-scan for defined function names
-        defined_funcs = []
+        # 1. Pre-scan for defined function names and locations
+        defined_funcs = {} # Name -> {file_path, start_line, end_line}
         def scan_funcs(n):
             if n.type == 'function_definition':
-                name = n.child_by_field_name('name')
-                if name: defined_funcs.append(get_node_text(name))
+                name_node = n.child_by_field_name('name')
+                if name_node: 
+                    fn_name = get_node_text(name_node)
+                    defined_funcs[fn_name] = {
+                        "file_path": file_path,
+                        "start_line": n.start_point.row + 1,
+                        "end_line": n.end_point.row + 1
+                    }
             for c in n.children: scan_funcs(c)
         scan_funcs(root_node)
 

@@ -1,11 +1,16 @@
 import os
-from typing import List
+from typing import List, Optional, Any, Dict
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from dotenv import load_dotenv
 
 from core.parser import ParserManager
+from core.ai_analyzer import AIAnalyzer
 from models import ProjectStructure, EndpointNodes
+
+# Load .env from root directory
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
 
 app = FastAPI(title="Web Source Code Visualization API")
 
@@ -19,6 +24,7 @@ app.add_middleware(
 )
 
 parser_manager = ParserManager()
+ai_analyzer = AIAnalyzer()
 
 class AnalyzeRequest(BaseModel):
     path: str
@@ -83,6 +89,53 @@ def get_code_snippet(request: CodeSnippetRequest):
         return {"code": snippet}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+class AIAnalyzeRequest(BaseModel):
+    code: str
+    context: str = ""
+    project_path: str = ""
+    related_paths: List[str] = []
+
+@app.post("/api/analyze/ai")
+def analyze_code_with_ai(request: AIAnalyzeRequest):
+    # Gather context from related files (Graph Traversal Results)
+    file_contexts = []
+    
+    # helper to clean paths (remove file:/// prefix if exists, though frontend sends clean paths usually)
+    # Also deduplicate
+    unique_paths = list(set(request.related_paths))
+    
+    total_size = 0
+    MAX_CONTEXT_SIZE = 50000 # Increased to 50KB for deep analysis 
+
+    for path in unique_paths:
+        if not path or not os.path.exists(path):
+            continue
+            
+        try:
+             size = os.path.getsize(path)
+             if total_size + size > MAX_CONTEXT_SIZE:
+                 break # Stop if too big
+                 
+             with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                 content = f.read()
+                 rel_path = os.path.relpath(path, request.project_path) if request.project_path else os.path.basename(path)
+                 file_contexts.append(f"File: {rel_path}\n```\n{content}\n```")
+                 total_size += size
+        except Exception as e:
+            print(f"Failed to read context file {path}: {e}")
+
+    # If no related paths (or too few), maybe fallback to project scan? 
+    # But user specifically requested focusing on the call stack. 
+    # So strictly use what Frontend sends.
+    
+    project_context = "\n--- Related Files (Call Stack & Templates) ---\n" + "\n".join(file_contexts)
+    
+    # Combine specific context (node info) with gathered files
+    full_context = f"{request.context}\n{project_context}"
+    
+    result = ai_analyzer.analyze_code(request.code, full_context)
+    return result
 
 @app.get("/")
 def read_root():

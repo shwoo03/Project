@@ -16,16 +16,19 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Maximize2, X, Play, Search, Network } from 'lucide-react';
+import { Maximize2, X, Play, Search, Network, Bot } from 'lucide-react';
 import dagre from 'dagre';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const Visualizer = () => {
     const [nodes, setNodes, onNodesChange] = useNodesState([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
     const [selectedNode, setSelectedNode] = useState<Node | null>(null);
     const [currentCode, setCurrentCode] = useState<string>("");
+    const [aiAnalysis, setAiAnalysis] = useState<{ loading: boolean; result: string | null; model?: string }>({ loading: false, result: null });
     const [projectPath, setProjectPath] = useState<string>("C:/Users/dntmd/OneDrive/Desktop/my/프로젝트/Project/web_source_code_visualization/xss-1/deploy");
     const [loading, setLoading] = useState(false);
 
@@ -124,6 +127,7 @@ const Visualizer = () => {
     const onPaneClick = () => {
         // Reset to default view when clicking background
         setSelectedNode(null);
+        setAiAnalysis({ loading: false, result: null });
         setNodes(nds => nds.map(n => ({
             ...n,
             style: { ...n.style, opacity: 1, border: n.id.startsWith('PROJECT') ? '2px solid #fff' : (n.data.params ? '2px solid #00f0ff' : n.style?.border) }
@@ -133,6 +137,72 @@ const Visualizer = () => {
             animated: e.id.includes('PROJECT'),
             style: { stroke: e.id.includes('PROJECT') ? '#00f0ff' : '#555', strokeWidth: e.id.includes('PROJECT') ? 2 : 1, opacity: 1 }
         })));
+    };
+
+    const getConnectedFiles = (startNodeId: string): string[] => {
+        const connectedFiles = new Set<string>();
+        const queue = [startNodeId];
+        const visited = new Set<string>();
+
+        // Add start node's file
+        const startNode = nodes.find(n => n.id === startNodeId);
+        if (startNode?.data.file_path) {
+            connectedFiles.add(startNode.data.file_path);
+        }
+
+        while (queue.length > 0) {
+            const currentId = queue.shift()!;
+            if (visited.has(currentId)) continue;
+            visited.add(currentId);
+
+            // Find all connected edges (both directions)
+            const relatedEdges = edges.filter(e => e.source === currentId || e.target === currentId);
+
+            relatedEdges.forEach(edge => {
+                const neighborId = edge.source === currentId ? edge.target : edge.source;
+
+                // Add neighbor file
+                const neighborNode = nodes.find(n => n.id === neighborId);
+                if (neighborNode) {
+                    if (neighborNode.data.file_path) {
+                        connectedFiles.add(neighborNode.data.file_path);
+                    }
+                    if (!visited.has(neighborId)) {
+                        queue.push(neighborId);
+                    }
+                }
+            });
+        }
+        return Array.from(connectedFiles);
+    };
+
+    const analyzeCodeWithAI = async () => {
+        if (!currentCode || !selectedNode) return;
+        setAiAnalysis({ loading: true, result: null });
+
+        // Gather connected files (Context-aware)
+        const relatedPaths = getConnectedFiles(selectedNode.id);
+
+        try {
+            const res = await fetch('http://localhost:8000/api/analyze/ai', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    code: currentCode,
+                    context: `File: ${selectedNode.data.file_path}, Function: ${selectedNode.data.label}`,
+                    project_path: projectPath,
+                    related_paths: relatedPaths
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                setAiAnalysis({ loading: false, result: data.analysis, model: data.model });
+            } else {
+                setAiAnalysis({ loading: false, result: `Analysis Failed: ${data.error}` });
+            }
+        } catch (e) {
+            setAiAnalysis({ loading: false, result: "Network error occurred." });
+        }
     };
 
     const analyzeProject = async () => {
@@ -374,6 +444,55 @@ const Visualizer = () => {
                                 <X size={20} />
                             </button>
                         </div>
+
+                        {/* AI Analysis Button */}
+                        {currentCode && (
+                            <div className="mb-6">
+                                <button
+                                    onClick={analyzeCodeWithAI}
+                                    disabled={aiAnalysis.loading}
+                                    className="w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 rounded-lg font-bold transition-all disabled:opacity-50"
+                                >
+                                    {aiAnalysis.loading ? (
+                                        <>
+                                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                            <span>AI 분석 중...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Bot size={18} />
+                                            <span>AI 보안 분석 (Security Analysis)</span>
+                                        </>
+                                    )}
+                                </button>
+
+                                {aiAnalysis.result && (
+                                    <div className="mt-4 p-4 bg-violet-900/20 border border-violet-500/30 rounded-lg">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <h3 className="text-violet-300 font-bold text-sm flex items-center gap-2">
+                                                <Bot size={14} /> AI 분석 결과
+                                            </h3>
+                                            {aiAnalysis.model && (
+                                                <span className="text-[10px] bg-violet-500/20 px-2 py-1 rounded text-violet-300">
+                                                    {aiAnalysis.model}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="prose prose-invert prose-sm max-w-none text-zinc-300 leading-relaxed break-words
+                                            prose-headings:text-violet-300 prose-headings:font-bold prose-h1:text-lg prose-h2:text-base prose-h3:text-sm
+                                            prose-strong:text-violet-400 prose-strong:font-bold
+                                            prose-ul:list-disc prose-ul:pl-4 prose-ol:list-decimal prose-ol:pl-4
+                                            prose-code:text-cyan-300 prose-code:bg-white/5 prose-code:px-1 prose-code:rounded prose-code:before:content-none prose-code:after:content-none
+                                            prose-pre:bg-black/50 prose-pre:border prose-pre:border-white/10
+                                            prose-a:text-indigo-400 prose-a:no-underline hover:prose-a:underline
+                                            prose-table:border-collapse prose-th:text-left prose-th:p-2 prose-td:p-2 prose-tr:border-b prose-tr:border-white/10
+                                            ">
+                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{aiAnalysis.result}</ReactMarkdown>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         <div className="space-y-6">
                             <div className="p-4 rounded-lg bg-white/5 border border-white/10">

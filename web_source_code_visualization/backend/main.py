@@ -133,8 +133,23 @@ def analyze_code_with_ai(request: AIAnalyzeRequest):
     
     # Combine specific context (node info) with gathered files
     full_context = f"{request.context}\n{project_context}"
-    
-    result = ai_analyzer.analyze_code(request.code, full_context)
+from core.analyzer.semgrep_analyzer import semgrep_analyzer
+
+class SemgrepRequest(BaseModel):
+    project_path: str
+
+@app.post("/api/analyze/semgrep")
+def analyze_project_security(request: SemgrepRequest):
+    findings = semgrep_analyzer.scan_project(request.project_path)
+    return {"findings": findings}
+
+class CodeQLRequest(BaseModel):
+    query: str
+    language: str = "python"
+
+@app.post("/api/tools/codeql")
+def generate_codeql_query(request: CodeQLRequest):
+    result = ai_analyzer.generate_codeql_query(request.query, request.language)
     return result
 
 @app.get("/")

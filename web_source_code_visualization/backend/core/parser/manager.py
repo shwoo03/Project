@@ -3,18 +3,14 @@ from typing import Optional
 from .base import BaseParser
 from .python import PythonParser
 from .javascript import JavascriptParser
-from .java import JavaParser
-from .php import PhpParser
-from .go import GoParser
+from .php import PHPParser
 
 class ParserManager:
     def __init__(self):
         self.parsers: list[BaseParser] = [
             PythonParser(),
             JavascriptParser(),
-            JavaParser(),
-            PhpParser(),
-            GoParser()
+            PHPParser()
         ]
 
     def get_parser(self, file_path: str) -> Optional[BaseParser]:

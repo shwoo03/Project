@@ -31,6 +31,13 @@ const Visualizer = () => {
     const [aiAnalysis, setAiAnalysis] = useState<{ loading: boolean; result: string | null; model?: string }>({ loading: false, result: null });
     const [projectPath, setProjectPath] = useState<string>("C:/Users/dntmd/OneDrive/Desktop/my/프로젝트/Project/web_source_code_visualization/xss-1/deploy");
     const [loading, setLoading] = useState(false);
+    const [securityFindings, setSecurityFindings] = useState<any[]>([]);
+    const [scanning, setScanning] = useState(false);
+    const [codeqlQuery, setCodeqlQuery] = useState<string>("");
+    const [codeqlResult, setCodeqlResult] = useState<string | null>(null);
+    const [codeqlLoading, setCodeqlLoading] = useState(false);
+    const [showCodeQLPanel, setShowCodeQLPanel] = useState(false);
+
 
     const onConnect = useCallback(
         (params: Connection) => setEdges((eds) => addEdge(params, eds)),
@@ -205,6 +212,75 @@ const Visualizer = () => {
         }
     };
 
+    const scanSecurity = async () => {
+        if (!projectPath) return;
+        setScanning(true);
+        try {
+            const res = await fetch('http://localhost:8000/api/analyze/semgrep', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ project_path: projectPath })
+            });
+            const data = await res.json();
+            console.log("Semgrep Results:", data);
+
+            if (data.findings && data.findings.length > 0) {
+                setSecurityFindings(data.findings);
+                // Update nodes to show badges
+                setNodes((nds) => nds.map((node) => {
+                    const count = data.findings.filter((f: any) =>
+                        node.data.file_path && node.data.file_path.includes(f.path)
+                    ).length;
+
+                    if (count > 0) {
+                        return {
+                            ...node,
+                            data: {
+                                ...node.data,
+                                vulnerabilityCount: count,
+                                label: `${node.data.label} 🔴`
+                            },
+                            style: { ...node.style, border: '2px solid red', boxShadow: '0 0 15px red' }
+                        };
+                    }
+                    return node;
+                }));
+                alert(`🚨 ${data.findings.length}개 취약점 발견! 그래프에서 빨간 노드를 확인하세요.`);
+            } else {
+                alert("✅ Semgrep 스캔 완료: 알려진 취약점 패턴이 탐지되지 않았습니다.");
+            }
+        } catch (e) {
+            console.error(e);
+            alert("보안 스캔 실패. 콘솔을 확인하세요.");
+        } finally {
+            setScanning(false);
+        }
+    };
+
+    const generateCodeQL = async () => {
+        if (!codeqlQuery.trim()) return;
+        setCodeqlLoading(true);
+        setCodeqlResult(null);
+        try {
+            const res = await fetch('http://localhost:8000/api/tools/codeql', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: codeqlQuery, language: 'python' })
+            });
+            const data = await res.json();
+            if (data.success) {
+                setCodeqlResult(data.result);
+            } else {
+                setCodeqlResult(`Error: ${data.error}`);
+            }
+        } catch (e) {
+            console.error(e);
+            setCodeqlResult("Network error.");
+        } finally {
+            setCodeqlLoading(false);
+        }
+    };
+
     const analyzeProject = async () => {
         if (!projectPath) return;
         setLoading(true);
@@ -355,17 +431,17 @@ const Visualizer = () => {
                             type: 'default' // Using default simplifier
                         });
 
-                        g.setEdge(previousNodeId, childId);
+                        g.setEdge(routeId, childId);
                         newEdges.push({
-                            id: `e-${previousNodeId}-${childId}`,
-                            source: previousNodeId,
+                            id: `e-${routeId}-${childId}`,
+                            source: routeId,
                             target: childId,
                             type: 'smoothstep',
                             markerEnd: { type: MarkerType.ArrowClosed, color: '#555' },
                             style: { stroke: '#555', strokeDasharray: '5,5' }
                         });
 
-                        previousNodeId = childId;
+                        // previousNodeId = childId; // No chaining
                     });
                 }
             }
@@ -403,12 +479,52 @@ const Visualizer = () => {
                 <button
                     onClick={analyzeProject}
                     disabled={loading}
-                    className="flex items-center gap-2 px-6 py-2 bg-cyan-500 hover:bg-cyan-400 text-black font-bold rounded-lg transition-all disabled:opacity-50"
+                    className="px-6 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-lg font-bold hover:shadow-[0_0_20px_rgba(6,182,212,0.5)] transition-all disabled:opacity-50"
                 >
-                    {loading ? <Network className="animate-spin" /> : <Play size={18} />}
-                    {loading ? "분석 중..." : "시각화"}
+                    {loading ? '분석 중...' : '▶ 시각화'}
+                </button>
+                <button
+                    onClick={scanSecurity}
+                    disabled={scanning}
+                    className="px-6 py-2 bg-gradient-to-r from-red-500 to-orange-500 rounded-lg font-bold hover:shadow-[0_0_20px_rgba(239,68,68,0.5)] transition-all disabled:opacity-50 flex items-center gap-2"
+                >
+                    {scanning ? '스캔 중...' : '🛡️ 보안 스캔 (Semgrep)'}
+                </button>
+                <button
+                    onClick={() => setShowCodeQLPanel(!showCodeQLPanel)}
+                    className="px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg font-bold hover:shadow-[0_0_20px_rgba(168,85,247,0.5)] transition-all"
+                >
+                    🔮 CodeQL Studio
                 </button>
             </div>
+
+            {/* CodeQL Studio Panel */}
+            {showCodeQLPanel && (
+                <div className="absolute top-20 left-4 z-50 w-[500px] bg-black/90 backdrop-blur border border-purple-500/50 rounded-xl p-4 shadow-[0_0_30px_rgba(168,85,247,0.3)]">
+                    <div className="flex justify-between items-center mb-3">
+                        <h3 className="text-lg font-bold text-purple-400">🔮 CodeQL Studio</h3>
+                        <button onClick={() => setShowCodeQLPanel(false)} className="text-zinc-400 hover:text-white">&times;</button>
+                    </div>
+                    <textarea
+                        value={codeqlQuery}
+                        onChange={(e) => setCodeqlQuery(e.target.value)}
+                        placeholder="어떤 취약점을 찾는 쿼리를 만들까요? (예: SQL Injection, Hardcoded Password)"
+                        className="w-full h-24 bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-sm text-white resize-none focus:outline-none focus:border-purple-500"
+                    />
+                    <button
+                        onClick={generateCodeQL}
+                        disabled={codeqlLoading}
+                        className="mt-2 w-full py-2 bg-purple-600 hover:bg-purple-500 rounded-lg font-bold transition-all disabled:opacity-50"
+                    >
+                        {codeqlLoading ? '생성 중...' : '✨ CodeQL 쿼리 생성'}
+                    </button>
+                    {codeqlResult && (
+                        <div className="mt-3 max-h-60 overflow-y-auto bg-zinc-900 rounded-lg p-3 text-sm prose prose-invert prose-sm">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{codeqlResult}</ReactMarkdown>
+                        </div>
+                    )}
+                </div>
+            )}
 
             <div className="flex-1 h-full relative">
                 <ReactFlow

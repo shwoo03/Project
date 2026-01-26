@@ -85,3 +85,33 @@ class AIAnalyzer:
             "analysis": "Could not complete analysis due to high traffic.",
             "success": False
         }
+
+    def generate_codeql_query(self, natural_language_query: str, language: str = "python") -> Dict[str, Any]:
+        if not self.client:
+             return {"success": False, "error": "AI not initialized"}
+
+        system_prompt = (
+            "You are a Security Research Expert specialized in CodeQL (Code Query Language). "
+            f"Generate a CodeQL query for {language} to find the following pattern: '{natural_language_query}'.\n"
+            "Format:\n"
+            "1. **Explanation**: Brief logic.\n"
+            "2. **CodeQL Query**: The code block.\n"
+            "Use Markdown."
+        )
+
+        try:
+            chat_completion = self.client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": natural_language_query}
+                ],
+                model=self.models[0], # Use best model
+                temperature=0.1,
+                max_tokens=2048,
+            )
+            return {
+                "success": True,
+                "result": chat_completion.choices[0].message.content
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}

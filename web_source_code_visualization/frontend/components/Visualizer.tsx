@@ -37,6 +37,80 @@ const Visualizer = () => {
     const [isResizing, setIsResizing] = useState(false);
     const sidebarRef = useRef<HTMLDivElement>(null);
 
+    const getNamedArg = (args: string[] | undefined, name: string) => {
+        if (!args || args.length === 0) return null;
+        const match = args.find((arg) => arg.trim().startsWith(`${name}=`));
+        if (!match) return null;
+        const parts = match.split("=");
+        return parts.slice(1).join("=").trim() || null;
+    };
+
+    const describeFilterBehavior = (name: string, args: string[] | undefined) => {
+        const lower = name.toLowerCase();
+        if (lower === 'urllib.parse.quote' || lower === 'urllib.parse.quote_plus') {
+            const safeArg = getNamedArg(args, 'safe') || (args && args.length > 1 ? args[1] : null);
+            const safeLabel = safeArg ? `safe=${safeArg}` : "safe='/'";
+            const behaviorBase = lower.endsWith('quote_plus')
+                ? 'URL-encode (space -> +)'
+                : 'URL-encode';
+            return {
+                behavior: `${behaviorBase}; leaves ${safeLabel} unescaped`,
+                examples: "space, '\"', <, >, #, ?, &, %, +, ="
+            };
+        }
+
+        if (lower === 'html.escape' || lower === 'markupsafe.escape' || lower === 'flask.escape' || lower === 'werkzeug.utils.escape' || lower === 'cgi.escape') {
+            const quoteArg = getNamedArg(args, 'quote');
+            const quotesEscaped = !quoteArg || !/false/i.test(quoteArg);
+            return {
+                behavior: 'HTML escape',
+                examples: quotesEscaped ? '&, <, >, ", \'' : '&, <, >'
+            };
+        }
+
+        if (lower === 'bleach.clean') {
+            return {
+                behavior: 'Strip/clean HTML tags and attributes',
+                examples: '<script>, onclick='
+            };
+        }
+
+        if (lower.endsWith('.escape') || lower.endsWith('.sanitize') || lower === 'escape' || lower === 'sanitize') {
+            return {
+                behavior: 'Custom sanitizer (unknown behavior)',
+                examples: 'inspect function body'
+            };
+        }
+
+        return {
+            behavior: 'Unknown sanitizer',
+            examples: '-'
+        };
+    };
+
+    const formatParamType = (param: any) => {
+        if (param?.source && ['path', 'query', 'body', 'header', 'cookie'].includes(param.source)) {
+            switch (param.source) {
+                case 'path':
+                    return 'Path Param';
+                case 'query':
+                    return 'Query';
+                case 'body':
+                    return 'Body';
+                case 'header':
+                    return 'Header';
+                case 'cookie':
+                    return 'Cookie';
+            }
+        }
+        return param?.type || 'Unknown';
+    };
+
+    const templateContextNames = selectedNode?.data?.template_context
+        ? new Set(selectedNode.data.template_context.map((c: any) => c.name))
+        : null;
+    const isTemplateNode = selectedNode?.data?.label?.includes("Template:");
+
 
     const startResizing = useCallback((mouseDownEvent: React.MouseEvent) => {
         setIsResizing(true);
@@ -72,6 +146,28 @@ const Visualizer = () => {
         (params: Connection) => setEdges((eds) => addEdge(params, eds)),
         [setEdges],
     );
+
+    const loadSnippet = async (filePath?: string, startLine?: number, endLine?: number) => {
+        if (!filePath || !startLine) return;
+        try {
+            const res = await fetch('http://localhost:8000/api/snippet', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    file_path: filePath,
+                    start_line: startLine,
+                    end_line: endLine || (startLine + 20)
+                })
+            });
+            const data = await res.json();
+            if (data.code) {
+                setCurrentCode(data.code);
+            }
+        } catch (e) {
+            console.error("Failed to fetch code", e);
+            setCurrentCode("# Failed to load code snippet.");
+        }
+    };
 
     const onNodeClick = async (event: React.MouseEvent, node: Node) => {
         setSelectedNode(node);
@@ -138,26 +234,7 @@ const Visualizer = () => {
         }));
         // --- Backtrace Logic End ---
 
-        if (node.data.file_path && node.data.line_number) {
-            try {
-                const res = await fetch('http://localhost:8000/api/snippet', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        file_path: node.data.file_path,
-                        start_line: node.data.line_number,
-                        end_line: node.data.end_line_number || (node.data.line_number + 20)
-                    })
-                });
-                const data = await res.json();
-                if (data.code) {
-                    setCurrentCode(data.code);
-                }
-            } catch (e) {
-                console.error("Failed to fetch code", e);
-                setCurrentCode("# Failed to load code snippet.");
-            }
-        }
+        await loadSnippet(node.data.file_path, node.data.line_number, node.data.end_line_number);
     };
 
     const onPaneClick = () => {
@@ -347,7 +424,12 @@ const Visualizer = () => {
                         let typeLabel = "Unknown";
                         if (c.method === 'GET') typeLabel = 'Query Param (GET)';
                         else if (c.method === 'POST') typeLabel = 'Form Data (POST)';
-                        else if (c.method === 'COOKIE') typeLabel = 'Cookie (HEADER)';
+                        else if (c.method === 'COOKIE') typeLabel = 'Cookie';
+                        else if (c.method === 'HEADER') typeLabel = 'Header';
+                        else if (c.method === 'FILE') typeLabel = 'File Upload';
+                        else if (c.method === 'PATH') typeLabel = 'Path Param';
+                        else if (c.method === 'BODY_JSON') typeLabel = 'JSON Body';
+                        else if (c.method === 'BODY_RAW') typeLabel = 'Raw Body';
 
                         return {
                             name: c.path,
@@ -366,7 +448,8 @@ const Visualizer = () => {
                         params: [...ep.params, ...inputParams],
                         file_path: ep.file_path,
                         line_number: ep.line_number,
-                        end_line_number: ep.end_line_number
+                        end_line_number: ep.end_line_number,
+                        filters: ep.filters || []
                     },
                     style: {
                         background: '#0a0a0a',
@@ -431,7 +514,10 @@ const Visualizer = () => {
                                 label: childLabel,
                                 file_path: child.file_path,
                                 line_number: child.line_number,
-                                end_line_number: child.end_line_number
+                                end_line_number: child.end_line_number,
+                                filters: child.filters || [],
+                                template_context: child.template_context,
+                                template_usage: child.template_usage
                             },
                             style: childStyle,
                             type: 'default' // Using default simplifier
@@ -646,7 +732,7 @@ const Visualizer = () => {
                                                     selectedNode.data.params.map((p: any, i: number) => (
                                                         <tr key={i}>
                                                             <td className="px-3 py-2 font-mono text-cyan-200">{p.name}</td>
-                                                            <td className="px-3 py-2 text-zinc-400">{p.type}</td>
+                                                            <td className="px-3 py-2 text-zinc-400">{formatParamType(p)}</td>
                                                         </tr>
                                                     ))
                                                 ) : (
@@ -659,6 +745,152 @@ const Visualizer = () => {
                                             </tbody>
                                         </table>
                                     </div>
+                                </div>
+                            )}
+
+                            {selectedNode.data.filters && (
+                                <div>
+                                    <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">방어/필터 함수 (Sanitizers)</label>
+                                    <div className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
+                                        <table className="w-full text-sm text-left">
+                                            <thead>
+                                                <tr className="bg-white/5 text-zinc-400 border-b border-white/10">
+                                                    <th className="px-3 py-2 font-medium">함수</th>
+                                                    <th className="px-3 py-2 font-medium">인자</th>
+                                                    <th className="px-3 py-2 font-medium">라인</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-white/5">
+                                                {selectedNode.data.filters.length > 0 ? (
+                                                    selectedNode.data.filters.map((f: any, i: number) => (
+                                                        <tr key={i}>
+                                                            <td className="px-3 py-2 font-mono text-cyan-200 break-all">{f.name}</td>
+                                                            <td className="px-3 py-2 text-zinc-400 break-all">
+                                                                {f.args && f.args.length > 0 ? f.args.join(", ") : "-"}
+                                                            </td>
+                                                            <td className="px-3 py-2 text-zinc-400">{f.line ?? "-"}</td>
+                                                        </tr>
+                                                    ))
+                                                ) : (
+                                                    <tr>
+                                                        <td colSpan={3} className="px-3 py-4 text-center text-zinc-500 italic">
+                                                            탐지된 필터 없음
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+
+                            {selectedNode.data.filters && (
+                                <div>
+                                    <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">필터링 내용 (Filter Behavior)</label>
+                                    <div className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
+                                        <table className="w-full text-sm text-left">
+                                            <thead>
+                                                <tr className="bg-white/5 text-zinc-400 border-b border-white/10">
+                                                    <th className="px-3 py-2 font-medium">함수</th>
+                                                    <th className="px-3 py-2 font-medium">필터링/인코딩</th>
+                                                    <th className="px-3 py-2 font-medium">예시</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-white/5">
+                                                {selectedNode.data.filters.length > 0 ? (
+                                                    selectedNode.data.filters.map((f: any, i: number) => {
+                                                        const info = describeFilterBehavior(f.name, f.args);
+                                                        return (
+                                                            <tr key={i}>
+                                                                <td className="px-3 py-2 font-mono text-cyan-200 break-all">{f.name}</td>
+                                                                <td className="px-3 py-2 text-zinc-400 break-words">{info.behavior}</td>
+                                                                <td className="px-3 py-2 text-zinc-400 break-words">{info.examples}</td>
+                                                            </tr>
+                                                        );
+                                                    })
+                                                ) : (
+                                                    <tr>
+                                                        <td colSpan={3} className="px-3 py-4 text-center text-zinc-500 italic">
+                                                            필터링 정보 없음
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+
+                            {isTemplateNode && (
+                                <div className="space-y-4">
+                                    {selectedNode.data.template_context && (
+                                        <div>
+                                            <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">템플릿 컨텍스트 (Template Context)</label>
+                                            <div className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
+                                                <table className="w-full text-sm text-left">
+                                                    <thead>
+                                                        <tr className="bg-white/5 text-zinc-400 border-b border-white/10">
+                                                            <th className="px-3 py-2 font-medium">변수</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-white/5">
+                                                        {selectedNode.data.template_context.length > 0 ? (
+                                                            selectedNode.data.template_context.map((v: any, i: number) => (
+                                                                <tr key={i}>
+                                                                    <td className="px-3 py-2 font-mono text-cyan-200 break-all">{v.name}</td>
+                                                                </tr>
+                                                            ))
+                                                        ) : (
+                                                            <tr>
+                                                                <td className="px-3 py-4 text-center text-zinc-500 italic">
+                                                                    전달된 컨텍스트 없음
+                                                                </td>
+                                                            </tr>
+                                                        )}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {selectedNode.data.template_usage && (
+                                        <div>
+                                            <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">템플릿 사용 (Template Usage)</label>
+                                            <div className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
+                                                <table className="w-full text-sm text-left">
+                                                    <thead>
+                                                        <tr className="bg-white/5 text-zinc-400 border-b border-white/10">
+                                                            <th className="px-3 py-2 font-medium">변수</th>
+                                                            <th className="px-3 py-2 font-medium">라인</th>
+                                                            <th className="px-3 py-2 font-medium">상태</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-white/5">
+                                                        {selectedNode.data.template_usage.length > 0 ? (
+                                                            selectedNode.data.template_usage.map((u: any, i: number) => {
+                                                                const isPassed = templateContextNames?.has(u.name);
+                                                                return (
+                                                                    <tr key={i}>
+                                                                        <td className="px-3 py-2 font-mono text-cyan-200 break-all">{u.name}</td>
+                                                                        <td className="px-3 py-2 text-zinc-400">{u.line ?? "-"}</td>
+                                                                        <td className="px-3 py-2 text-zinc-400">
+                                                                            {isPassed ? "passed" : "unknown"}
+                                                                        </td>
+                                                                    </tr>
+                                                                );
+                                                            })
+                                                        ) : (
+                                                            <tr>
+                                                                <td colSpan={3} className="px-3 py-4 text-center text-zinc-500 italic">
+                                                                    사용된 변수 없음
+                                                                </td>
+                                                            </tr>
+                                                        )}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 

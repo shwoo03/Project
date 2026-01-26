@@ -1,0 +1,25 @@
+import os
+from typing import Optional
+from .base import BaseParser
+from .python import PythonParser
+from .javascript import JavascriptParser
+from .java import JavaParser
+from .php import PhpParser
+from .go import GoParser
+
+class ParserManager:
+    def __init__(self):
+        self.parsers: list[BaseParser] = [
+            PythonParser(),
+            JavascriptParser(),
+            JavaParser(),
+            PhpParser(),
+            GoParser()
+        ]
+
+    def get_parser(self, file_path: str) -> Optional[BaseParser]:
+        """Return the appropriate parser for the file."""
+        for parser in self.parsers:
+            if parser.can_parse(file_path):
+                return parser
+        return None

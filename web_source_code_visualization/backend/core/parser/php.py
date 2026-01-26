@@ -1,0 +1,40 @@
+from typing import List
+from tree_sitter import Language, Parser
+import tree_sitter_php
+from .base import BaseParser
+from models import EndpointNodes
+
+class PhpParser(BaseParser):
+    def __init__(self):
+        self.LANGUAGE = Language(tree_sitter_php.language_php())
+        self.parser = Parser(self.LANGUAGE)
+
+    def can_parse(self, file_path: str) -> bool:
+        return file_path.endswith(".php")
+
+    def parse(self, file_path: str, content: str) -> List[EndpointNodes]:
+        tree = self.parser.parse(bytes(content, "utf8"))
+        root_node = tree.root_node
+        endpoints = []
+        
+        # Placeholder for PHP functions
+        query = self.LANGUAGE.query("""
+        (function_definition
+          name: (name) @func_name)
+        """)
+        
+        captures = query.captures(root_node)
+        
+        for node, _ in captures:
+            name_text = node.text.decode('utf-8')
+            endpoints.append(EndpointNodes(
+                id=f"{file_path}:{node.start_point.row}",
+                path=name_text,
+                method="FUNC",
+                language="php",
+                file_path=file_path,
+                line_number=node.start_point.row + 1,
+                type="child"
+            ))
+            
+        return endpoints

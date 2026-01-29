@@ -18,6 +18,8 @@ from core.interprocedural_taint import InterProceduralTaintAnalyzer, analyze_int
 from core.import_resolver import ImportResolver, resolve_project_imports
 from core.type_inferencer import TypeInferencer, analyze_project_types
 from core.class_hierarchy import ClassHierarchyAnalyzer, analyze_class_hierarchy
+from core.microservice_analyzer import MicroserviceAnalyzer, analyze_microservices, parse_openapi, parse_proto
+from core.monorepo_analyzer import MonorepoAnalyzer, analyze_monorepo, get_project_details, get_dependency_graph, get_affected_projects
 from models import ProjectStructure, EndpointNodes, TaintFlowEdge, CallGraphData
 
 # Load .env from root directory
@@ -1435,3 +1437,340 @@ def get_websocket_stats():
         return {"error": "WebSocket module not available"}
     except Exception as e:
         return {"error": str(e)}
+
+
+# =============================================================================
+# Microservice API Tracking Endpoints (Phase 3.2)
+# =============================================================================
+
+class MicroserviceAnalysisRequest(BaseModel):
+    """Request for microservice analysis."""
+    project_path: str
+
+
+class OpenAPIParseRequest(BaseModel):
+    """Request to parse OpenAPI file."""
+    file_path: str
+
+
+class ProtoParseRequest(BaseModel):
+    """Request to parse proto file."""
+    file_path: str
+
+
+class ServiceQueryRequest(BaseModel):
+    """Request for service query."""
+    project_path: str
+    service_name: str
+
+
+class DataFlowRequest(BaseModel):
+    """Request for data flow between services."""
+    project_path: str
+    source_service: str
+    target_service: str
+
+
+@app.post("/api/microservices/analyze")
+def analyze_microservices_endpoint(request: MicroserviceAnalysisRequest):
+    """
+    Analyze microservice architecture in a project.
+    
+    Discovers:
+    - OpenAPI/Swagger specifications
+    - gRPC proto definitions
+    - Inter-service API calls
+    - Service dependency graph
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Project path not found")
+    
+    try:
+        analyzer = MicroserviceAnalyzer(request.project_path)
+        result = analyzer.analyze_project()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/microservices/openapi/parse")
+def parse_openapi_endpoint(request: OpenAPIParseRequest):
+    """
+    Parse a single OpenAPI/Swagger specification file.
+    
+    Supports:
+    - OpenAPI 3.0.x, 3.1.x
+    - Swagger 2.0
+    - YAML and JSON formats
+    """
+    if not os.path.exists(request.file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    try:
+        result = parse_openapi(request.file_path)
+        if result is None:
+            raise HTTPException(status_code=400, detail="Not a valid OpenAPI/Swagger file")
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/microservices/proto/parse")
+def parse_proto_endpoint(request: ProtoParseRequest):
+    """
+    Parse a gRPC Protocol Buffer (.proto) file.
+    
+    Extracts:
+    - Service definitions
+    - RPC methods
+    - Streaming configurations
+    """
+    if not os.path.exists(request.file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    try:
+        result = parse_proto(request.file_path)
+        return {"services": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/microservices/service")
+def get_service_details(request: ServiceQueryRequest):
+    """
+    Get details of a specific service.
+    
+    Returns endpoints, gRPC methods, and metadata.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Project path not found")
+    
+    try:
+        analyzer = MicroserviceAnalyzer(request.project_path)
+        analyzer.analyze_project()
+        
+        service = analyzer.get_service(request.service_name)
+        if service is None:
+            raise HTTPException(status_code=404, detail=f"Service '{request.service_name}' not found")
+        
+        return service
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/microservices/calls")
+def get_service_calls_endpoint(request: ServiceQueryRequest):
+    """
+    Get all API calls involving a service.
+    
+    Returns both incoming and outgoing calls.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Project path not found")
+    
+    try:
+        analyzer = MicroserviceAnalyzer(request.project_path)
+        analyzer.analyze_project()
+        
+        calls = analyzer.get_service_calls(request.service_name)
+        return {"service": request.service_name, "calls": calls}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/microservices/dataflow")
+def get_data_flow_endpoint(request: DataFlowRequest):
+    """
+    Get data flow between two services.
+    
+    Shows all API calls from source to target service.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Project path not found")
+    
+    try:
+        analyzer = MicroserviceAnalyzer(request.project_path)
+        analyzer.analyze_project()
+        
+        flows = analyzer.get_data_flow(request.source_service, request.target_service)
+        return {
+            "source": request.source_service,
+            "target": request.target_service,
+            "flows": flows
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/microservices/graph")
+def get_service_graph_endpoint(request: MicroserviceAnalysisRequest):
+    """
+    Get the service dependency graph for visualization.
+    
+    Returns nodes (services) and edges (API calls).
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Project path not found")
+    
+    try:
+        analyzer = MicroserviceAnalyzer(request.project_path)
+        result = analyzer.analyze_project()
+        
+        return result.get('graph', {'nodes': [], 'edges': []})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Monorepo Analysis Endpoints
+# =============================================================================
+
+class MonorepoAnalysisRequest(BaseModel):
+    """Request for monorepo analysis."""
+    project_path: str
+
+
+class MonorepoProjectRequest(BaseModel):
+    """Request for specific project in monorepo."""
+    project_path: str
+    project_name: str
+
+
+class AffectedProjectsRequest(BaseModel):
+    """Request for affected projects analysis."""
+    project_path: str
+    changed_projects: List[str]
+
+
+@app.post("/api/monorepo/analyze")
+def analyze_monorepo_endpoint(request: MonorepoAnalysisRequest):
+    """
+    Analyze monorepo structure.
+    
+    Detects:
+    - Monorepo tool (Lerna, Turborepo, Nx, npm/yarn/pnpm workspaces, Maven, Gradle, etc.)
+    - All projects/packages in the monorepo
+    - Internal dependencies between projects
+    - Shared packages
+    - Build order (topologically sorted)
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Project path not found")
+    
+    try:
+        result = analyze_monorepo(request.project_path)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/monorepo/project")
+def get_monorepo_project_endpoint(request: MonorepoProjectRequest):
+    """
+    Get detailed information about a specific project in the monorepo.
+    
+    Returns:
+    - Project metadata (name, version, description)
+    - Dependencies (external and internal)
+    - Dependents (projects that depend on this)
+    - Scripts and build configuration
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Project path not found")
+    
+    try:
+        result = get_project_details(request.project_path, request.project_name)
+        if result is None:
+            raise HTTPException(status_code=404, detail=f"Project '{request.project_name}' not found")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/monorepo/graph")
+def get_monorepo_graph_endpoint(request: MonorepoAnalysisRequest):
+    """
+    Get the dependency graph for visualization.
+    
+    Returns nodes (projects) and edges (internal dependencies).
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Project path not found")
+    
+    try:
+        result = get_dependency_graph(request.project_path)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/monorepo/affected")
+def get_affected_projects_endpoint(request: AffectedProjectsRequest):
+    """
+    Get projects affected by changes.
+    
+    Given a list of changed projects, returns:
+    - All affected projects (including transitive dependents)
+    - Recommended build order for affected projects
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Project path not found")
+    
+    try:
+        result = get_affected_projects(request.project_path, request.changed_projects)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/monorepo/dependencies")
+def get_project_dependencies_endpoint(request: MonorepoProjectRequest):
+    """
+    Get dependencies of a specific project.
+    
+    Returns both direct and transitive internal dependencies.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Project path not found")
+    
+    try:
+        analyzer = MonorepoAnalyzer(request.project_path)
+        analyzer.analyze()
+        
+        direct = analyzer.get_dependencies(request.project_name, include_transitive=False)
+        transitive = analyzer.get_dependencies(request.project_name, include_transitive=True)
+        dependents = analyzer.get_dependents(request.project_name)
+        
+        return {
+            "project": request.project_name,
+            "direct_dependencies": direct,
+            "transitive_dependencies": transitive,
+            "dependents": dependents,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/monorepo/build-order")
+def get_build_order_endpoint(request: MonorepoAnalysisRequest):
+    """
+    Get the recommended build order for all projects.
+    
+    Returns projects sorted topologically based on dependencies.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Project path not found")
+    
+    try:
+        result = analyze_monorepo(request.project_path)
+        return {
+            "build_order": result.get('build_order', []),
+            "shared_packages": result.get('shared_packages', []),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

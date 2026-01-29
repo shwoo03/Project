@@ -3,7 +3,7 @@
 This document summarizes the current state of the project to assist future AI sessions in picking up the work immediately.
 
 **Last Updated**: 2025-01-31  
-**Version**: 0.8.0  
+**Version**: 0.9.0  
 **Roadmap**: See [ROADMAP.md](ROADMAP.md) for future development plans
 
 ## 1. Project Overview
@@ -208,6 +208,35 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
   - `backend/core/websocket_progress.py` - WebSocket progress reporter
   - `backend/test_distributed.py` - Test suite (9 tests)
 
+### 2.17 Microservice API Tracking ✨ NEW
+- **OpenAPI/Swagger Parsing**: Supports Swagger 2.0, OpenAPI 3.0.x, 3.1.x
+- **gRPC Proto Parsing**: Extracts services, methods, streaming configuration
+- **Service Call Detection**: Identifies inter-service HTTP/gRPC calls
+- **Multi-Language Support**: Python, JavaScript, Java, Go
+- **Key Features**:
+  - OpenAPI spec parsing (YAML/JSON)
+  - gRPC proto file analysis
+  - HTTP client call detection (requests, axios, fetch, RestTemplate)
+  - gRPC client call detection
+  - Service dependency graph generation
+  - Data flow between services tracking
+- **API Protocols**: REST, gRPC, GraphQL, WebSocket
+- **Service Types**: API Gateway, Backend, Frontend, Database, Message Queue, Cache
+- **HTTP Client Patterns**:
+  - Python: `requests`, `httpx`, `aiohttp`, `urllib`
+  - JavaScript: `fetch`, `axios`, `got`
+  - Java: `RestTemplate`, `WebClient`, `HttpClient`
+  - Go: `net/http`, custom clients
+- **gRPC Client Patterns**:
+  - Python: `grpc.insecure_channel`, Stub classes
+  - JavaScript: `grpc.credentials`
+  - Java: `ManagedChannelBuilder`, newBlockingStub
+  - Go: `grpc.Dial`, pb.NewClient
+- **Visualization**: Service graph with nodes and edges for dependencies
+- **Files**:
+  - `backend/core/microservice_analyzer.py` - Microservice analyzer (~960 LOC)
+  - `backend/test_microservice.py` - Test suite (8 tests)
+
 ## 3. Key Architecture & Files
 
 ### Backend (`backend/`)
@@ -247,6 +276,13 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
   - `GET /api/distributed/workers` - Worker info ✨ NEW
   - `GET /api/distributed/queues` - Queue info ✨ NEW
   - `WebSocket /ws/progress` - Real-time progress ✨ NEW
+  - `POST /api/microservices/analyze` - Full microservice analysis ✨ NEW
+  - `POST /api/microservices/openapi/parse` - Parse OpenAPI/Swagger spec ✨ NEW
+  - `POST /api/microservices/proto/parse` - Parse gRPC proto file ✨ NEW
+  - `POST /api/microservices/service` - Get service details ✨ NEW
+  - `POST /api/microservices/calls` - Get service calls ✨ NEW
+  - `POST /api/microservices/dataflow` - Get data flow between services ✨ NEW
+  - `POST /api/microservices/graph` - Get service dependency graph ✨ NEW
   - `POST /api/callgraph` - Call graph analysis
   - `POST /api/callgraph/paths` - Find paths to sinks
   - `POST /api/callgraph/metrics` - Function metrics
@@ -283,9 +319,10 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
 - **`import_resolver.py`**: Enhanced import resolution
 - **`type_inferencer.py`**: Type inference engine
 - **`class_hierarchy.py`**: Class hierarchy analyzer
-- **`celery_config.py`**: Celery + Redis configuration ✨ NEW
-- **`distributed_tasks.py`**: Distributed analysis tasks ✨ NEW
-- **`websocket_progress.py`**: WebSocket progress reporter ✨ NEW
+- **`celery_config.py`**: Celery + Redis configuration
+- **`distributed_tasks.py`**: Distributed analysis tasks
+- **`websocket_progress.py`**: WebSocket progress reporter
+- **`microservice_analyzer.py`**: Microservice API tracking ✨ NEW
 - **`call_graph_analyzer.py`**: Call graph builder
 - **`streaming_analyzer.py`**: Streaming analysis engine
 - **`ai_analyzer.py`**: Groq LLM integration

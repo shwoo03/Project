@@ -6,8 +6,8 @@
 
 ```
 Phase 1: The Runner     [==================>    ] 1~2주 ✅
-Phase 2: The Brain      [===============>        ] 2~3주
-Phase 3: The Chameleon  [                        ] 3~4주
+Phase 2: The Brain      [===================>    ] 2~3주 ✅
+Phase 3: The Chameleon  [========>               ] 3~4주
 Phase 4: Polish         [                        ] 2주
                         ────────────────────────────────
                         Total: 8~11주
@@ -85,11 +85,11 @@ Phase 4: Polish         [                        ] 2주
   - [x] 단어 수 기반 필터
   - [x] 상태 코드 기반 필터
 
-### Task 2.5: 분석 통합
-- [ ] `internal/analyzer/analyzer.go` 구현
-  - [ ] 분석 파이프라인 조합
-  - [ ] 복합 이상 판정 로직
-  - [ ] 결과 집계
+### Task 2.5: 분석 통합 ✅
+- [x] `internal/analyzer/analyzer.go` 구현
+  - [x] 분석 파이프라인 조합
+  - [x] 복합 이상 판정 로직
+  - [x] 결과 집계
 
 ---
 
@@ -99,17 +99,17 @@ Phase 4: Polish         [                        ] 2주
 > **예상 기간**: 3~4주  
 > **성공 기준**: 다단계 API 시나리오 자동 실행
 
-### Task 3.1: 값 추출기
-- [ ] `internal/state/extractor.go` 구현
-  - [ ] 정규식 기반 패턴 매칭
-  - [ ] JSON Path 지원
-  - [ ] 커스텀 추출 규칙
+### Task 3.1: 값 추출기 ✅
+- [x] `internal/state/extractor.go` 구현
+  - [x] 정규식 기반 패턴 매칭
+  - [x] JSON Path 지원
+  - [x] 커스텀 추출 규칙
 
-### Task 3.2: Dynamic Pool
-- [ ] `internal/state/pool.go` 구현
-  - [ ] Thread-safe 저장소
-  - [ ] TTL 기반 만료
-  - [ ] 중복 제거
+### Task 3.2: Dynamic Pool ✅
+- [x] `internal/state/pool.go` 구현
+  - [x] Thread-safe 저장소
+  - [x] TTL 기반 만료
+  - [x] 중복 제거
 
 ### Task 3.3: 템플릿 치환
 - [ ] `internal/state/manager.go` 구현
@@ -182,6 +182,9 @@ Phase 4: Polish         [                        ] 2주
 | 2026-01-30 | 2 | Task 2.2 SimHash 구현 | HTML 구조 추출, Hamming Distance |
 | 2026-01-30 | 2 | Task 2.3 TLSH 연동 | glaslos/tlsh 라이브러리 연동 |
 | 2026-01-30 | 2 | Task 2.4 기본 필터링 | 상태코드, 길이, 단어수, 정규식 필터 |
+| 2026-01-30 | 2 | Task 2.5 분석 통합 | 분석 파이프라인, 복합 이상 판정, 결과 집계 |
+| 2026-01-30 | 3 | Task 3.1 값 추출기 | 정규식, JSON Path, 헤더, 쿠키 추출 |
+| 2026-01-30 | 3 | Task 3.2 Dynamic Pool | Thread-safe 저장소, TTL 만료, 중복 제거 |
 
 ---
 

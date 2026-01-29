@@ -325,17 +325,67 @@ def execute(cmd):
 - `GET /api/distributed/queues` - 큐 정보
 - `WebSocket /ws/progress` - 실시간 진행률
 
-### 3.2 마이크로서비스 API 추적
-- [ ] OpenAPI/Swagger 스펙 파싱
-- [ ] gRPC proto 파일 분석
-- [ ] REST 엔드포인트 간 호출 관계
-- [ ] 서비스 간 데이터 흐름 시각화
+### 3.2 마이크로서비스 API 추적 ✅ DONE
+- [x] OpenAPI/Swagger 스펙 파싱 (2.0, 3.0.x, 3.1.x)
+- [x] gRPC proto 파일 분석
+- [x] REST 엔드포인트 간 호출 관계
+- [x] 서비스 간 데이터 흐름 시각화
 
-### 3.3 Monorepo 지원
-- [ ] 다중 프로젝트 구조 자동 감지
-- [ ] 언어별 빌드 설정 파싱 (`package.json`, `pom.xml`, `go.mod`)
-- [ ] 공유 라이브러리 의존성 추적
-- [ ] 서비스별 분리된 분석
+**지원 기능**:
+- OpenAPI/Swagger 파싱 (YAML/JSON)
+- gRPC 서비스, 메서드, 스트리밍 감지
+- HTTP 클라이언트 호출 감지 (Python, JS, Java, Go)
+- 서비스 의존성 그래프 생성
+
+**구현 파일**:
+- `backend/core/microservice_analyzer.py` - 마이크로서비스 분석 엔진
+- `backend/test_microservice.py` - 테스트 스크립트 (8 tests)
+
+**API 엔드포인트**:
+- `POST /api/microservices/analyze` - 전체 분석
+- `POST /api/microservices/openapi/parse` - OpenAPI 파싱
+- `POST /api/microservices/proto/parse` - Proto 파싱
+- `POST /api/microservices/service` - 서비스 상세
+- `POST /api/microservices/calls` - 서비스 호출 목록
+- `POST /api/microservices/dataflow` - 데이터 흐름
+- `POST /api/microservices/graph` - 의존성 그래프
+
+### 3.3 Monorepo 지원 ✅ DONE
+- [x] 다중 프로젝트 구조 자동 감지
+- [x] 언어별 빌드 설정 파싱 (`package.json`, `pom.xml`, `go.mod`, `pyproject.toml`, `build.gradle`, `Cargo.toml`)
+- [x] 공유 라이브러리 의존성 추적
+- [x] 서비스별 분리된 분석
+
+**지원 Monorepo 도구**:
+| 도구 | 설명 |
+|------|------|
+| npm/yarn/pnpm workspaces | JavaScript/TypeScript |
+| Lerna | JavaScript 패키지 관리 |
+| Turborepo | 빌드 시스템 |
+| Nx | 모노레포 도구 |
+| Maven multi-module | Java |
+| Gradle multi-project | Java/Kotlin |
+| Go workspaces | Go |
+| Cargo workspaces | Rust |
+
+**핵심 기능**:
+- 빌드 설정 파싱 (package.json, pom.xml, go.mod, build.gradle, Cargo.toml, pyproject.toml)
+- 내부 의존성 자동 해석
+- 공유 패키지 식별
+- 토폴로지 기반 빌드 순서 계산
+- 변경 영향 분석 (affected projects)
+
+**구현 파일**:
+- `backend/core/monorepo_analyzer.py` - Monorepo 분석 엔진 (~950 LOC)
+- `backend/test_monorepo.py` - 테스트 스크립트 (9 tests)
+
+**API 엔드포인트**:
+- `POST /api/monorepo/analyze` - 전체 분석
+- `POST /api/monorepo/project` - 프로젝트 상세
+- `POST /api/monorepo/graph` - 의존성 그래프
+- `POST /api/monorepo/affected` - 영향받는 프로젝트
+- `POST /api/monorepo/dependencies` - 프로젝트 의존성
+- `POST /api/monorepo/build-order` - 빌드 순서
 
 ### 3.4 Language Server Protocol (LSP) 통합
 - [ ] LSP 서버 연동으로 정확한 타입 정보 획득

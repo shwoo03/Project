@@ -3,7 +3,7 @@
 This document summarizes the current state of the project to assist future AI sessions in picking up the work immediately.
 
 **Last Updated**: 2025-01-31  
-**Version**: 0.7.0  
+**Version**: 0.8.0  
 **Roadmap**: See [ROADMAP.md](ROADMAP.md) for future development plans
 
 ## 1. Project Overview
@@ -176,6 +176,38 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
   - `backend/core/class_hierarchy.py` - Class hierarchy analyzer (~1200 LOC)
   - `backend/test_class_hierarchy.py` - Test suite (9 tests)
 
+### 2.16 Distributed Analysis Architecture ✨ NEW
+- **Celery + Redis**: Asynchronous distributed task processing
+- **Task Queues**: Priority-based queuing (high, normal, low)
+- **Worker Scaling**: Multiple specialized queues (default, analysis, taint, hierarchy)
+- **Real-time Progress**: WebSocket-based progress reporting
+- **Key Features**:
+  - File-level parallelism with distributed workers
+  - Task routing by analysis type
+  - Progress tracking with phase indicators
+  - Fault tolerance (retries, timeouts, result expiration)
+  - Periodic cleanup and stats tasks
+  - Full analysis workflow (parallel execution)
+- **Task Types**:
+  - `analyze_file_task` - Single file analysis
+  - `analyze_project_task` - Full project distributed analysis
+  - `taint_analysis_task` - Dedicated taint analysis
+  - `type_inference_task` - Type inference analysis
+  - `hierarchy_analysis_task` - Class hierarchy analysis
+  - `import_resolution_task` - Import resolution
+  - `full_analysis_workflow` - All analyses in parallel
+- **WebSocket Protocol**:
+  - `subscribe/unsubscribe` - Task progress subscription
+  - `progress` - Real-time progress updates
+  - `status` - Task status queries
+  - `result` - Completion results
+  - `worker_stats/queue_stats` - System monitoring
+- **Files**:
+  - `backend/core/celery_config.py` - Celery configuration
+  - `backend/core/distributed_tasks.py` - Distributed task definitions
+  - `backend/core/websocket_progress.py` - WebSocket progress reporter
+  - `backend/test_distributed.py` - Test suite (9 tests)
+
 ## 3. Key Architecture & Files
 
 ### Backend (`backend/`)
@@ -196,16 +228,25 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
   - `POST /api/imports/graph` - Visualization-friendly dependency graph
   - `POST /api/imports/symbol` - Symbol definition resolution
   - `POST /api/imports/module` - Module details with exports
-  - `POST /api/types/analyze` - Full project type analysis ✨ NEW
-  - `POST /api/types/variable` - Query variable type ✨ NEW
-  - `POST /api/types/function` - Query function signature ✨ NEW
-  - `POST /api/types/class` - Query class type info ✨ NEW
-  - `POST /api/hierarchy/analyze` - Full class hierarchy analysis ✨ NEW
-  - `POST /api/hierarchy/class` - Get class ancestors/descendants ✨ NEW
-  - `POST /api/hierarchy/implementations` - Find interface implementors ✨ NEW
-  - `POST /api/hierarchy/method` - Get method override chain ✨ NEW
-  - `POST /api/hierarchy/polymorphic` - Resolve polymorphic call targets ✨ NEW
-  - `POST /api/hierarchy/graph` - Visualization-ready inheritance graph ✨ NEW
+  - `POST /api/types/analyze` - Full project type analysis
+  - `POST /api/types/variable` - Query variable type
+  - `POST /api/types/function` - Query function signature
+  - `POST /api/types/class` - Query class type info
+  - `POST /api/hierarchy/analyze` - Full class hierarchy analysis
+  - `POST /api/hierarchy/class` - Get class ancestors/descendants
+  - `POST /api/hierarchy/implementations` - Find interface implementors
+  - `POST /api/hierarchy/method` - Get method override chain
+  - `POST /api/hierarchy/polymorphic` - Resolve polymorphic call targets
+  - `POST /api/hierarchy/graph` - Visualization-ready inheritance graph
+  - `GET /api/distributed/status` - Distributed system status ✨ NEW
+  - `POST /api/distributed/analyze` - Start distributed analysis ✨ NEW
+  - `POST /api/distributed/workflow` - Full analysis workflow ✨ NEW
+  - `POST /api/distributed/task/status` - Task status query ✨ NEW
+  - `POST /api/distributed/task/result` - Task result query ✨ NEW
+  - `POST /api/distributed/task/cancel` - Cancel task ✨ NEW
+  - `GET /api/distributed/workers` - Worker info ✨ NEW
+  - `GET /api/distributed/queues` - Queue info ✨ NEW
+  - `WebSocket /ws/progress` - Real-time progress ✨ NEW
   - `POST /api/callgraph` - Call graph analysis
   - `POST /api/callgraph/paths` - Find paths to sinks
   - `POST /api/callgraph/metrics` - Function metrics
@@ -240,8 +281,11 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
 - **`taint_analyzer.py`**: Taint analysis engine
 - **`interprocedural_taint.py`**: Inter-procedural taint analysis
 - **`import_resolver.py`**: Enhanced import resolution
-- **`type_inferencer.py`**: Type inference engine ✨ NEW
-- **`class_hierarchy.py`**: Class hierarchy analyzer ✨ NEW
+- **`type_inferencer.py`**: Type inference engine
+- **`class_hierarchy.py`**: Class hierarchy analyzer
+- **`celery_config.py`**: Celery + Redis configuration ✨ NEW
+- **`distributed_tasks.py`**: Distributed analysis tasks ✨ NEW
+- **`websocket_progress.py`**: WebSocket progress reporter ✨ NEW
 - **`call_graph_analyzer.py`**: Call graph builder
 - **`streaming_analyzer.py`**: Streaming analysis engine
 - **`ai_analyzer.py`**: Groq LLM integration

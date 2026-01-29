@@ -1054,3 +1054,384 @@ def get_hierarchy_graph(request: ClassHierarchyRequest):
         return graph
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Distributed Analysis API Endpoints (Phase 3.1)
+# =============================================================================
+
+class DistributedAnalysisRequest(BaseModel):
+    """Request for distributed analysis."""
+    project_path: str
+    analysis_type: str = "full"  # full, parse_only, taint, type_inference, hierarchy, imports
+    max_files: int = 10000
+    excluded_dirs: Optional[List[str]] = None
+    priority: str = "normal"  # high, normal, low
+
+
+class TaskStatusRequest(BaseModel):
+    """Request for task status."""
+    task_id: str
+
+
+class TaskSubscribeRequest(BaseModel):
+    """Request to subscribe to task updates."""
+    task_id: str
+
+
+class WorkflowRequest(BaseModel):
+    """Request for full analysis workflow."""
+    project_path: str
+    include_taint: bool = True
+    include_types: bool = True
+    include_hierarchy: bool = True
+    include_imports: bool = True
+
+
+@app.get("/api/distributed/status")
+def get_distributed_status():
+    """
+    Get the status of the distributed analysis system.
+    
+    Returns Redis connection status, worker stats, and queue stats.
+    """
+    try:
+        from core.celery_config import check_redis_connection, get_worker_stats, get_queue_stats
+        
+        redis_connected = check_redis_connection()
+        
+        if not redis_connected:
+            return {
+                "status": "unavailable",
+                "redis_connected": False,
+                "message": "Redis is not available. Start Redis server to enable distributed analysis.",
+                "workers": {},
+                "queues": {}
+            }
+        
+        worker_stats = get_worker_stats()
+        queue_stats = get_queue_stats()
+        
+        return {
+            "status": "available",
+            "redis_connected": True,
+            "workers": worker_stats,
+            "queues": queue_stats
+        }
+    except ImportError:
+        return {
+            "status": "not_configured",
+            "message": "Celery/Redis dependencies not installed. Run: pip install celery redis"
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+
+@app.post("/api/distributed/analyze")
+def start_distributed_analysis(request: DistributedAnalysisRequest):
+    """
+    Start a distributed analysis task.
+    
+    Returns a task ID that can be used to track progress via WebSocket or polling.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Project path not found")
+    
+    try:
+        from core.celery_config import check_redis_connection, TaskPriority
+        
+        if not check_redis_connection():
+            raise HTTPException(
+                status_code=503, 
+                detail="Redis is not available. Start Redis server to enable distributed analysis."
+            )
+        
+        from core.distributed_tasks import analyze_project_task
+        
+        # Determine priority
+        priority_map = {
+            "high": TaskPriority.HIGH,
+            "normal": TaskPriority.NORMAL,
+            "low": TaskPriority.LOW
+        }
+        priority = priority_map.get(request.priority, TaskPriority.NORMAL)
+        
+        # Start the task
+        task = analyze_project_task.apply_async(
+            args=[
+                request.project_path,
+                request.analysis_type,
+                request.max_files,
+                request.excluded_dirs
+            ],
+            priority=priority
+        )
+        
+        return {
+            "task_id": task.id,
+            "status": "queued",
+            "message": f"Analysis task queued with priority {request.priority}",
+            "project_path": request.project_path,
+            "analysis_type": request.analysis_type
+        }
+        
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="Celery/Redis dependencies not installed"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/distributed/workflow")
+def start_distributed_workflow(request: WorkflowRequest):
+    """
+    Start a full analysis workflow with all components.
+    
+    This executes taint analysis, type inference, hierarchy analysis,
+    and import resolution in parallel.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Project path not found")
+    
+    try:
+        from core.celery_config import check_redis_connection
+        
+        if not check_redis_connection():
+            raise HTTPException(
+                status_code=503, 
+                detail="Redis is not available"
+            )
+        
+        from core.distributed_tasks import full_analysis_workflow
+        
+        task = full_analysis_workflow.apply_async(
+            args=[
+                request.project_path,
+                request.include_taint,
+                request.include_types,
+                request.include_hierarchy,
+                request.include_imports
+            ]
+        )
+        
+        return {
+            "task_id": task.id,
+            "status": "queued",
+            "message": "Full analysis workflow started",
+            "project_path": request.project_path,
+            "components": {
+                "taint": request.include_taint,
+                "types": request.include_types,
+                "hierarchy": request.include_hierarchy,
+                "imports": request.include_imports
+            }
+        }
+        
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="Celery/Redis dependencies not installed"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/distributed/task/status")
+def get_task_status_endpoint(request: TaskStatusRequest):
+    """
+    Get the status of a distributed analysis task.
+    
+    Returns current status, progress information, and result if complete.
+    """
+    try:
+        from core.distributed_tasks import get_task_status
+        
+        status = get_task_status(request.task_id)
+        return status
+        
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="Celery/Redis dependencies not installed"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/distributed/task/result")
+def get_task_result_endpoint(request: TaskStatusRequest):
+    """
+    Get the result of a completed task.
+    
+    Returns the full analysis result if the task is complete.
+    """
+    try:
+        from core.distributed_tasks import get_task_result
+        
+        result = get_task_result(request.task_id)
+        
+        if result.get('status') == 'pending':
+            raise HTTPException(status_code=202, detail="Task still in progress")
+        
+        return result
+        
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="Celery/Redis dependencies not installed"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/distributed/task/cancel")
+def cancel_task_endpoint(request: TaskStatusRequest):
+    """
+    Cancel a running distributed analysis task.
+    """
+    try:
+        from core.distributed_tasks import cancel_analysis
+        
+        result = cancel_analysis(request.task_id)
+        return result
+        
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="Celery/Redis dependencies not installed"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/distributed/workers")
+def get_worker_info():
+    """
+    Get information about active Celery workers.
+    """
+    try:
+        from core.celery_config import check_redis_connection, get_worker_stats
+        
+        if not check_redis_connection():
+            raise HTTPException(
+                status_code=503, 
+                detail="Redis is not available"
+            )
+        
+        stats = get_worker_stats()
+        return stats
+        
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="Celery/Redis dependencies not installed"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/distributed/queues")
+def get_queue_info():
+    """
+    Get information about task queues.
+    """
+    try:
+        from core.celery_config import check_redis_connection, get_queue_stats
+        
+        if not check_redis_connection():
+            raise HTTPException(
+                status_code=503, 
+                detail="Redis is not available"
+            )
+        
+        stats = get_queue_stats()
+        return stats
+        
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="Celery/Redis dependencies not installed"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# WebSocket Endpoint for Real-time Progress
+# =============================================================================
+
+from fastapi import WebSocket, WebSocketDisconnect
+import uuid
+
+@app.websocket("/ws/progress")
+async def websocket_progress_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time task progress updates.
+    
+    Protocol:
+    - Client connects and receives a client_id
+    - Client sends: {"type": "subscribe", "data": {"task_id": "xxx"}}
+    - Server sends progress updates for subscribed tasks
+    - Client sends: {"type": "ping"} for heartbeat
+    """
+    client_id = str(uuid.uuid4())
+    
+    try:
+        from core.websocket_progress import (
+            connection_manager, 
+            handle_websocket_message,
+            progress_poller
+        )
+        
+        # Accept connection
+        connected = await connection_manager.connect(websocket, client_id)
+        if not connected:
+            return
+        
+        try:
+            while True:
+                # Receive message from client
+                data = await websocket.receive_json()
+                
+                # Handle the message
+                await handle_websocket_message(websocket, client_id, data)
+                
+        except WebSocketDisconnect:
+            await connection_manager.disconnect(client_id)
+            
+    except ImportError:
+        await websocket.accept()
+        await websocket.send_json({
+            "type": "error",
+            "message": "WebSocket progress not available"
+        })
+        await websocket.close()
+    except Exception as e:
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "message": str(e)
+            })
+        except:
+            pass
+
+
+@app.get("/api/distributed/ws/stats")
+def get_websocket_stats():
+    """
+    Get WebSocket connection statistics.
+    """
+    try:
+        from core.websocket_progress import connection_manager
+        
+        return connection_manager.get_stats()
+        
+    except ImportError:
+        return {"error": "WebSocket module not available"}
+    except Exception as e:
+        return {"error": str(e)}

@@ -2,7 +2,7 @@
 
 > **목표**: Google 규모의 대형 오픈소스 프로젝트(수만 개 파일, 수백만 LOC)를 분석할 수 있는 웹 소스코드 시각화 도구
 
-**Last Updated**: 2026-01-30
+**Last Updated**: 2026-01-31
 
 ---
 
@@ -22,10 +22,12 @@
 - ✅ Analysis caching (Phase 1.2 완료, 23x 속도 향상)
 - ✅ UI virtualization (Phase 1.3 완료)
 - ✅ Streaming API (Phase 1.4 완료)
+- ✅ Distributed analysis architecture (Phase 3.1 완료)
 
 **한계점**:
-- ❌ 마이크로서비스 API 추적 미지원 → Phase 3 예정
-- ❌ 분산 분석 아키텍처 미구현 → Phase 3 예정
+- ❌ 마이크로서비스 API 추적 미지원 → Phase 3.2 예정
+- ❌ Monorepo 지원 미구현 → Phase 3.3 예정
+- ❌ LSP 통합 미구현 → Phase 3.4 예정
 
 ---
 
@@ -258,25 +260,70 @@ def execute(cmd):
 
 > **목표**: 대규모 분산 시스템 분석 및 프로덕션 환경 지원
 
-### 3.1 분산 분석 아키텍처
-- [ ] Celery + Redis 기반 비동기 작업 처리
-- [ ] 분석 작업 큐잉 및 우선순위
-- [ ] 워커 스케일 아웃
-- [ ] 진행률 실시간 보고 (WebSocket)
+### 3.1 분산 분석 아키텍처 ✅ DONE
+- [x] Celery + Redis 기반 비동기 작업 처리
+- [x] 분석 작업 큐잉 및 우선순위 (HIGH/NORMAL/LOW)
+- [x] 워커 스케일 아웃 (task queues: default, analysis, taint, hierarchy)
+- [x] 진행률 실시간 보고 (WebSocket)
 
+**아키텍처**:
 ```
 ┌─────────────────┐     ┌──────────────┐     ┌─────────────────┐
 │   Frontend      │────▶│  FastAPI     │────▶│  Redis Queue    │
 │   (React)       │◀────│  (Gateway)   │◀────│                 │
 └─────────────────┘     └──────────────┘     └────────┬────────┘
-                                                      │
-                        ┌────────────────────────────┬┴───────────────────────────┐
-                        ▼                            ▼                            ▼
-                 ┌──────────────┐            ┌──────────────┐            ┌──────────────┐
-                 │   Worker 1   │            │   Worker 2   │            │   Worker N   │
-                 │   (Celery)   │            │   (Celery)   │            │   (Celery)   │
-                 └──────────────┘            └──────────────┘            └──────────────┘
+        │                                             │
+        │ WebSocket                    ┌──────────────┼──────────────┐
+        ▼                              ▼              ▼              ▼
+┌─────────────────┐            ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+│ Progress Reporter│           │   Worker 1   │ │   Worker 2   │ │   Worker N   │
+│   (Real-time)   │           │   (Celery)   │ │   (Celery)   │ │   (Celery)   │
+└─────────────────┘            └──────────────┘ └──────────────┘ └──────────────┘
 ```
+
+**핵심 기능**:
+- **Task Queues**: `default`, `high_priority`, `low_priority`, `analysis`, `taint`, `hierarchy`
+- **Priority Levels**: HIGH(9), NORMAL(5), LOW(1)
+- **Task Routing**: 분석 유형별 전용 큐 라우팅
+- **Progress Tracking**: WebSocket 실시간 진행률 + 상태 폴링
+- **Fault Tolerance**: 재시도 로직, 타임아웃 처리, 결과 만료
+
+**Celery Task Types**:
+| Task | 설명 |
+|------|------|
+| `analyze_file_task` | 단일 파일 분석 |
+| `analyze_project_task` | 전체 프로젝트 분산 분석 |
+| `taint_analysis_task` | Taint 분석 전용 |
+| `type_inference_task` | 타입 추론 분석 |
+| `hierarchy_analysis_task` | 클래스 계층 분석 |
+| `import_resolution_task` | Import 해석 분석 |
+| `full_analysis_workflow` | 모든 분석 병렬 실행 워크플로우 |
+
+**WebSocket Protocol**:
+- `subscribe` - 태스크 진행률 구독
+- `unsubscribe` - 구독 취소
+- `progress` - 실시간 진행률 업데이트
+- `status` - 태스크 상태 조회
+- `result` - 완료 결과
+- `worker_stats` - 워커 상태 조회
+- `queue_stats` - 큐 상태 조회
+
+**구현 파일**:
+- `backend/core/celery_config.py` - Celery 설정 및 큐 구성
+- `backend/core/distributed_tasks.py` - 분산 태스크 정의
+- `backend/core/websocket_progress.py` - WebSocket 진행률 리포터
+- `backend/test_distributed.py` - 테스트 스크립트
+
+**API 엔드포인트**:
+- `GET /api/distributed/status` - 분산 시스템 상태
+- `POST /api/distributed/analyze` - 분산 분석 시작
+- `POST /api/distributed/workflow` - 전체 워크플로우 시작
+- `POST /api/distributed/task/status` - 태스크 상태 조회
+- `POST /api/distributed/task/result` - 태스크 결과 조회
+- `POST /api/distributed/task/cancel` - 태스크 취소
+- `GET /api/distributed/workers` - 워커 정보
+- `GET /api/distributed/queues` - 큐 정보
+- `WebSocket /ws/progress` - 실시간 진행률
 
 ### 3.2 마이크로서비스 API 추적
 - [ ] OpenAPI/Swagger 스펙 파싱

@@ -6,7 +6,7 @@
 
 ```
 Phase 1: The Runner     [==================>    ] 1~2주 ✅
-Phase 2: The Brain      [======>                 ] 2~3주
+Phase 2: The Brain      [===============>        ] 2~3주
 Phase 3: The Chameleon  [                        ] 3~4주
 Phase 4: Polish         [                        ] 2주
                         ────────────────────────────────
@@ -73,17 +73,17 @@ Phase 4: Polish         [                        ] 2주
   - [x] 토큰화 및 해시 생성
   - [x] Hamming Distance 계산
 
-### Task 2.3: TLSH 연동
-- [ ] `internal/analyzer/tlsh.go` 구현
-  - [ ] glaslos/tlsh 라이브러리 연동
-  - [ ] 유사도 점수 계산
-  - [ ] 임계값 기반 판정
+### Task 2.3: TLSH 연동 ✅
+- [x] `internal/analyzer/tlsh.go` 구현
+  - [x] glaslos/tlsh 라이브러리 연동
+  - [x] 유사도 점수 계산
+  - [x] 임계값 기반 판정
 
-### Task 2.4: 기본 필터링
-- [ ] `internal/analyzer/filter.go` 구현
-  - [ ] 응답 길이 기반 필터
-  - [ ] 단어 수 기반 필터
-  - [ ] 상태 코드 기반 필터
+### Task 2.4: 기본 필터링 ✅
+- [x] `internal/analyzer/filter.go` 구현
+  - [x] 응답 길이 기반 필터
+  - [x] 단어 수 기반 필터
+  - [x] 상태 코드 기반 필터
 
 ### Task 2.5: 분석 통합
 - [ ] `internal/analyzer/analyzer.go` 구현
@@ -180,6 +180,8 @@ Phase 4: Polish         [                        ] 2주
 | 2026-01-30 | 1 | Task 1.6 검증 구현 | 벤치마크, 안정성, 메모리 테스트 완료 |
 | 2026-01-30 | 2 | Task 2.1 Baseline 학습 시스템 | 통계 분석, 이상 탐지 기능 구현 |
 | 2026-01-30 | 2 | Task 2.2 SimHash 구현 | HTML 구조 추출, Hamming Distance |
+| 2026-01-30 | 2 | Task 2.3 TLSH 연동 | glaslos/tlsh 라이브러리 연동 |
+| 2026-01-30 | 2 | Task 2.4 기본 필터링 | 상태코드, 길이, 단어수, 정규식 필터 |
 
 ---
 

@@ -727,6 +727,13 @@ class PythonParser(BaseParser):
                     traverse_clean(child, defined_funcs)
 
         traverse_clean(root_node, global_symbols)
+        
+        # Post-process: If file has Routes (Roots), hide helper functions (Children) from top-level
+        # This prevents helpers from appearing as siblings to Routes
+        has_routes = any(ep.type == 'root' for ep in endpoints)
+        if has_routes:
+            endpoints = [ep for ep in endpoints if ep.type == 'root']
+            
         return endpoints
 
     def scan_symbols(self, file_path: str, content: str) -> Dict[str, Dict]:

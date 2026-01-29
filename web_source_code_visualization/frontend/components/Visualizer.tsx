@@ -47,6 +47,20 @@ const Visualizer = () => {
     // When selectedFiles changes, re-process nodes
     useEffect(() => {
         if (analysisData && analysisData.endpoints) {
+            // Auto-expand top-level clusters
+            const topClusters = new Set<string>();
+            analysisData.endpoints.forEach((ep: any) => {
+                if (ep.type === 'cluster') {
+                    topClusters.add(ep.id);
+                }
+            });
+            if (topClusters.size > 0) {
+                setExpandedClusters(prev => {
+                    const next = new Set(prev);
+                    topClusters.forEach(id => next.add(id));
+                    return next;
+                });
+            }
             processNodes(analysisData.endpoints);
         }
     }, [selectedFiles, analysisData, expandedClusters]);
@@ -265,7 +279,7 @@ const Visualizer = () => {
         setAiAnalysis({ loading: false, result: null });
         setNodes(nds => nds.map(n => ({
             ...n,
-            style: { ...n.style, opacity: 1, border: n.id.startsWith('PROJECT') ? '2px solid #fff' : (n.data.params ? '2px solid #00f0ff' : n.style?.border) }
+            style: { ...n.data.initialStyle, opacity: 1 }
         })));
         setEdges(eds => eds.map(e => ({
             ...e,
@@ -468,16 +482,30 @@ const Visualizer = () => {
         addNodeSafe({
             id: rootId,
             position: { x: 0, y: 0 },
-            data: { label: 'Root URL' },
+            data: {
+                label: 'Root URL',
+                initialStyle: {
+                    background: '#1a0000',
+                    color: '#ff0000',
+                    border: '2px dashed #ff0000',
+                    fontWeight: 'bold',
+                    borderRadius: '8px',
+                    width: 180,
+                    padding: '10px',
+                    textAlign: 'center',
+                    boxShadow: '0 0 20px #ff000040'
+                }
+            },
             style: {
-                background: '#fff',
-                color: '#000',
-                border: '2px solid #fff',
+                background: '#1a0000',
+                color: '#ff0000',
+                border: '2px dashed #ff0000', // Red Dashed as requested
                 fontWeight: 'bold',
                 borderRadius: '8px',
                 width: 180,
                 padding: '10px',
-                textAlign: 'center'
+                textAlign: 'center',
+                boxShadow: '0 0 20px #ff000040'
             }
         }, 180, 60);
 
@@ -506,33 +534,46 @@ const Visualizer = () => {
                     fontWeight: 'bold',
                     textAlign: 'center'
                 };
-            } else if (node.type === 'root' || node.method === 'FUNC' || node.type === 'function') {
-                width = 220;
-                if (node.file_path && !node.metadata) { // Likely a File
-                    style = {
-                        background: '#0a0a0a',
-                        color: '#00f0ff',
-                        borderRadius: '12px',
-                        border: '2px solid #00f0ff',
-                        padding: '10px',
-                        fontWeight: 'bold',
-                        textAlign: 'center',
-                        boxShadow: '0 0 15px #00f0ff20'
-                    };
-                } else { // Function inside
-                    width = 160;
-                    height = 40;
-                    style = {
-                        background: '#1a001a',
-                        border: '1px solid #bd00ff',
-                        color: '#bd00ff',
-                        borderRadius: '4px',
-                        padding: '5px',
-                        fontSize: '12px'
-                    };
-                }
-            } else if (node.type === 'call') {
-                label = `Call: ${node.path}()`;
+            } else if (label && label.toString().startsWith('Template:')) {
+                style = {
+                    background: '#0f172a',
+                    border: '2px solid #38bdf8',
+                    color: '#e0f2fe',
+                    borderRadius: '8px',
+                    padding: '10px',
+                    fontWeight: 'bold',
+                    textAlign: 'center',
+                    boxShadow: '0 0 15px #38bdf840'
+                };
+            } else if (node.type === 'root') {
+                // Root File Node
+                style = {
+                    background: '#0a0a0a',
+                    color: '#00f0ff',
+                    borderRadius: '12px',
+                    border: '2px solid #00f0ff',
+                    padding: '10px',
+                    fontWeight: 'bold',
+                    textAlign: 'center',
+                    boxShadow: '0 0 15px #00f0ff20'
+                };
+            } else if (node.method === 'FUNC' || node.type === 'function') {
+                // Function
+                width = 160;
+                height = 40;
+                style = {
+                    background: '#1a1a1a',
+                    border: '1px solid #7c3aed',
+                    color: '#ddd6fe',
+                    borderRadius: '6px',
+                    padding: '8px',
+                    fontSize: '12px',
+                    fontWeight: '500',
+                    boxShadow: '0 0 10px #7c3aed20'
+                };
+            } else if (node.type === 'call' || node.type === 'child') {
+                // Generic Call or Child that didn't match FUNC
+                label = label.startsWith('Call:') ? label : `Call: ${node.path}`;
                 width = 150; height = 40;
                 style = {
                     background: '#1a001a',
@@ -543,6 +584,7 @@ const Visualizer = () => {
                     fontSize: '12px'
                 };
             } else if (node.type === 'database') {
+                // ... existing database style
                 label = `🗄️ ${node.path.replace("Table: ", "")}`;
                 width = 180;
                 style = {
@@ -551,13 +593,21 @@ const Visualizer = () => {
                     color: '#fb923c',
                     borderRadius: '12px',
                     padding: '10px',
-                    fontSize: '13px',
-                    fontWeight: 'bold',
-                    boxShadow: '0 0 15px #ea580c40',
                     textAlign: 'center'
                 };
             } else if (node.type === 'input') {
-                return; // Skip inputs
+                return;
+            } else {
+                // DEFAULT FALLBACK: Any unmatched node gets dark style
+                style = {
+                    background: '#1a1a1a',
+                    border: '1px solid #6b7280',
+                    color: '#e5e7eb',
+                    borderRadius: '6px',
+                    padding: '8px',
+                    fontSize: '12px',
+                    fontWeight: '500'
+                };
             }
 
             // Add Node
@@ -568,7 +618,8 @@ const Visualizer = () => {
                     data: {
                         label: label,
                         ...node,
-                        params: node.params || []
+                        params: node.params || [],
+                        initialStyle: style // Persist initial style for restoration
                     },
                     style: { ...style, width, height },
                     type: nodeType

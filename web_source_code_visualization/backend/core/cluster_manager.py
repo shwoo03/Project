@@ -15,21 +15,19 @@ class ClusterManager:
         # Create a tree structure
         tree = {}
         
+        unclustered_nodes = []
+        
         for ep in endpoints:
-            # Assumes ep.file_path is absolute or relative from root
-            # We need checking relative path if possible, but assume absolute for now
-            # Adjust based on project root? 
-            # In main.py we scan absolute paths. 
-            # Let's try to make them relative to common root.
-            
+            # 1. Hoist Routes (type='root') to Top Level
+            # The User wants "Web Service Structure", so Routes should be visible immediately, not hidden in folders.
+            if ep.type == 'root':
+                unclustered_nodes.append(ep)
+                continue
+
+            # 2. Cluster others (Helpers, Files without routes, etc.)
             parts = ep.file_path.replace("\\", "/").split("/")
-            # Naive heuristic: Group by parent directory of the file
             parent_dir = os.path.dirname(ep.file_path)
             dir_name = os.path.basename(parent_dir)
-            
-            # Simple clustering: Just one level up? Or full hierarchy?
-            # Full hierarchy is better for Google-scale.
-            # But let's start with "File Clustering" -> Group by Directory.
             
             if parent_dir not in root_clusters:
                 root_clusters[parent_dir] = EndpointNodes(
@@ -52,9 +50,6 @@ class ClusterManager:
         # If a directory has only 1 file, maybe don't cluster?
         # For consistency, usually better to cluster all or nothing.
         
-        final_nodes = list(root_clusters.values())
-        
-        # Performance: If we have too many clusters, we recursively cluster them?
-        # For now, 1-level directory clustering is a huge win over 1000 flat files.
+        final_nodes = unclustered_nodes + list(root_clusters.values())
         
         return final_nodes

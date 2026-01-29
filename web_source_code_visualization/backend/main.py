@@ -102,6 +102,7 @@ def analyze_project(request: AnalyzeRequest):
                 lang = parser.__class__.__name__.replace("Parser", "").lower()
                 language_stats[lang] = language_stats.get(lang, 0) + 1
                 
+            except Exception as e:
                 print(f"Error parsing {file_path}: {e}")
     
     # Phase 3: Clustering (Optional)

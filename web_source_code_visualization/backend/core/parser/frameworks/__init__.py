@@ -5,6 +5,7 @@ Each extractor handles route detection, input extraction, and framework-specific
 
 from .flask_extractor import FlaskExtractor
 from .fastapi_extractor import FastAPIExtractor
+from .django_extractor import DjangoExtractor
 from .base_framework import BaseFrameworkExtractor, FrameworkRegistry, RouteInfo, InputInfo
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     'InputInfo',
     'FlaskExtractor', 
     'FastAPIExtractor',
+    'DjangoExtractor',
 ]

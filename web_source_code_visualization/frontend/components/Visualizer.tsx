@@ -17,7 +17,7 @@ import { AnimatePresence } from 'framer-motion';
 import dagre from 'dagre';
 
 // Types
-import { AnalysisData, GraphNode, AIAnalysisState, Endpoint, SecurityFinding } from '@/types/graph';
+import { AnalysisData, GraphNode, AIAnalysisState, Endpoint, SecurityFinding, TaintFlowEdge, CallGraphData, CallGraphNode, CallGraphEdge } from '@/types/graph';
 import { AppError, createError, getErrorMessage, getErrorType } from '@/types/errors';
 
 // Hooks
@@ -55,6 +55,9 @@ const Visualizer = () => {
     const [allFiles, setAllFiles] = useState<string[]>([]);
     const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
     const [showFileTree, setShowFileTree] = useState(true);
+    const [showSinks, setShowSinks] = useState(false); // Default: OFF
+    const [showTaintFlows, setShowTaintFlows] = useState(true); // Taint flow visualization
+    const [showCallGraph, setShowCallGraph] = useState(false); // Call graph mode
     const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
 
     // Custom Hooks
@@ -79,7 +82,7 @@ const Visualizer = () => {
             }
             processNodes(analysisData.endpoints);
         }
-    }, [selectedFiles, analysisData, expandedClusters]);
+    }, [selectedFiles, analysisData, expandedClusters, showSinks, showTaintFlows]);
 
     const onConnect = useCallback(
         (params: Connection) => setEdges((eds) => addEdge(params, eds)),
@@ -279,6 +282,168 @@ const Visualizer = () => {
         }
     };
 
+    // Call Graph data loading and visualization
+    const [callGraphData, setCallGraphData] = useState<CallGraphData | null>(null);
+
+    const loadCallGraph = async () => {
+        if (!projectPath) return;
+        
+        try {
+            const res = await fetch(`${API_BASE}/api/callgraph`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ project_path: projectPath })
+            });
+            const data = await res.json();
+            setCallGraphData(data);
+            processCallGraphNodes(data);
+        } catch (e) {
+            console.error("Failed to load call graph", e);
+            setError(createError(getErrorType(e), 'Call Graph 로딩 실패', getErrorMessage(e)));
+        }
+    };
+
+    // Effect: Load call graph when toggled ON
+    useEffect(() => {
+        if (showCallGraph && projectPath) {
+            loadCallGraph();
+        } else if (!showCallGraph && analysisData) {
+            // Revert to normal visualization
+            processNodes(analysisData.endpoints);
+        }
+    }, [showCallGraph, projectPath]);
+
+    const processCallGraphNodes = (data: CallGraphData) => {
+        const g = new dagre.graphlib.Graph();
+        g.setGraph({ rankdir: 'TB', nodesep: 80, ranksep: 100 });
+        g.setDefaultEdgeLabel(() => ({}));
+
+        const newNodes: Node[] = [];
+        const newEdges: Edge[] = [];
+
+        // Create nodes for each function
+        data.nodes.forEach((cgNode: CallGraphNode) => {
+            // Determine node style based on type
+            let nodeStyle: React.CSSProperties = {
+                padding: '12px 20px',
+                borderRadius: 10,
+                border: '2px solid rgba(100,100,100,0.5)',
+                background: 'linear-gradient(135deg, #1e1e2e 0%, #2d2d3d 100%)',
+                color: '#e0e0e0',
+                fontSize: '12px',
+                fontWeight: 600,
+            };
+
+            // Entry points (route handlers)
+            if (cgNode.is_entry_point) {
+                nodeStyle = {
+                    ...nodeStyle,
+                    border: '2px solid #22d3ee',
+                    background: 'linear-gradient(135deg, #0e3a4a 0%, #1e5a6a 100%)',
+                    color: '#22d3ee',
+                    boxShadow: '0 0 15px rgba(34,211,238,0.3)',
+                };
+            }
+
+            // Sinks (dangerous functions)
+            if (cgNode.is_sink) {
+                nodeStyle = {
+                    ...nodeStyle,
+                    border: '2px solid #ef4444',
+                    background: 'linear-gradient(135deg, #4a1e1e 0%, #6a2d2d 100%)',
+                    color: '#ef4444',
+                    boxShadow: '0 0 15px rgba(239,68,68,0.3)',
+                };
+            }
+
+            // Classes
+            if (cgNode.node_type === 'class') {
+                nodeStyle = {
+                    ...nodeStyle,
+                    border: '2px solid #a855f7',
+                    background: 'linear-gradient(135deg, #3a1e4a 0%, #4a2d5a 100%)',
+                    color: '#a855f7',
+                };
+            }
+
+            // Determine label
+            let label = cgNode.name;
+            if (cgNode.node_type === 'method' && cgNode.qualified_name.includes('.')) {
+                const parts = cgNode.qualified_name.split('.');
+                if (parts.length >= 2) {
+                    label = `${parts[parts.length - 2]}.${parts[parts.length - 1]}`;
+                }
+            }
+
+            const node: Node = {
+                id: cgNode.id,
+                position: { x: 0, y: 0 },
+                data: {
+                    label: label,
+                    file_path: cgNode.file_path,
+                    line_number: cgNode.line_number,
+                    end_line_number: cgNode.end_line,
+                    node_type: cgNode.node_type,
+                    is_entry_point: cgNode.is_entry_point,
+                    is_sink: cgNode.is_sink,
+                    callers: cgNode.callers,
+                    callees: cgNode.callees,
+                    initialStyle: nodeStyle,
+                },
+                style: nodeStyle,
+            };
+
+            newNodes.push(node);
+            g.setNode(cgNode.id, { label, width: 180, height: 50 });
+        });
+
+        // Create edges for call relationships
+        data.edges.forEach((cgEdge: CallGraphEdge) => {
+            const edgeStyle = {
+                stroke: '#6b7280',
+                strokeWidth: 1.5,
+            };
+
+            // Highlight edges to sinks
+            const targetNode = data.nodes.find(n => n.id === cgEdge.target_id);
+            if (targetNode?.is_sink) {
+                edgeStyle.stroke = '#ef4444';
+                edgeStyle.strokeWidth = 2;
+            }
+
+            const edge: Edge = {
+                id: cgEdge.id,
+                source: cgEdge.source_id,
+                target: cgEdge.target_id,
+                type: 'smoothstep',
+                animated: targetNode?.is_sink,
+                style: edgeStyle,
+                label: cgEdge.call_type !== 'direct' ? cgEdge.call_type : undefined,
+                labelStyle: { fill: '#9ca3af', fontSize: 10 },
+            };
+
+            newEdges.push(edge);
+            g.setEdge(cgEdge.source_id, cgEdge.target_id);
+        });
+
+        // Apply dagre layout
+        dagre.layout(g);
+
+        // Update positions
+        newNodes.forEach(node => {
+            const nodeWithPosition = g.node(node.id);
+            if (nodeWithPosition) {
+                node.position = {
+                    x: nodeWithPosition.x - 90,
+                    y: nodeWithPosition.y - 25,
+                };
+            }
+        });
+
+        setNodes(newNodes);
+        setEdges(newEdges);
+    };
+
     const processNodes = (endpoints: Endpoint[]) => {
         const g = new dagre.graphlib.Graph();
         g.setGraph({ rankdir: 'TB', nodesep: 100, ranksep: 80 });
@@ -319,6 +484,16 @@ const Visualizer = () => {
 
         // Recursive Node Processor
         const processNode = (node: Endpoint, parentId: string, level: number) => {
+            // Skip sink nodes if showSinks is false
+            const isSinkNode = node.type === 'sink' || 
+                               node.type === 'api_call' || 
+                               node.type === 'event_handler' ||
+                               (node.path && node.path.startsWith('⚠️'));
+            
+            if (isSinkNode && !showSinks) {
+                return; // Skip this node
+            }
+
             let style: React.CSSProperties = {};
             let label = node.path;
             let nodeType = 'default';
@@ -329,6 +504,45 @@ const Visualizer = () => {
                 label = `📁 ${node.path}`;
                 const { style: s, width: w, height: h } = getNodeStyle('cluster');
                 style = s; width = w; height = h;
+            } else if (node.type === 'sink') {
+                // Sink node styling - warning appearance
+                label = node.path.startsWith('⚠️') ? node.path : `⚠️ ${node.path}`;
+                style = {
+                    background: 'linear-gradient(135deg, #4a1c1c 0%, #2d1b1b 100%)',
+                    border: '2px solid #f59e0b',
+                    borderRadius: '8px',
+                    color: '#fbbf24',
+                    fontSize: '12px',
+                    fontWeight: 'bold',
+                    padding: '8px 12px',
+                    boxShadow: '0 0 10px rgba(245, 158, 11, 0.3)',
+                };
+                width = 180;
+                height = 40;
+            } else if (node.type === 'api_call') {
+                label = `🌐 ${node.path}`;
+                style = {
+                    background: 'linear-gradient(135deg, #1e3a5f 0%, #1a2744 100%)',
+                    border: '1px solid #3b82f6',
+                    borderRadius: '8px',
+                    color: '#60a5fa',
+                    fontSize: '11px',
+                    padding: '6px 10px',
+                };
+                width = 200;
+                height = 36;
+            } else if (node.type === 'event_handler') {
+                label = `📎 ${node.path}`;
+                style = {
+                    background: 'linear-gradient(135deg, #3d1f5c 0%, #2a1640 100%)',
+                    border: '1px solid #a855f7',
+                    borderRadius: '8px',
+                    color: '#c084fc',
+                    fontSize: '11px',
+                    padding: '6px 10px',
+                };
+                width = 140;
+                height = 36;
             } else if (label && label.toString().startsWith('Template:')) {
                 const { style: s, width: w, height: h } = getNodeStyle('template');
                 style = s; width = w; height = h;
@@ -415,6 +629,47 @@ const Visualizer = () => {
             }
         });
 
+        // Add Taint Flow edges (red dashed lines from source to sink)
+        if (showTaintFlows && analysisData?.taint_flows) {
+            analysisData.taint_flows.forEach((flow: TaintFlowEdge) => {
+                // Only add if both source and sink nodes exist
+                if (addedNodeIds.has(flow.source_node_id) && addedNodeIds.has(flow.sink_node_id)) {
+                    const edgeId = `taint-${flow.source_node_id}-${flow.sink_node_id}`;
+                    if (!addedEdgeIds.has(edgeId)) {
+                        addedEdgeIds.add(edgeId);
+                        
+                        // Color based on severity
+                        let strokeColor = '#ef4444'; // red for HIGH
+                        if (flow.severity === 'MEDIUM') strokeColor = '#f97316'; // orange
+                        if (flow.severity === 'LOW') strokeColor = '#eab308'; // yellow
+                        
+                        newEdges.push({
+                            id: edgeId,
+                            source: flow.source_node_id,
+                            target: flow.sink_node_id,
+                            type: 'smoothstep',
+                            animated: true,
+                            style: { 
+                                stroke: strokeColor, 
+                                strokeWidth: 2.5,
+                                strokeDasharray: '5,5',
+                            },
+                            label: `⚠️ ${flow.vulnerability_type}`,
+                            labelStyle: { 
+                                fill: strokeColor, 
+                                fontWeight: 'bold',
+                                fontSize: '10px'
+                            },
+                            labelBgStyle: { 
+                                fill: '#1a1a1a', 
+                                fillOpacity: 0.8 
+                            },
+                        });
+                    }
+                }
+            });
+        }
+
         setNodes(newNodes);
         setEdges(newEdges);
     };
@@ -436,9 +691,15 @@ const Visualizer = () => {
                 onAnalyze={analyzeProject}
                 onScan={scanSecurity}
                 onToggleFileTree={() => setShowFileTree(!showFileTree)}
+                onToggleSinks={() => setShowSinks(!showSinks)}
+                onToggleTaintFlows={() => setShowTaintFlows(!showTaintFlows)}
+                onToggleCallGraph={() => setShowCallGraph(!showCallGraph)}
                 loading={loading}
                 scanning={scanning}
                 showFileTree={showFileTree}
+                showSinks={showSinks}
+                showTaintFlows={showTaintFlows}
+                showCallGraph={showCallGraph}
             />
 
             {/* File Tree Sidebar */}

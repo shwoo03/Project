@@ -7,8 +7,8 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { DetailPanelProps, Parameter, Filter, TemplateContext, TemplateUsage, SecurityFinding } from '@/types/graph';
-import { describeFilterBehavior, formatParamType } from '@/utils/filterBehavior';
+import { DetailPanelProps, Filter, TemplateContext, TemplateUsage, SecurityFinding } from '@/types/graph';
+import { describeFilterBehavior } from '@/utils/filterBehavior';
 
 /**
  * Right-side detail panel showing node information, source code, and AI analysis
@@ -143,39 +143,6 @@ export function DetailPanel({
                     <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-1">라벨 (Label)</label>
                     <p className="font-mono text-sm text-cyan-300 break-words">{node.data.label}</p>
                 </div>
-
-                {/* Parameters Table */}
-                {node.data.params && (
-                    <div>
-                        <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">함수 파라미터 (Function Parameters)</label>
-                        <div className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
-                            <table className="w-full text-sm text-left">
-                                <thead>
-                                    <tr className="bg-white/5 text-zinc-400 border-b border-white/10">
-                                        <th className="px-3 py-2 font-medium">이름</th>
-                                        <th className="px-3 py-2 font-medium">타입</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-white/5">
-                                    {node.data.params.length > 0 ? (
-                                        node.data.params.map((p: Parameter, i: number) => (
-                                            <tr key={i}>
-                                                <td className="px-3 py-2 font-mono text-cyan-200">{p.name}</td>
-                                                <td className="px-3 py-2 text-zinc-400">{formatParamType(p)}</td>
-                                            </tr>
-                                        ))
-                                    ) : (
-                                        <tr>
-                                            <td colSpan={2} className="px-3 py-4 text-center text-zinc-500 italic">
-                                                파라미터 없음
-                                            </td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                )}
 
                 {/* User Inputs Table (detected from request.form.get, etc.) */}
                 {node.data.inputs && (

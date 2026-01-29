@@ -5,9 +5,10 @@ This parser uses tree-sitter to analyze Python web applications (Flask, FastAPI,
 and extract routes, inputs, function calls, templates, and security-related information.
 
 Refactored from a single 1400-line file into modular components:
-- frameworks/: Framework-specific extractors (Flask, FastAPI)
+- frameworks/: Framework-specific extractors (Flask, FastAPI, Django)
 - helpers.py: Shared helper functions
 - extractors.py: Basic extraction utilities
+- taint_analyzer.py: Taint flow analysis
 """
 
 from typing import List, Dict, Any, Optional
@@ -34,9 +35,15 @@ from .helpers import (
     InputExtractor,
     SanitizationAnalyzer,
 )
-from .frameworks import FlaskExtractor, FastAPIExtractor, FrameworkRegistry
+from .frameworks import FlaskExtractor, FastAPIExtractor, DjangoExtractor, FrameworkRegistry
 from .frameworks.base_framework import RouteInfo
 from models import EndpointNodes, Parameter
+
+# Import taint analysis
+from ..taint_analyzer import (
+    TaintAnalyzer, TaintSource, TaintSink, TaintFlow,
+    DANGEROUS_SINKS, detect_sink, TaintType
+)
 
 
 class PythonParser(BaseParser):
@@ -46,7 +53,7 @@ class PythonParser(BaseParser):
     Supports:
     - Flask: @app.route decorators, request.args/form/cookies/etc.
     - FastAPI: @app.get/post/etc. decorators, Path/Query/Body parameters
-    - Django: (planned) views.py, urls.py analysis
+    - Django: views.py, urls.py, DRF viewsets/serializers
     
     Features:
     - Route detection and path parameter extraction
@@ -54,7 +61,9 @@ class PythonParser(BaseParser):
     - Function call analysis with cross-file resolution
     - Template rendering analysis (render_template)
     - Sanitizer detection and flow analysis
+    - Taint analysis (source → sink tracking)
     - SQL query extraction
+    - Dangerous sink detection
     """
     
     def __init__(self):
@@ -64,8 +73,10 @@ class PythonParser(BaseParser):
         # Register framework extractors
         self._flask = FlaskExtractor()
         self._fastapi = FastAPIExtractor()
+        self._django = DjangoExtractor()
         FrameworkRegistry.register(self._flask)
         FrameworkRegistry.register(self._fastapi)
+        FrameworkRegistry.register(self._django)
 
     def can_parse(self, file_path: str) -> bool:
         return file_path.endswith(".py")
@@ -112,6 +123,9 @@ class PythonParser(BaseParser):
             # Try FastAPI
             if self._fastapi.is_route_decorator(decorator_text):
                 return self._fastapi.parse_route(decorator_text)
+            # Try Django/DRF
+            if self._django.is_route_decorator(decorator_text):
+                return self._django.parse_route(decorator_text)
             return None
 
         def extract_calls(node, defined_funcs: Dict[str, Dict], 
@@ -308,9 +322,16 @@ class PythonParser(BaseParser):
         sanitization = sanitization_analyzer.extract_sanitization_details(func_node)
         sql_nodes = self.extract_sql(func_node, content)
         
+        # Extract dangerous sinks and perform taint analysis
+        sink_nodes = self.extract_sinks(func_node, content, file_path, get_text)
+        taint_flows = self._perform_taint_analysis(
+            inputs, sink_nodes, sanitization, func_node, get_text, file_path
+        )
+        
         # Build children
         children_nodes = []
         children_nodes.extend(sql_nodes)
+        children_nodes.extend(sink_nodes)  # Add sink nodes
         
         for inp in inputs:
             children_nodes.append(EndpointNodes(
@@ -372,8 +393,15 @@ class PythonParser(BaseParser):
         sanitization = sanitization_analyzer.extract_sanitization_details(func_node)
         sql_nodes = self.extract_sql(func_node, content)
         
+        # Extract dangerous sinks and perform taint analysis
+        sink_nodes = self.extract_sinks(func_node, content, file_path, get_text)
+        taint_flows = self._perform_taint_analysis(
+            inputs, sink_nodes, sanitization, func_node, get_text, file_path
+        )
+        
         children_nodes = []
         children_nodes.extend(sql_nodes)
+        children_nodes.extend(sink_nodes)  # Add sink nodes
         
         for inp in inputs:
             children_nodes.append(EndpointNodes(
@@ -573,3 +601,153 @@ class PythonParser(BaseParser):
                     stack.append(c)
                     
         return imports
+
+    def extract_sinks(self, node, content: str, file_path: str, get_text) -> List[EndpointNodes]:
+        """
+        Extract dangerous sink function calls from the code.
+        
+        Sinks are functions that can cause security vulnerabilities when
+        receiving untrusted user input (e.g., os.system, eval, cursor.execute).
+        """
+        sink_nodes = []
+        nodes_to_visit = [node]
+        seen_sinks = set()
+
+        while nodes_to_visit:
+            curr = nodes_to_visit.pop()
+            
+            if curr.type == 'call':
+                func_node = curr.child_by_field_name('function')
+                if func_node:
+                    func_name = get_text(func_node)
+                    sink_info = detect_sink(func_name)
+                    
+                    if sink_info:
+                        taint_type, severity = sink_info
+                        line = curr.start_point[0] + 1
+                        sink_key = (func_name, line)
+                        
+                        if sink_key not in seen_sinks:
+                            seen_sinks.add(sink_key)
+                            
+                            # Extract arguments
+                            args_text = []
+                            args_node = curr.child_by_field_name('arguments')
+                            if args_node:
+                                for child in args_node.children:
+                                    if child.is_named:
+                                        args_text.append(get_text(child))
+                            
+                            sink_nodes.append(EndpointNodes(
+                                id=f"sink-{func_name}-{line}",
+                                path=f"⚠️ {func_name}",
+                                method=taint_type.value.upper(),
+                                language="python",
+                                type="sink",
+                                file_path=file_path,
+                                line_number=line,
+                                end_line_number=curr.end_point[0] + 1,
+                                params=[],
+                                children=[],
+                                metadata={
+                                    "sink_type": taint_type.value,
+                                    "severity": severity,
+                                    "args": args_text,
+                                    "dangerous": True
+                                }
+                            ))
+            
+            for child in curr.children:
+                nodes_to_visit.append(child)
+                
+        return sink_nodes
+
+    def _perform_taint_analysis(self, inputs: List[Dict], sink_nodes: List[EndpointNodes],
+                                sanitization: List[Dict], func_node, get_text,
+                                file_path: str) -> List[Dict]:
+        """
+        Perform taint analysis to track data flow from inputs to sinks.
+        
+        Returns:
+            List of taint flow information dicts
+        """
+        if not inputs or not sink_nodes:
+            return []
+        
+        taint_analyzer = TaintAnalyzer()
+        
+        # Register sources (inputs)
+        for inp in inputs:
+            source = TaintSource(
+                name=inp['name'],
+                source_type=inp.get('source', 'unknown'),
+                line=0,  # TODO: Get actual line
+                file_path=file_path
+            )
+            taint_analyzer.add_source(source)
+        
+        # Register sinks
+        for sink_node in sink_nodes:
+            sink = TaintSink(
+                name=sink_node.path.replace("⚠️ ", ""),
+                category=TaintType(sink_node.metadata.get("sink_type", "general")),
+                line=sink_node.line_number,
+                file_path=file_path,
+                args=sink_node.metadata.get("args", []),
+                severity=sink_node.metadata.get("severity", "HIGH")
+            )
+            taint_analyzer.add_sink(sink)
+        
+        # Register sanitizers
+        for san in sanitization:
+            taint_analyzer.add_sanitizer(san)
+        
+        # Track variable assignments
+        self._track_assignments(func_node, get_text, taint_analyzer)
+        
+        # Analyze flows
+        flows = taint_analyzer.analyze()
+        
+        # Convert to serializable format
+        flow_data = []
+        for flow in flows:
+            flow_data.append({
+                "source": {
+                    "name": flow.source.name,
+                    "type": flow.source.source_type,
+                    "line": flow.source.line
+                },
+                "sink": {
+                    "name": flow.sink.name,
+                    "category": flow.sink.category.value,
+                    "severity": flow.sink.severity,
+                    "line": flow.sink.line
+                },
+                "path": flow.path,
+                "sanitized": flow.sanitized,
+                "sanitizer": flow.sanitizer_name,
+                "vulnerable": not flow.sanitized
+            })
+        
+        return flow_data
+
+    def _track_assignments(self, node, get_text, taint_analyzer: TaintAnalyzer):
+        """Track variable assignments for taint propagation."""
+        nodes_to_visit = [node]
+        
+        while nodes_to_visit:
+            curr = nodes_to_visit.pop()
+            
+            if curr.type == 'assignment':
+                left = curr.child_by_field_name('left')
+                right = curr.child_by_field_name('right')
+                
+                if left and right:
+                    target = get_text(left)
+                    source_expr = get_text(right)
+                    line = curr.start_point[0] + 1
+                    
+                    taint_analyzer.track_assignment(target, source_expr, line)
+            
+            for child in curr.children:
+                nodes_to_visit.append(child)

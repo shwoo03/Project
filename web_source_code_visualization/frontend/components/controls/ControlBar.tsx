@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { Search, Bot } from 'lucide-react';
+import { Search, Bot, AlertTriangle, GitBranch, Network } from 'lucide-react';
 import { ControlBarProps } from '@/types/graph';
 
 /**
@@ -13,9 +13,15 @@ export function ControlBar({
     onAnalyze,
     onScan,
     onToggleFileTree,
+    onToggleSinks,
+    onToggleTaintFlows,
+    onToggleCallGraph,
     loading,
     scanning,
-    showFileTree
+    showFileTree,
+    showSinks,
+    showTaintFlows,
+    showCallGraph
 }: ControlBarProps) {
     return (
         <div className="absolute top-4 left-4 z-50 flex gap-4 bg-black/50 backdrop-blur p-4 rounded-xl border border-white/10">
@@ -41,13 +47,37 @@ export function ControlBar({
                 disabled={scanning}
                 className="px-6 py-2 bg-gradient-to-r from-red-500 to-orange-500 rounded-lg font-bold hover:shadow-[0_0_20px_rgba(239,68,68,0.5)] transition-all disabled:opacity-50 flex items-center gap-2"
             >
-                {scanning ? '스캔 중...' : '🛡️ 보안 스캔 (Semgrep)'}
+                {scanning ? '스캔 중...' : '🛡️ 보안 스캔'}
+            </button>
+            <button
+                onClick={onToggleCallGraph}
+                className={`px-4 py-2 rounded-lg border transition-all font-bold flex items-center gap-2 ${showCallGraph ? 'bg-purple-500/20 text-purple-400 border-purple-500/50' : 'bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10'}`}
+                title="함수 호출 관계 그래프 표시"
+            >
+                <Network size={16} />
+                Call Graph
+            </button>
+            <button
+                onClick={onToggleTaintFlows}
+                className={`px-4 py-2 rounded-lg border transition-all font-bold flex items-center gap-2 ${showTaintFlows ? 'bg-red-500/20 text-red-400 border-red-500/50' : 'bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10'}`}
+                title="입력→위험함수 데이터 흐름 표시"
+            >
+                <GitBranch size={16} />
+                Taint
+            </button>
+            <button
+                onClick={onToggleSinks}
+                className={`px-4 py-2 rounded-lg border transition-all font-bold flex items-center gap-2 ${showSinks ? 'bg-amber-500/20 text-amber-400 border-amber-500/50' : 'bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10'}`}
+                title="위험 함수 호출(Sink) 노드 표시/숨기기"
+            >
+                <AlertTriangle size={16} />
+                Sink
             </button>
             <button
                 onClick={onToggleFileTree}
                 className={`px-4 py-2 rounded-lg border transition-all font-bold flex items-center gap-2 ${showFileTree ? 'bg-blue-500/20 text-blue-400 border-blue-500/50' : 'bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10'}`}
             >
-                📂 파일 목록
+                📂
             </button>
         </div>
     );

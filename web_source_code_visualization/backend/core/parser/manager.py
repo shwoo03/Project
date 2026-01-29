@@ -3,6 +3,7 @@ from typing import Optional
 from .base import BaseParser
 from .python import PythonParser
 from .javascript import JavascriptParser
+from .typescript import TypeScriptParser
 from .php import PHPParser
 from .java import JavaParser
 from .go import GoParser
@@ -11,6 +12,7 @@ class ParserManager:
     def __init__(self):
         self.parsers: list[BaseParser] = [
             PythonParser(),
+            TypeScriptParser(),  # TS must come before JS to handle .ts/.tsx
             JavascriptParser(),
             PHPParser(),
             JavaParser(),

@@ -8,7 +8,9 @@ from dotenv import load_dotenv
 from core.parser import ParserManager
 from core.ai_analyzer import AIAnalyzer
 from core.cluster_manager import ClusterManager
-from models import ProjectStructure, EndpointNodes
+from core.taint_analyzer import TaintAnalyzer, TaintSource, TaintSink, detect_sink, TaintType
+from core.call_graph_analyzer import CallGraphAnalyzer
+from models import ProjectStructure, EndpointNodes, TaintFlowEdge, CallGraphData
 
 # Load .env from root directory
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
@@ -27,6 +29,81 @@ app.add_middleware(
 parser_manager = ParserManager()
 ai_analyzer = AIAnalyzer()
 cluster_manager = ClusterManager()
+call_graph_analyzer = CallGraphAnalyzer()
+
+
+def collect_taint_flows(endpoints: List[EndpointNodes]) -> List[TaintFlowEdge]:
+    """
+    Collect taint flow edges from parsed endpoints.
+    Matches input sources to sinks within the same endpoint tree.
+    """
+    taint_flows = []
+    flow_id = 0
+    
+    def find_sources_and_sinks(node: EndpointNodes, parent_id: str = None):
+        """Recursively find sources (inputs) and sinks in endpoint tree."""
+        sources = []
+        sinks = []
+        
+        # Check if this node is a source (has params/inputs)
+        if node.params:
+            for param in node.params:
+                sources.append({
+                    "node_id": node.id,
+                    "name": param.name,
+                    "source_type": param.source,
+                    "line": node.line_number
+                })
+        
+        # Check if this node is a sink
+        if node.type == "sink":
+            sink_info = node.metadata.get("sink_type", "unknown")
+            sinks.append({
+                "node_id": node.id,
+                "name": node.path.replace("⚠️ ", ""),
+                "vulnerability_type": sink_info,
+                "severity": node.metadata.get("severity", "MEDIUM"),
+                "line": node.line_number,
+                "args": node.metadata.get("args", [])
+            })
+        
+        # Recursively check children
+        for child in node.children:
+            child_sources, child_sinks = find_sources_and_sinks(child, node.id)
+            sources.extend(child_sources)
+            sinks.extend(child_sinks)
+        
+        return sources, sinks
+    
+    # Process each endpoint
+    for ep in endpoints:
+        sources, sinks = find_sources_and_sinks(ep)
+        
+        # Create taint flow edges between sources and sinks
+        for source in sources:
+            for sink in sinks:
+                flow_id += 1
+                
+                # Determine vulnerability type from sink
+                vuln_type = sink.get("vulnerability_type", "general")
+                if vuln_type == "dom_xss":
+                    vuln_type = "XSS"
+                elif vuln_type == "code_injection":
+                    vuln_type = "CODE"
+                
+                taint_flows.append(TaintFlowEdge(
+                    id=f"taint-{flow_id}",
+                    source_node_id=source["node_id"],
+                    sink_node_id=sink["node_id"],
+                    source_name=source["name"],
+                    sink_name=sink["name"],
+                    vulnerability_type=vuln_type.upper(),
+                    severity=sink.get("severity", "MEDIUM"),
+                    path=[source["name"], sink["name"]],
+                    sanitized=False
+                ))
+    
+    return taint_flows
 
 class AnalyzeRequest(BaseModel):
     path: str
@@ -109,10 +186,14 @@ def analyze_project(request: AnalyzeRequest):
     if request.cluster:
         endpoints = cluster_manager.cluster_endpoints(endpoints)
 
+    # Phase 4: Collect Taint Flows for visualization
+    taint_flows = collect_taint_flows(endpoints)
+
     return ProjectStructure(
         root_path=project_path,
         language_stats=language_stats,
-        endpoints=endpoints
+        endpoints=endpoints,
+        taint_flows=taint_flows
     )
 class CodeSnippetRequest(BaseModel):
     file_path: str
@@ -197,3 +278,78 @@ def read_root():
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
+# ============================================
+# Call Graph API
+# ============================================
+
+class CallGraphRequest(BaseModel):
+    project_path: str
+
+@app.post("/api/callgraph")
+def get_call_graph(request: CallGraphRequest):
+    """
+    Analyze project and return call graph data.
+    
+    Returns nodes (functions) and edges (call relationships).
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        graph_data = call_graph_analyzer.analyze_project(request.project_path)
+        return graph_data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class PathToSinkRequest(BaseModel):
+    project_path: str
+    entry_point: str  # Qualified function name
+    sink: str  # Qualified function name
+    max_depth: int = 10
+
+@app.post("/api/callgraph/paths")
+def find_paths_to_sink(request: PathToSinkRequest):
+    """
+    Find all call paths from an entry point to a sink.
+    
+    Useful for tracing how user input reaches dangerous functions.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        # Re-analyze to ensure fresh data
+        call_graph_analyzer.analyze_project(request.project_path)
+        
+        paths = call_graph_analyzer.find_paths_to_sink(
+            request.entry_point,
+            request.sink,
+            request.max_depth
+        )
+        
+        return {"paths": paths, "count": len(paths)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/callgraph/metrics")
+def get_function_metrics(request: CallGraphRequest):
+    """
+    Get metrics for all functions in the project.
+    
+    Returns fan_in, fan_out, and identifies hub/orphan functions.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        # Re-analyze to ensure fresh data
+        call_graph_analyzer.analyze_project(request.project_path)
+        metrics = call_graph_analyzer.get_function_metrics()
+        
+        return {"metrics": metrics}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

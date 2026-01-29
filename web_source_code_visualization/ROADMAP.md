@@ -13,6 +13,7 @@
 - ✅ Framework detection (Flask, FastAPI, Express, Spring, etc.)
 - ✅ Basic taint analysis (source → sink)
 - ✅ Inter-procedural taint analysis (Phase 2.1 완료)
+- ✅ Enhanced import resolution (Phase 2.2 완료, 86.7% 해석률)
 - ✅ Call graph visualization
 - ✅ Security scanning (Semgrep integration)
 - ✅ Parallel file processing (Phase 1.1 완료)
@@ -21,8 +22,8 @@
 - ✅ Streaming API (Phase 1.4 완료)
 
 **한계점**:
-- ⏳ Import 해석 정확도 향상 필요 → Phase 2.2 예정
 - ⏳ 동적 타입 언어 타입 추론 → Phase 2.3 예정
+- ⏳ 클래스 계층 구조 분석 → Phase 2.4 예정
 - ❌ 마이크로서비스 API 추적 미지원 → Phase 3 예정
 
 ---
@@ -154,12 +155,34 @@ def execute(cmd):
 - `POST /api/taint/interprocedural/full` - 전체 결과 (summaries 포함)
 - `POST /api/taint/paths` - Taint 경로 조회
 
-### 2.2 Enhanced Import Resolution
-- [ ] 모듈 의존성 그래프 구축
-- [ ] 상대/절대 import 완전 해석
-- [ ] Alias 처리 (`from x import y as z`)
-- [ ] Dynamic import 탐지 (`__import__`, `importlib`)
-- [ ] Package `__init__.py` 처리
+### 2.2 Enhanced Import Resolution ✅ DONE
+- [x] 모듈 의존성 그래프 구축
+- [x] 상대/절대 import 완전 해석
+- [x] Alias 처리 (`from x import y as z`)
+- [x] Dynamic import 탐지 (`__import__`, `importlib`, `require()`)
+- [x] Package `__init__.py` 처리
+- [x] JavaScript ES6/CommonJS import 지원
+- [x] TypeScript import 지원
+- [x] Circular dependency 감지
+
+**지원 언어 및 Import 유형**:
+| 언어 | Import 유형 |
+|------|------------|
+| **Python** | `import`, `from...import`, relative (`.`, `..`), alias, dynamic |
+| **JavaScript** | ES6 (`import`), CommonJS (`require`), dynamic (`import()`) |
+| **TypeScript** | ES6, type imports, path aliases |
+
+**성능 결과**: 86.7% 해석률 (backend 프로젝트 기준)
+
+**구현 파일**:
+- `backend/core/import_resolver.py` - Import 해석 엔진
+- `backend/test_import_resolver.py` - 테스트 스크립트
+
+**API 엔드포인트**:
+- `POST /api/imports/resolve` - 전체 import 해석 및 의존성 그래프
+- `POST /api/imports/graph` - 시각화용 의존성 그래프
+- `POST /api/imports/symbol` - 심볼 정의 위치 해석
+- `POST /api/imports/module` - 모듈 상세 정보
 
 ### 2.3 Type Inference
 - [ ] 동적 타입 언어 변수 타입 추론

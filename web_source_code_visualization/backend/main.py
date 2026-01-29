@@ -15,6 +15,7 @@ from core.parallel_analyzer import ParallelAnalyzer
 from core.analysis_cache import analysis_cache
 from core.streaming_analyzer import streaming_analyzer, StreamEvent
 from core.interprocedural_taint import InterProceduralTaintAnalyzer, analyze_interprocedural_taint
+from core.import_resolver import ImportResolver, resolve_project_imports
 from models import ProjectStructure, EndpointNodes, TaintFlowEdge, CallGraphData
 
 # Load .env from root directory
@@ -610,5 +611,149 @@ def get_taint_paths(request: CallGraphRequest):
             "taint_paths": list(paths_by_flow.values()),
             "total_paths": len(result["flows"])
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# Import Resolution API
+# ============================================
+
+class ImportResolverRequest(BaseModel):
+    project_path: str
+
+
+class SymbolResolveRequest(BaseModel):
+    project_path: str
+    symbol_name: str
+    source_file: str
+
+
+@app.post("/api/imports/resolve")
+def resolve_imports(request: ImportResolverRequest):
+    """
+    Resolve all imports in a project and build the dependency graph.
+    
+    Returns:
+        - modules: All discovered modules with their imports
+        - edges: Dependency graph edges
+        - circular_dependencies: Detected circular import chains
+        - statistics: Resolution statistics
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        result = resolve_project_imports(request.project_path)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/imports/graph")
+def get_dependency_graph(request: ImportResolverRequest):
+    """
+    Get the module dependency graph for visualization.
+    
+    Returns a simplified graph structure optimized for rendering.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        resolver = ImportResolver(request.project_path)
+        result = resolver.scan_project()
+        
+        # Build visualization-friendly graph
+        nodes = []
+        edges = []
+        
+        for module_name, module_info in result["modules"].items():
+            nodes.append({
+                "id": module_name,
+                "label": module_name.split('.')[-1] if '.' in module_name else module_name,
+                "full_name": module_name,
+                "file_path": module_info["file_path"],
+                "is_package": module_info["is_package"],
+                "is_entry_point": module_info["is_entry_point"],
+                "imports_count": module_info["imports_count"],
+                "dependents_count": len(module_info["dependents"]),
+                "dependencies_count": len(module_info["dependencies"])
+            })
+        
+        for edge in result["edges"]:
+            edges.append({
+                "id": f"{edge['source']}->{edge['target']}",
+                "source": edge["source"],
+                "target": edge["target"],
+                "import_type": edge["import_type"],
+                "label": ", ".join(edge["imported_names"][:3])
+            })
+        
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "circular_dependencies": result["circular_dependencies"],
+            "statistics": result["statistics"]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/imports/symbol")
+def resolve_symbol(request: SymbolResolveRequest):
+    """
+    Resolve a symbol to its definition location.
+    
+    Useful for "go to definition" functionality.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        resolver = ImportResolver(request.project_path)
+        resolver.scan_project()
+        
+        result = resolver.resolve_symbol(request.symbol_name, request.source_file)
+        
+        if result:
+            return {"resolved": True, **result}
+        else:
+            return {"resolved": False, "message": f"Could not resolve symbol '{request.symbol_name}'"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/imports/module")
+def get_module_info(request: SymbolResolveRequest):
+    """
+    Get detailed information about a specific module.
+    
+    Returns imports, exports, dependencies, and dependents.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        resolver = ImportResolver(request.project_path)
+        result = resolver.scan_project()
+        
+        # Find module by file path or module name
+        module_info = None
+        for name, info in result["modules"].items():
+            if info["file_path"] == request.source_file or name == request.symbol_name:
+                module_info = info
+                module_info["module_name"] = name
+                break
+        
+        if module_info:
+            # Get exports
+            exports = resolver.get_module_exports(module_info["module_name"])
+            module_info["exports"] = exports
+            return module_info
+        else:
+            raise HTTPException(status_code=404, detail="Module not found")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

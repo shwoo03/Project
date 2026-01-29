@@ -17,7 +17,7 @@ class EndpointNodes(BaseModel):
     params: List[Parameter] = []
     children: List['EndpointNodes'] = []
     depth: int = 1
-    type: Literal['root', 'child', 'input', 'call', 'default'] = 'root' 
+    type: Literal['root', 'child', 'input', 'call', 'default', 'database'] = 'root' 
     filters: List[dict] = []
     sanitization: List[dict] = []
     template_context: List[dict] = []

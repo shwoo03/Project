@@ -23,6 +23,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# Load .env from root directory
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
+
+app = FastAPI(title="Web Source Code Visualization API")
+
+# CORS Setup
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 parser_manager = ParserManager()
 ai_analyzer = AIAnalyzer()
 
@@ -37,36 +52,57 @@ def analyze_project(request: AnalyzeRequest):
 
     endpoints: List[EndpointNodes] = []
     language_stats = {}
-
+    
+    # 1. Collect all files first
+    all_files = []
     for root, _, files in os.walk(project_path):
         if "venv" in root or "node_modules" in root or ".git" in root:
             continue
-            
         for file in files:
-            file_path = os.path.join(root, file)
-            parser = parser_manager.get_parser(file_path)
-            
-            if parser:
-                try:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        content = f.read()
-                        
-                    parsed_endpoints = parser.parse(file_path, content)
-                    endpoints.extend(parsed_endpoints)
+            all_files.append(os.path.join(root, file))
+
+    # Phase 1: Global Symbol Scan
+    global_symbols = {}
+    for file_path in all_files:
+        parser = parser_manager.get_parser(file_path)
+        if parser:
+            try:
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                # Scan symbols (lightweight parse)
+                symbols = parser.scan_symbols(file_path, content)
+                global_symbols.update(symbols)
+            except Exception as e:
+                print(f"Error scanning symbols {file_path}: {e}")
+
+    # Phase 2: Detailed Parse with Global Context
+    for file_path in all_files:
+        parser = parser_manager.get_parser(file_path)
+        if parser:
+            try:
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
                     
-                    # Update stats
-                    lang = parser.__class__.__name__.replace("Parser", "").lower()
-                    language_stats[lang] = language_stats.get(lang, 0) + 1
-                    
-                except Exception as e:
-                    print(f"Error parsing {file_path}: {e}")
+                # Pass global_symbols to parse functionality
+                # Check signature of parse first? We updated PythonParser, but others might need update if any
+                # Assuming BaseParser definition updated in all subclasses or kwargs used. 
+                # Our PythonParser supports it.
+                parsed_endpoints = parser.parse(file_path, content, global_symbols=global_symbols)
+                
+                endpoints.extend(parsed_endpoints)
+                
+                # Update stats
+                lang = parser.__class__.__name__.replace("Parser", "").lower()
+                language_stats[lang] = language_stats.get(lang, 0) + 1
+                
+            except Exception as e:
+                print(f"Error parsing {file_path}: {e}")
 
     return ProjectStructure(
         root_path=project_path,
         language_stats=language_stats,
         endpoints=endpoints
     )
-
 class CodeSnippetRequest(BaseModel):
     file_path: str
     start_line: int
@@ -99,9 +135,39 @@ class AIAnalyzeRequest(BaseModel):
 @app.post("/api/analyze/ai")
 def analyze_code_with_ai(request: AIAnalyzeRequest):
     # Gather context from related files (Graph Traversal Results)
-    file_contexts = []
+    referenced_files = {}
     
-    # helper to clean paths (remove file:/// prefix if exists, though frontend sends clean paths usually)
+    # 1. Read 'related_paths' content
+    # Limit to top 5 files to avoid token overflow? Or maybe 10 small ones.
+    # For now, read all but truncate large files.
+    MAX_FILE_SIZE = 2000 # chars
+    
+    for path in request.related_paths:
+        clean_path = path.replace("file:///", "").replace("file://", "")
+        # Windows path fix
+        if ":" in clean_path and clean_path.startswith("/"):
+             clean_path = clean_path[1:]
+             
+        if not os.path.exists(clean_path):
+            continue
+            
+        try:
+            with open(clean_path, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+                if len(content) > MAX_FILE_SIZE:
+                    content = content[:MAX_FILE_SIZE] + "\n... (truncated)"
+                referenced_files[path] = content
+        except Exception:
+            pass
+
+    # 2. Call AI Analyzer with referenced files
+    result = ai_analyzer.analyze_code(
+        code=request.code,
+        context=request.context,
+        referenced_files=referenced_files
+    )
+    
+    return result
     # Also deduplicate
     unique_paths = list(set(request.related_paths))
     

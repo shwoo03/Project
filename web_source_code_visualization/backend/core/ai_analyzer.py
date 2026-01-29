@@ -1,3 +1,4 @@
+
 import os
 import groq
 from typing import Dict, Any
@@ -25,13 +26,13 @@ class AIAnalyzer:
             "llama-3.1-8b-instant"        # 4. Ultimate Fallback (added for safety)
         ]
 
-    def analyze_code(self, code: str, context: str = "") -> Dict[str, Any]:
+    def analyze_code(self, code: str, context: str = "", referenced_files: Dict[str, str] = None) -> Dict[str, Any]:
         if not self.client:
             return {
                 "error": "GROQ_API_KEY is missing. Please set it in .env file.",
                 "analysis": "AI Analysis is disabled."
             }
-
+            
         system_prompt = (
             "당신은 CTF/Wargame 문제 풀이 및 웹 해킹 전문가입니다. "
             "주어진 코드와 프로젝트 전체 맥락(Context)을 분석하여 보안 취약점을 찾아내세요. "
@@ -50,8 +51,15 @@ class AIAnalyzer:
             "- 불필요한 서론이나 인사말은 생략한다.\n"
             "- 반드시 **한국어(Korean)**로 작성한다."
         )
+        
+        # Build Reference Context
+        ref_context = ""
+        if referenced_files:
+            ref_context = "\n\n**[참고 파일 및 함수 정의]**:\n"
+            for fpath, fcontent in referenced_files.items():
+                ref_context += f"--- {fpath} ---\n{fcontent}\n\n"
 
-        user_prompt = f"Code to analyze:\n```\n{code}\n```"
+        user_prompt = f"Code to analyze:\n```\n{code}\n```\n\nContext:\n{context}\n{ref_context}"
 
         for model in self.models:
             try:
@@ -90,4 +98,3 @@ class AIAnalyzer:
             "analysis": "Could not complete analysis due to high traffic.",
             "success": False
         }
-

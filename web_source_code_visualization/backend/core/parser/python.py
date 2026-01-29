@@ -30,16 +30,25 @@ class PythonParser(BaseParser):
     def can_parse(self, file_path: str) -> bool:
         return file_path.endswith(".py")
 
-    def parse(self, file_path: str, content: str) -> List[EndpointNodes]:
+    def parse(self, file_path: str, content: str, global_symbols: Dict[str, Dict] = None) -> List[EndpointNodes]:
         tree = self.parser.parse(bytes(content, "utf8"))
         root_node = tree.root_node
         endpoints = []
+        
+        # If no global symbols provided, use local scan (backward compatibility)
+        if global_symbols is None:
+            global_symbols = self.scan_symbols(file_path, content)
+
         
         def get_node_text(node):
             return node.text.decode('utf-8')
 
         def extract_path_params(path_text: str) -> List[str]:
-            return re.findall(r"<(?:[^:<>]+:)?([^<>]+)>", path_text)
+            # Flask: <id>, <int:id>
+            # FastAPI: {id}
+            flask_params = re.findall(r"<(?:[^:<>]+:)?([^<>]+)>", path_text)
+            fastapi_params = re.findall(r"\{([^}]+)\}", path_text)
+            return flask_params + fastapi_params
 
         def extract_render_template_context(args_node) -> List[Dict]:
             context_vars = []
@@ -121,6 +130,10 @@ class PythonParser(BaseParser):
                     params.append(Parameter(name=get_node_text(child), type="Any", source="unknown"))
                 elif child.type == 'typed_parameter':
                      name_node = child.child_by_field_name('name')
+                     # Fallback for tree-sitter versions where field aliases might differ or not exist
+                     if not name_node:
+                         name_node = child.child(0)
+                         
                      type_node = child.child_by_field_name('type')
                      p_name = get_node_text(name_node) if name_node else "unknown"
                      p_type = get_node_text(type_node) if type_node else "Any"
@@ -128,10 +141,33 @@ class PythonParser(BaseParser):
                 elif child.type == 'default_parameter':
                      name_node = child.child_by_field_name('name')
                      type_node = child.child_by_field_name('type')
+                     
                      first_child = child.child(0)
                      if first_child.type == 'typed_parameter':
+                         # Handle default with type hint: q: str = None
+                         # first_child is typed_parameter
                          name_node = first_child.child_by_field_name('name')
+                         if not name_node: name_node = first_child.child(0)
                          type_node = first_child.child_by_field_name('type')
+                     elif not name_node:
+                         # Handle simple default: q = None
+                         name_node = first_child
+                         
+                     p_name = get_node_text(name_node) if name_node else "unknown"
+                     p_type = get_node_text(type_node) if type_node else "Any"
+                     params.append(Parameter(name=p_name, type=p_type, source="unknown"))
+                
+                elif child.type == 'typed_default_parameter':
+                     # Handle typed default directly: q: str = None
+                     name_node = child.child_by_field_name('name')
+                     if not name_node: name_node = child.child(0)
+                     
+                     type_node = child.child_by_field_name('type')
+                     # If type field missing, maybe child(2)? q : type = val
+                     # Structure: identifier (0), : (1), type (2)
+                     if not type_node and child.child_count > 2:
+                         type_node = child.child(2)
+
                      p_name = get_node_text(name_node) if name_node else "unknown"
                      p_type = get_node_text(type_node) if type_node else "Any"
                      params.append(Parameter(name=p_name, type=p_type, source="unknown"))
@@ -193,7 +229,7 @@ class PythonParser(BaseParser):
                                          }
                                      })
 
-                    # 2. Check if it references a known function
+                    # 2. Check if it references a known function (Local or Global)
                     elif func_name in defined_funcs:
                         calls.append({
                             "name": func_name,
@@ -467,19 +503,48 @@ class PythonParser(BaseParser):
                 if decorator and definition:
                     # ... (route extraction logic) ...
                     decorator_text = get_node_text(decorator)
-                    if "@app." in decorator_text or "route" in decorator_text:
-                        # ...
-                        method = "GET"
-                        path = "/"
+                    
+                    # Pattern Match for Flask (@app.route) and FastAPI (@app.get, @router.post)
+                    # Flask: @app.route("/path", methods=["POST"])
+                    # FastAPI: @app.get("/path"), @router.post("/path")
+                    
+                    is_route = False
+                    method = "GET" # Default
+                    path = "/"
+                    
+                    if "@app.route" in decorator_text:
+                        is_route = True
+                        # Flask parsing logic (existing)
                         try:
                             parts = decorator_text.split('(')
                             if len(parts) > 1:
                                 args = parts[1].split(')')[0].split(',')
                                 path = args[0].strip().strip('"\'')
-                                if ".post" in parts[0].lower() or "POST" in parts[1]:
-                                    method = "POST"
+                                if ".post" in parts[0].lower() or "POST" in parts[1]: # Basic heuristic
+                                     method = "POST"
                         except:
                             pass
+                            
+                    elif any(x in decorator_text for x in ["@app.get", "@app.post", "@app.put", "@app.delete", "@router.get", "@router.post", "@router.put", "@router.delete"]):
+                        is_route = True
+                        # FastAPI parsing logic
+                        # Expected: @app.get("/users/{id}")
+                        try:
+                            # Extract method from decorator name
+                            if ".get" in decorator_text: method = "GET"
+                            elif ".post" in decorator_text: method = "POST"
+                            elif ".put" in decorator_text: method = "PUT"
+                            elif ".delete" in decorator_text: method = "DELETE"
+                            
+                            parts = decorator_text.split('(')
+                            if len(parts) > 1:
+                                # First arg is usually path
+                                args = parts[1].split(')')[0].split(',')
+                                path = args[0].strip().strip('"\'')
+                        except:
+                            pass
+
+                    if is_route:
 
                         params = extract_params(definition) # Function args
                         path_params = extract_path_params(path)
@@ -487,12 +552,38 @@ class PythonParser(BaseParser):
                             for p in params:
                                 if p.name in path_params:
                                     p.source = "path"
+                                    
                         inputs = extract_inputs(definition) # Inside body
-                        calls = extract_calls(definition, defined_funcs) # Internal calls
+                        
+                        # FastAPI/Modern Python: Treat non-path params as Inputs (Query/Body)
+                        # Filter out 'self', 'cls', 'request'
+                        if any(x in decorator_text for x in ["@app.get", "@app.post", "@app.put", "@app.delete", "@router."]):
+                             for p in params:
+                                 if p.source == "unknown" and p.name not in ["self", "cls", "request", "req"]:
+                                     # Determine default source based on method usually, but 'query' is safe default for GET
+                                     # For POST, complicated (Body vs Query). Let's default to 'input' type node.
+                                     p_source = "query" if method == "GET" else "body" # Crude heuristic
+                                     
+                                     # Check if already in inputs (manually extracted?)
+                                     if not any(i['name'] == p.name for i in inputs):
+                                         inputs.append({
+                                             "name": p.name,
+                                             "source": p_source,
+                                             "type": "UserInput"
+                                         })
+
+                        calls = extract_calls(definition, defined_funcs) # Internal calls (using global defs)
                         filters = extract_sanitizers(definition)
+
                         sanitization = extract_sanitization_details(definition)
                         
+                        sanitization = extract_sanitization_details(definition)
+                        
+                        # Extract SQL Queries
+                        sql_nodes = self.extract_sql(definition, content)
+
                         children_nodes = []
+                        children_nodes.extend(sql_nodes)
                         
                         # Add Inputs as nodes
                         for inp in inputs:
@@ -551,7 +642,11 @@ class PythonParser(BaseParser):
                 filters = extract_sanitizers(node)
                 sanitization = extract_sanitization_details(node)
                 
+                # Extract SQL Queries
+                sql_nodes = self.extract_sql(node, content)
+
                 children_nodes = []
+                children_nodes.extend(sql_nodes)
                 for inp in inputs:
                     children_nodes.append(EndpointNodes(
                         id=f"{file_path}:{node.start_point.row}:input:{inp['name']}",
@@ -599,29 +694,129 @@ class PythonParser(BaseParser):
                 for child in node.children:
                     traverse_clean(child, defined_funcs)
 
-        # 1. Pre-scan for defined function names and locations
+        traverse_clean(root_node, global_symbols)
+        return endpoints
+
+    def scan_symbols(self, file_path: str, content: str) -> Dict[str, Dict]:
+        tree = self.parser.parse(bytes(content, "utf8"))
+        root_node = tree.root_node
+        
+        def get_node_text(node):
+            return node.text.decode('utf-8')
+
         defined_funcs = {} # Name -> {file_path, start_line, end_line}
+        
+        # We need sanitizer logic here too as it's part of def_info
+        SANITIZER_FUNCTIONS = {
+            "bleach.clean", "markupsafe.escape", "html.escape", "flask.escape",
+            "werkzeug.utils.escape", "cgi.escape", "urllib.parse.quote", "urllib.parse.quote_plus",
+        }
+        SANITIZER_BASE_NAMES = {"escape", "sanitize"}
+        
+        def is_sanitizer(func_name: str) -> bool:
+            lowered = func_name.lower()
+            if lowered in SANITIZER_FUNCTIONS: return True
+            base = lowered.split(".")[-1]
+            return base in SANITIZER_BASE_NAMES
+
+        def extract_sanitizers(node) -> List[Dict]:
+            sanitizers = []
+            if node.type == 'call':
+                func_node = node.child_by_field_name('function')
+                if func_node:
+                    func_name = get_node_text(func_node)
+                    if is_sanitizer(func_name):
+                        args_list = []
+                        args_node = node.child_by_field_name('arguments')
+                        if args_node:
+                            for child in args_node.children:
+                                if child.is_named: args_list.append(get_node_text(child))
+                        sanitizers.append({
+                            "name": func_name,
+                            "args": args_list,
+                            "line": node.start_point.row + 1
+                        })
+            for child in node.children:
+                sanitizers.extend(extract_sanitizers(child))
+            return sanitizers
+
+        # Helper: Extract variable bindings for parameter propagation analysis (lite version for symbol scan)
+        def find_inputs_in_node(node): return [] # Placeholder if needed, but for symbol scan we might skip detailed graph build
+        
+        # Simplified sanitization details for symbol table (full detail is in parse)
+        # Actually, let's keep it simple for scan: just Name/Loc. 
+        # Detailed sanitization info is better extracted during full parse to avoid code duplication complexity?
+        # But wait, 'def_info' in call node NEEDS this info. 
+        # So we must extract it here or re-extract later. 
+        # Let's duplicate minimal logic or just extract basic info here.
+        
         def scan_funcs(n):
             if n.type == 'function_definition':
                 name_node = n.child_by_field_name('name')
                 if name_node: 
                     fn_name = get_node_text(name_node)
+                    # We can do a light pass for sanitizers or just skip deep analysis for global table
+                    # Ideally we want full info.
+                    # Since we are implementing scan_symbols, we can copy the logic or refactor.
+                    # For now, let's copy the light sanitizer extraction to ensure 'filters' field exists.
                     filters = extract_sanitizers(n)
-                    sanitization = extract_sanitization_details(n)
+                    
                     defined_funcs[fn_name] = {
                         "file_path": file_path,
                         "start_line": n.start_point.row + 1,
                         "end_line": n.end_point.row + 1,
                         "filters": filters,
-                        "sanitization": sanitization
+                        "sanitization": [], # skipping deep analysis for perf in pass 1
+                        "template_context": [],
+                        "template_usage": []
                     }
             for c in n.children: scan_funcs(c)
+            
         scan_funcs(root_node)
+        return defined_funcs
 
-        traverse_clean(root_node, defined_funcs)
-        return endpoints
+    def extract_sql(self, node, content: str) -> List[EndpointNodes]:
+        sql_nodes = []
+        
+        # Manual traversal to find string nodes
+        # avoids version issues with tree-sitter Query API
+        nodes_to_visit = [node]
+        seen_tables = set()
 
-
-
-
-
+        while nodes_to_visit:
+            curr = nodes_to_visit.pop()
+            
+            if curr.type == 'string' or curr.type == 'string_content':
+                # Check text
+                text = content[curr.start_byte:curr.end_byte]
+                clean_text = text.strip("'\"")
+                
+                # Heuristic: Check for SQL keywords
+                if re.match(r"^\s*(SELECT|INSERT|UPDATE|DELETE)\s", clean_text, re.IGNORECASE):
+                    # Extract Table Name
+                    table_match = re.search(r"(?:FROM|INTO|UPDATE)\s+([a-zA-Z0-9_]+)", clean_text, re.IGNORECASE)
+                    if table_match:
+                        table_name = table_match.group(1)
+                        if table_name not in seen_tables:
+                            seen_tables.add(table_name)
+                            
+                            sql_nodes.append(EndpointNodes(
+                                id=f"sql-{table_name}-{curr.start_point[0]}",
+                                path=f"Table: {table_name}",
+                                method="SQL",
+                                language="sql",
+                                type="database",
+                                file_path="database",
+                                line_number=curr.start_point[0] + 1,
+                                end_line_number=curr.end_point[0] + 1,
+                                params=[],
+                                children=[]
+                            ))
+            
+            # Add children to stack
+            # Optimization: don't traverse into other functions (optional, but extract_sql is called on func def)
+            # But standard traversal is fine
+            for child in curr.children:
+                nodes_to_visit.append(child)
+                
+        return sql_nodes

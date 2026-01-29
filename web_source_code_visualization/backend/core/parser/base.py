@@ -12,3 +12,8 @@ class BaseParser(ABC):
     def parse(self, file_path: str, content: str) -> List[EndpointNodes]:
         """Parse source code and return a list of endpoints."""
         pass
+
+    @abstractmethod
+    def scan_symbols(self, file_path: str, content: str) -> dict:
+        """Scan file for defined global symbols (functions, classes)."""
+        pass

@@ -13,6 +13,9 @@ class PHPParser(BaseParser):
     def can_parse(self, file_path: str) -> bool:
         return file_path.endswith('.php')
 
+    def scan_symbols(self, file_path: str, content: str) -> dict:
+        return {}
+
     def parse(self, file_path: str, content: str) -> List[EndpointNodes]:
         tree = self.parser.parse(bytes(content, "utf8"))
         root_node = tree.root_node

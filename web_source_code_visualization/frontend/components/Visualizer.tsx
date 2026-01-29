@@ -37,6 +37,19 @@ const Visualizer = () => {
     const [isResizing, setIsResizing] = useState(false);
     const sidebarRef = useRef<HTMLDivElement>(null);
 
+    // Filter State
+    const [analysisData, setAnalysisData] = useState<any>(null); // Store raw data
+    const [allFiles, setAllFiles] = useState<string[]>([]);
+    const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+    const [showFileTree, setShowFileTree] = useState(true);
+
+    // When selectedFiles changes, re-process nodes
+    useEffect(() => {
+        if (analysisData && analysisData.endpoints) {
+            processNodes(analysisData.endpoints);
+        }
+    }, [selectedFiles, analysisData]);
+
     const getNamedArg = (args: string[] | undefined, name: string) => {
         if (!args || args.length === 0) return null;
         const match = args.find((arg) => arg.trim().startsWith(`${name}=`));
@@ -376,7 +389,33 @@ const Visualizer = () => {
             const data = await res.json();
 
             if (data.endpoints) {
-                processNodes(data.endpoints);
+                setAnalysisData(data);
+
+                // Extract unique files
+                const files = new Set<string>();
+                data.endpoints.forEach((ep: any) => {
+                    if (ep.file_path) files.add(ep.file_path);
+                });
+
+                const fileList = Array.from(files).sort();
+                setAllFiles(fileList);
+
+                // Default: Select first 5 files or 'app.py'/'main.py'
+                const defaults = new Set<string>();
+                fileList.forEach(f => {
+                    const lower = f.toLowerCase();
+                    if (lower.endsWith("app.py") || lower.endsWith("main.py") || lower.endsWith("index.js")) {
+                        defaults.add(f);
+                    }
+                });
+
+                // If no key files found, select first 3
+                if (defaults.size === 0) {
+                    fileList.slice(0, 3).forEach(f => defaults.add(f));
+                }
+
+                setSelectedFiles(defaults);
+                // processNodes called via useEffect
             }
         } catch (e) {
             console.error(e);
@@ -434,6 +473,9 @@ const Visualizer = () => {
 
         // 2. Process Routes
         endpoints.forEach((ep: any) => {
+            // FILTER: Only process endpoints belonging to selected files
+            if (!selectedFiles.has(ep.file_path)) return;
+
             if (ep.type === 'root') {
                 const routeId = ep.id;
                 // Aggregate discovered inputs to display in Details Panel
@@ -527,6 +569,20 @@ const Visualizer = () => {
                                 fontSize: '12px',
                                 width: 150
                             };
+                        } else if (child.type === 'database') {
+                            childLabel = `🗄️ ${child.path.replace("Table: ", "")}`; // Show Icon + Table Name
+                            childStyle = {
+                                background: '#1c1c1c',
+                                border: '2px solid #ea580c', // Orange color for DB
+                                color: '#fb923c',
+                                borderRadius: '12px',
+                                padding: '10px',
+                                fontSize: '13px',
+                                fontWeight: 'bold',
+                                width: 180,
+                                boxShadow: '0 0 15px #ea580c40',
+                                textAlign: 'center'
+                            };
                         } else {
                             return;
                         }
@@ -614,7 +670,46 @@ const Visualizer = () => {
                 >
                     {scanning ? '스캔 중...' : '🛡️ 보안 스캔 (Semgrep)'}
                 </button>
+                <button
+                    onClick={() => setShowFileTree(!showFileTree)}
+                    className={`px-4 py-2 rounded-lg border transition-all font-bold flex items-center gap-2 ${showFileTree ? 'bg-blue-500/20 text-blue-400 border-blue-500/50' : 'bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10'}`}
+                >
+                    📂 파일 목록
+                </button>
             </div>
+
+            {/* File Tree Sidebar */}
+            {allFiles.length > 0 && showFileTree && (
+                <div className="absolute top-24 left-4 z-40 w-64 max-h-[calc(100vh-150px)] bg-black/80 backdrop-blur rounded-xl border border-white/10 flex flex-col overflow-hidden shadow-xl">
+                    <div className="p-3 border-b border-white/10 bg-white/5 flex justify-between items-center">
+                        <span className="font-bold text-sm text-zinc-300">File Browser ({allFiles.length})</span>
+                        <div className="flex gap-2 text-xs">
+                            <button onClick={() => setSelectedFiles(new Set(allFiles))} className="hover:text-white text-zinc-500 hover:bg-white/10 px-1 rounded">All</button>
+                            <button onClick={() => setSelectedFiles(new Set())} className="hover:text-white text-zinc-500 hover:bg-white/10 px-1 rounded">None</button>
+                        </div>
+                    </div>
+                    <div className="overflow-y-auto p-2 space-y-1">
+                        {allFiles.map(file => {
+                            const isSelected = selectedFiles.has(file);
+                            const fileName = file.split(/[/\\]/).pop(); // Simple basename
+                            return (
+                                <div key={file}
+                                    className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-xs transition-colors ${isSelected ? 'bg-blue-500/20 text-blue-300' : 'hover:bg-white/5 text-zinc-500'}`}
+                                    onClick={() => {
+                                        const next = new Set(selectedFiles);
+                                        if (next.has(file)) next.delete(file);
+                                        else next.add(file);
+                                        setSelectedFiles(next);
+                                    }}
+                                >
+                                    <div className={`w-3 h-3 flex-shrink-0 rounded-full border ${isSelected ? 'bg-blue-500 border-blue-400' : 'border-zinc-600'}`} />
+                                    <span className="truncate" title={file}>{fileName}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
 
             <div className="flex-1 h-full relative">
                 <ReactFlow
@@ -633,6 +728,62 @@ const Visualizer = () => {
                     <MiniMap className="bg-zinc-900 border-zinc-700" nodeColor="#00f0ff" />
                 </ReactFlow>
             </div>
+
+            {/* Global Controls */}
+            <div className="absolute top-4 right-4 flex gap-2 z-50">
+                <button
+                    onClick={scanSecurity}
+                    disabled={scanning}
+                    className="flex items-center gap-2 px-6 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg border border-red-500/30 transition-all font-bold disabled:opacity-50"
+                >
+                    {scanning ? (
+                        <div className="w-5 h-5 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                        <Bot size={18} />
+                    )}
+                    {scanning ? "보안 스캔 중..." : "AI 보안 분석"}
+                </button>
+
+                <button
+                    onClick={() => setShowFileTree(!showFileTree)}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all ${showFileTree ? 'bg-blue-500/20 text-blue-400 border-blue-500/50' : 'bg-white/5 text-zinc-400 border-white/10'}`}
+                >
+                    📂 파일 목록
+                </button>
+            </div>
+
+            {/* File Tree Sidebar */}
+            {allFiles.length > 0 && showFileTree && (
+                <div className="absolute top-24 left-4 z-40 w-64 max-h-[calc(100vh-150px)] bg-black/80 backdrop-blur rounded-xl border border-white/10 flex flex-col overflow-hidden">
+                    <div className="p-3 border-b border-white/10 bg-white/5 flex justify-between items-center">
+                        <span className="font-bold text-sm text-zinc-300">File Browser ({allFiles.length})</span>
+                        <div className="flex gap-2 text-xs">
+                            <button onClick={() => setSelectedFiles(new Set(allFiles))} className="hover:text-white text-zinc-500">All</button>
+                            <button onClick={() => setSelectedFiles(new Set())} className="hover:text-white text-zinc-500">None</button>
+                        </div>
+                    </div>
+                    <div className="overflow-y-auto p-2 space-y-1">
+                        {allFiles.map(file => {
+                            const isSelected = selectedFiles.has(file);
+                            const fileName = file.split(/[/\\]/).pop(); // Simple basename
+                            return (
+                                <div key={file}
+                                    className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-xs ${isSelected ? 'bg-blue-500/20 text-blue-300' : 'hover:bg-white/5 text-zinc-500'}`}
+                                    onClick={() => {
+                                        const next = new Set(selectedFiles);
+                                        if (next.has(file)) next.delete(file);
+                                        else next.add(file);
+                                        setSelectedFiles(next);
+                                    }}
+                                >
+                                    <div className={`w-3 h-3 rounded-full border ${isSelected ? 'bg-blue-500 border-blue-400' : 'border-zinc-600'}`} />
+                                    <span className="truncate" title={file}>{fileName}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
 
             <AnimatePresence>
                 {selectedNode && (
@@ -984,10 +1135,10 @@ const Visualizer = () => {
                                 )}
                             </div>
                         </div>
-                    </motion.div>
+                    </motion.div >
                 )}
-            </AnimatePresence>
-        </div>
+            </AnimatePresence >
+        </div >
     );
 };
 

@@ -1,26 +1,22 @@
-﻿from typing import List, Dict
+﻿from typing import List, Dict, Any
 from tree_sitter import Language, Parser
 import tree_sitter_python
 import os
 import re
 from .base import BaseParser
+from .extractors import (
+    SANITIZER_FUNCTIONS,
+    SANITIZER_BASE_NAMES,
+    get_node_text,
+    is_sanitizer,
+    extract_sanitizers,
+    extract_path_params,
+    extract_template_usage,
+    find_template_path,
+    get_input_source_from_call,
+    get_input_source_from_subscript,
+)
 from models import EndpointNodes, Parameter
-
-SANITIZER_FUNCTIONS = {
-    "bleach.clean",
-    "markupsafe.escape",
-    "html.escape",
-    "flask.escape",
-    "werkzeug.utils.escape",
-    "cgi.escape",
-    "urllib.parse.quote",
-    "urllib.parse.quote_plus",
-}
-
-SANITIZER_BASE_NAMES = {
-    "escape",
-    "sanitize",
-}
 
 class PythonParser(BaseParser):
     def __init__(self):

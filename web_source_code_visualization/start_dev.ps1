@@ -6,7 +6,7 @@ $root = Get-Location
 
 # 1. Backend 시작
 Write-Host "Starting Backend Server..." -ForegroundColor Green
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$root\backend'; if (Test-Path 'venv') { .\venv\Scripts\activate } else { python -m venv venv; .\venv\Scripts\activate; pip install -r requirements.txt }; uvicorn main:app --reload --port 8000"
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$root\backend'; if (Test-Path 'venv') { .\venv\Scripts\activate } else { python -m venv venv; .\venv\Scripts\activate; pip install -r requirements.txt }; python -m uvicorn main:app --reload --port 8000"
 
 # 2. Frontend 시작
 Write-Host "Starting Frontend Server..." -ForegroundColor Green

@@ -11,6 +11,7 @@ from core.cluster_manager import ClusterManager
 from core.taint_analyzer import TaintAnalyzer, TaintSource, TaintSink, detect_sink, TaintType
 from core.call_graph_analyzer import CallGraphAnalyzer
 from core.parallel_analyzer import ParallelAnalyzer
+from core.analysis_cache import analysis_cache
 from models import ProjectStructure, EndpointNodes, TaintFlowEdge, CallGraphData
 
 # Load .env from root directory
@@ -220,6 +221,49 @@ def analyze_project(request: AnalyzeRequest):
 def get_analysis_stats():
     """Get statistics from the last parallel analysis."""
     return parallel_analyzer.get_stats()
+
+
+# ============================================
+# Cache API
+# ============================================
+
+@app.get("/api/cache/stats")
+def get_cache_stats():
+    """Get cache statistics including hit rate and storage size."""
+    stats = analysis_cache.get_stats()
+    stats["db_size_mb"] = round(analysis_cache.get_db_size() / (1024 * 1024), 2)
+    return stats
+
+
+class CacheInvalidateRequest(BaseModel):
+    project_path: Optional[str] = None
+    file_path: Optional[str] = None
+
+@app.post("/api/cache/invalidate")
+def invalidate_cache(request: CacheInvalidateRequest):
+    """
+    Invalidate cache entries.
+    
+    - If project_path is provided, invalidates all files in that project
+    - If file_path is provided, invalidates only that file
+    - If neither is provided, clears all cache
+    """
+    if request.project_path:
+        count = analysis_cache.invalidate_project(request.project_path)
+        return {"message": f"Invalidated {count} cached files for project", "count": count}
+    elif request.file_path:
+        analysis_cache.invalidate(request.file_path)
+        return {"message": f"Invalidated cache for file: {request.file_path}"}
+    else:
+        analysis_cache.clear()
+        return {"message": "All cache cleared"}
+
+
+@app.delete("/api/cache")
+def clear_cache():
+    """Clear all cached analysis results."""
+    analysis_cache.clear()
+    return {"message": "Cache cleared successfully"}
 
 
 class CodeSnippetRequest(BaseModel):

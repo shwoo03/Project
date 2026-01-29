@@ -3,6 +3,11 @@ Parallel Analyzer Module.
 
 Provides parallel file parsing capabilities using concurrent.futures
 for improved performance on large codebases.
+
+Features:
+- Parallel/sequential mode auto-selection
+- SQLite-based result caching for incremental analysis
+- File hash-based change detection
 """
 
 import os
@@ -15,6 +20,7 @@ import time
 # Import parsers (will be initialized per-process)
 from core.parser.manager import ParserManager
 from core.symbol_table import SymbolTable, Symbol, SymbolType
+from core.analysis_cache import AnalysisCache, CachedParseResult, analysis_cache
 from models import EndpointNodes
 
 
@@ -194,23 +200,28 @@ class ParallelAnalyzer:
     # Minimum files to benefit from parallel processing
     MIN_FILES_FOR_PARALLEL = 100
     
-    def __init__(self, max_workers: Optional[int] = None):
+    def __init__(self, max_workers: Optional[int] = None, cache: Optional[AnalysisCache] = None):
         """
         Initialize the parallel analyzer.
         
         Args:
             max_workers: Maximum number of worker processes/threads.
                         Defaults to CPU count.
+            cache: AnalysisCache instance for caching results.
+                  Defaults to global singleton.
         """
         self.max_workers = max_workers or max(1, multiprocessing.cpu_count() - 1)
         self.parser_manager = ParserManager()
+        self.cache = cache or analysis_cache
         self._stats = {
             "total_files": 0,
             "parsed_files": 0,
+            "cached_files": 0,
             "failed_files": 0,
             "total_time_ms": 0.0,
             "files_by_language": {},
-            "mode": "sequential"  # or "parallel"
+            "mode": "sequential",  # or "parallel"
+            "cache_enabled": True
         }
     
     def collect_files(self, project_path: str) -> List[str]:
@@ -304,7 +315,10 @@ class ParallelAnalyzer:
     def parse_files_parallel(
         self, 
         files: List[str], 
-        global_symbols: Dict[str, Dict]
+        global_symbols: Dict[str, Dict],
+        project_path: str = "",
+        file_hashes: Dict[str, str] = None,
+        use_cache: bool = True
     ) -> List[EndpointNodes]:
         """
         Parse all files in parallel with global context.
@@ -314,10 +328,16 @@ class ParallelAnalyzer:
         Args:
             files: List of file paths to parse
             global_symbols: Pre-scanned global symbols for cross-file resolution
+            project_path: Root path for cache association
+            file_hashes: Pre-computed file hashes
+            use_cache: Whether to save results to cache
             
         Returns:
             List of all parsed EndpointNodes
         """
+        if file_hashes is None:
+            file_hashes = {}
+            
         all_endpoints = []
         start_time = time.time()
         
@@ -347,6 +367,24 @@ class ParallelAnalyzer:
                         lang = result.language
                         self._stats["files_by_language"][lang] = \
                             self._stats["files_by_language"].get(lang, 0) + 1
+                        
+                        # Save to cache
+                        if use_cache:
+                            file_hash = file_hashes.get(file_path) or self.cache.compute_file_hash(file_path)
+                            if file_hash:
+                                # Get symbols for this file
+                                file_symbols = {k: v for k, v in global_symbols.items() 
+                                              if v.get("file_path") == file_path}
+                                
+                                self.cache.save(
+                                    file_path=file_path,
+                                    file_hash=file_hash,
+                                    language=lang,
+                                    endpoints=result.endpoints,  # Already in dict form
+                                    symbols=file_symbols,
+                                    parse_time_ms=result.parse_time_ms,
+                                    project_path=project_path
+                                )
                     else:
                         self._stats["failed_files"] += 1
                         if result.error:
@@ -365,7 +403,8 @@ class ParallelAnalyzer:
     def analyze_project(
         self, 
         project_path: str,
-        force_parallel: bool = False
+        force_parallel: bool = False,
+        use_cache: bool = True
     ) -> Tuple[List[EndpointNodes], Dict[str, int], SymbolTable]:
         """
         Analyze an entire project, automatically choosing sequential or parallel mode.
@@ -373,9 +412,12 @@ class ParallelAnalyzer:
         For small projects (< MIN_FILES_FOR_PARALLEL files), uses sequential processing
         to avoid threading overhead. For larger projects, uses parallel processing.
         
+        Supports incremental analysis through caching - only changed files are re-parsed.
+        
         Args:
             project_path: Root path of the project
             force_parallel: Force parallel mode even for small projects
+            use_cache: Enable caching for incremental analysis
             
         Returns:
             Tuple of (endpoints, language_stats, symbol_table)
@@ -384,10 +426,12 @@ class ParallelAnalyzer:
         self._stats = {
             "total_files": 0,
             "parsed_files": 0,
+            "cached_files": 0,
             "failed_files": 0,
             "total_time_ms": 0.0,
             "files_by_language": {},
-            "mode": "sequential"
+            "mode": "sequential",
+            "cache_enabled": use_cache
         }
         
         total_start = time.time()
@@ -400,27 +444,104 @@ class ParallelAnalyzer:
         if not files:
             return [], {}, SymbolTable()
         
-        # 2. Choose mode based on file count
-        use_parallel = force_parallel or len(files) >= self.MIN_FILES_FOR_PARALLEL
+        self._stats["total_files"] = len(files)
         
-        if use_parallel:
-            self._stats["mode"] = "parallel"
-            endpoints, symbol_table = self._analyze_parallel(files)
+        # 2. Check cache for unchanged files (incremental analysis)
+        files_to_parse = files
+        cached_endpoints = []
+        cached_symbols = {}
+        
+        if use_cache:
+            changed_files, unchanged_files, file_hashes = self.cache.get_changed_files(files)
+            
+            if unchanged_files:
+                print(f"[ParallelAnalyzer] Cache: {len(unchanged_files)} unchanged, {len(changed_files)} to parse")
+                
+                # Load cached results for unchanged files
+                cached_results = self.cache.get_cached_batch(unchanged_files)
+                for file_path, cached in cached_results.items():
+                    # Convert cached endpoints to EndpointNodes
+                    for ep_dict in cached.endpoints:
+                        try:
+                            cached_endpoints.append(_dict_to_endpoint(ep_dict))
+                        except Exception:
+                            pass
+                    
+                    # Merge cached symbols
+                    cached_symbols.update(cached.symbols)
+                    
+                    # Update stats
+                    self._stats["cached_files"] += 1
+                    lang = cached.language
+                    self._stats["files_by_language"][lang] = \
+                        self._stats["files_by_language"].get(lang, 0) + 1
+                
+                files_to_parse = changed_files
+            else:
+                file_hashes = {f: self.cache.compute_file_hash(f) for f in files}
         else:
-            self._stats["mode"] = "sequential"
-            endpoints, symbol_table = self._analyze_sequential(files)
+            file_hashes = {}
+        
+        # 3. Choose mode based on file count
+        use_parallel = force_parallel or len(files_to_parse) >= self.MIN_FILES_FOR_PARALLEL
+        
+        if files_to_parse:
+            if use_parallel:
+                self._stats["mode"] = "parallel"
+                parsed_endpoints, symbol_table = self._analyze_parallel(
+                    files_to_parse, project_path, file_hashes, use_cache
+                )
+            else:
+                self._stats["mode"] = "sequential"
+                parsed_endpoints, symbol_table = self._analyze_sequential(
+                    files_to_parse, project_path, file_hashes, use_cache
+                )
+        else:
+            parsed_endpoints = []
+            symbol_table = SymbolTable()
+        
+        # 4. Merge cached and parsed results
+        all_endpoints = cached_endpoints + parsed_endpoints
+        
+        # Merge cached symbols into symbol table
+        for name, info in cached_symbols.items():
+            sym_type = SymbolType.FUNCTION
+            if info.get("type") == "class":
+                sym_type = SymbolType.CLASS
+            elif info.get("type") == "variable":
+                sym_type = SymbolType.VARIABLE
+            
+            symbol_table.add(Symbol(
+                name=name,
+                full_name=name,
+                type=sym_type,
+                file_path=info.get("file_path", ""),
+                line_number=info.get("start_line", 0),
+                end_line_number=info.get("end_line", 0),
+            ))
         
         total_time = (time.time() - total_start) * 1000
         self._stats["total_time_ms"] = total_time
-        print(f"[ParallelAnalyzer] Total analysis time: {total_time:.1f}ms (mode={self._stats['mode']})")
         
-        return endpoints, self._stats["files_by_language"], symbol_table
+        cache_info = f", cached={self._stats['cached_files']}" if use_cache else ""
+        print(f"[ParallelAnalyzer] Total: {total_time:.1f}ms (mode={self._stats['mode']}{cache_info})")
+        
+        return all_endpoints, self._stats["files_by_language"], symbol_table
     
-    def _analyze_sequential(self, files: List[str]) -> Tuple[List[EndpointNodes], SymbolTable]:
+    def _analyze_sequential(
+        self, 
+        files: List[str],
+        project_path: str = "",
+        file_hashes: Dict[str, str] = None,
+        use_cache: bool = True
+    ) -> Tuple[List[EndpointNodes], SymbolTable]:
         """
         Analyze files sequentially (better for small projects).
         """
         print(f"[ParallelAnalyzer] Using sequential mode for {len(files)} files")
+        
+        if file_hashes is None:
+            file_hashes = {}
         
         global_symbols = {}
         symbol_table = SymbolTable()
@@ -458,11 +579,12 @@ class ParallelAnalyzer:
         symbol_time = (time.time() - symbol_start) * 1000
         print(f"[ParallelAnalyzer] Symbol scan complete: {len(global_symbols)} symbols in {symbol_time:.1f}ms")
         
-        # Phase 2: Full Parse
+        # Phase 2: Full Parse with caching
         parse_start = time.time()
         for file_path in files:
             parser = self.parser_manager.get_parser(file_path)
             if parser:
+                file_parse_start = time.time()
                 try:
                     with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
@@ -473,6 +595,27 @@ class ParallelAnalyzer:
                     lang = parser.__class__.__name__.replace("Parser", "").lower()
                     self._stats["files_by_language"][lang] = \
                         self._stats["files_by_language"].get(lang, 0) + 1
+                    
+                    # Save to cache
+                    if use_cache:
+                        file_hash = file_hashes.get(file_path) or self.cache.compute_file_hash(file_path)
+                        if file_hash:
+                            parse_time_file = (time.time() - file_parse_start) * 1000
+                            # Get symbols for this file
+                            file_symbols = {k: v for k, v in global_symbols.items() 
+                                          if v.get("file_path") == file_path}
+                            # Convert endpoints to dict for caching
+                            endpoints_dict = [_endpoint_to_dict(ep) for ep in parsed]
+                            
+                            self.cache.save(
+                                file_path=file_path,
+                                file_hash=file_hash,
+                                language=lang,
+                                endpoints=endpoints_dict,
+                                symbols=file_symbols,
+                                parse_time_ms=parse_time_file,
+                                project_path=project_path
+                            )
                         
                 except Exception as e:
                     self._stats["failed_files"] += 1
@@ -481,14 +624,22 @@ class ParallelAnalyzer:
         parse_time = (time.time() - parse_start) * 1000
         print(f"[ParallelAnalyzer] Parse complete: {len(endpoints)} endpoints in {parse_time:.1f}ms")
         
-        self._stats["total_files"] = len(files)
         return endpoints, symbol_table
     
-    def _analyze_parallel(self, files: List[str]) -> Tuple[List[EndpointNodes], SymbolTable]:
+    def _analyze_parallel(
+        self, 
+        files: List[str],
+        project_path: str = "",
+        file_hashes: Dict[str, str] = None,
+        use_cache: bool = True
+    ) -> Tuple[List[EndpointNodes], SymbolTable]:
         """
         Analyze files in parallel (better for large projects).
         """
         print(f"[ParallelAnalyzer] Using parallel mode with {self.max_workers} workers")
+        
+        if file_hashes is None:
+            file_hashes = {}
         
         # Phase 1: Parallel symbol scanning
         symbol_start = time.time()
@@ -498,7 +649,7 @@ class ParallelAnalyzer:
         
         # Phase 2: Parallel file parsing
         parse_start = time.time()
-        endpoints = self.parse_files_parallel(files, global_symbols)
+        endpoints = self.parse_files_parallel(files, global_symbols, project_path, file_hashes, use_cache)
         parse_time = (time.time() - parse_start) * 1000
         print(f"[ParallelAnalyzer] Parse complete: {len(endpoints)} endpoints in {parse_time:.1f}ms")
         

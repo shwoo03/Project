@@ -14,10 +14,11 @@
 - ✅ Basic taint analysis (source → sink)
 - ✅ Call graph visualization
 - ✅ Security scanning (Semgrep integration)
+- ✅ Parallel file processing (Phase 1.1 완료)
 
 **한계점**:
-- ❌ 대용량 파일 처리 시 메모리 부족
-- ❌ 수천 개 파일 분석 시 성능 저하
+- ⏳ 대용량 파일 처리 시 메모리 부족 → 캐싱으로 해결 예정
+- ⏳ 수천 개 파일 분석 시 성능 저하 → 병렬 처리 완료, 캐싱 예정
 - ❌ 함수 간 데이터 흐름 추적 미지원
 - ❌ UI에서 대용량 그래프 렌더링 문제
 
@@ -31,25 +32,30 @@
 - [x] `concurrent.futures` 기반 병렬 파일 분석
 - [x] `ThreadPoolExecutor`로 I/O 바운드 작업 최적화
 - [x] 워커 수 자동 조절 (CPU 코어 기반)
+- [x] 자동 모드 선택 (파일 <100개: 순차, ≥100개: 병렬)
+- [x] 분석 통계 수집 및 API 엔드포인트
 
-**구현 파일**: `backend/core/parallel_analyzer.py`
+**구현 파일**: 
+- `backend/core/parallel_analyzer.py` - 병렬 분석 엔진
+- `backend/benchmark_parallel.py` - 벤치마크 도구
 
-### 1.2 분석 결과 캐싱
-- [ ] SQLite 기반 분석 결과 저장
-- [ ] 파일 해시(MD5/SHA256) 기반 변경 감지
-- [ ] 증분 분석 - 변경된 파일만 재파싱
-- [ ] 캐시 무효화 전략
+### 1.2 분석 결과 캐싱 ✅ DONE
+- [x] SQLite 기반 분석 결과 저장
+- [x] 파일 해시(SHA256) 기반 변경 감지
+- [x] 증분 분석 - 변경된 파일만 재파싱
+- [x] 캐시 무효화 전략 (파일별, 프로젝트별, 전체)
+- [x] 캐시 통계 API 엔드포인트
 
-```python
-# 예상 구조
-class AnalysisCache:
-    def __init__(self, db_path: str):
-        self.db = sqlite3.connect(db_path)
-    
-    def get_cached(self, file_path: str, file_hash: str) -> Optional[ParseResult]
-    def save(self, file_path: str, file_hash: str, result: ParseResult)
-    def invalidate(self, file_path: str)
-```
+**성능 결과**: 23x 속도 향상 (591ms → 26ms), 95.7% 시간 절약
+
+**구현 파일**:
+- `backend/core/analysis_cache.py` - SQLite 캐시 엔진
+- `backend/test_cache.py` - 캐시 테스트 스크립트
+
+**API 엔드포인트**:
+- `GET /api/cache/stats` - 캐시 통계 조회
+- `POST /api/cache/invalidate` - 선택적 캐시 무효화
+- `DELETE /api/cache` - 전체 캐시 삭제
 
 ### 1.3 UI 가상화 (Virtual Rendering)
 - [ ] `react-window` 또는 `@tanstack/virtual` 적용

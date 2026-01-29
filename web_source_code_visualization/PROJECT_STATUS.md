@@ -59,7 +59,7 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
 - Clicking a deep node highlights the upstream path in neon yellow
 - Helps trace data flow backwards
 
-### 2.7 Template Linking
+### 2.8 Template Linking
 - Detects `render_template()` calls
 - Resolves template file paths
 - Shows template source code
@@ -70,13 +70,14 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
 
 #### Main Application
 - **`main.py`**: FastAPI app with endpoints:
-  - `POST /api/analyze` - Parse and analyze project
+  - `POST /api/analyze` - Parse and analyze project (supports parallel mode)
+  - `GET /api/analyze/stats` - Get analysis statistics ✨ NEW
   - `POST /api/snippet` - Get source code snippet
   - `POST /api/analyze/ai` - AI-powered security analysis
   - `POST /api/analyze/semgrep` - Semgrep security scan
-  - `POST /api/callgraph` - Call graph analysis (NEW)
-  - `POST /api/callgraph/paths` - Find paths to sinks (NEW)
-  - `POST /api/callgraph/metrics` - Function metrics (NEW)
+  - `POST /api/callgraph` - Call graph analysis
+  - `POST /api/callgraph/paths` - Find paths to sinks
+  - `POST /api/callgraph/metrics` - Function metrics
 
 #### Parser Module (`core/parser/`)
 ```
@@ -100,8 +101,9 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
 ```
 
 #### Security Analysis (`core/`)
+- **`parallel_analyzer.py`**: Parallel/sequential file processing ✨ NEW
 - **`taint_analyzer.py`**: Taint analysis engine
-- **`call_graph_analyzer.py`**: Call graph builder (NEW)
+- **`call_graph_analyzer.py`**: Call graph builder
 - **`ai_analyzer.py`**: Groq LLM integration
 - **`cluster_manager.py`**: Node grouping logic
 - **`symbol_table.py`**: Cross-file symbol resolution

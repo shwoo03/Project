@@ -147,7 +147,7 @@ export function DetailPanel({
                 {/* Parameters Table */}
                 {node.data.params && (
                     <div>
-                        <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">입력 파라미터 (Parameters)</label>
+                        <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">함수 파라미터 (Function Parameters)</label>
                         <div className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
                             <table className="w-full text-sm text-left">
                                 <thead>
@@ -168,6 +168,50 @@ export function DetailPanel({
                                         <tr>
                                             <td colSpan={2} className="px-3 py-4 text-center text-zinc-500 italic">
                                                 파라미터 없음
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+
+                {/* User Inputs Table (detected from request.form.get, etc.) */}
+                {node.data.inputs && (
+                    <div>
+                        <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">
+                            🔓 사용자 입력 (User Inputs)
+                        </label>
+                        <div className="bg-white/5 border border-orange-500/30 rounded-lg overflow-hidden">
+                            <table className="w-full text-sm text-left">
+                                <thead>
+                                    <tr className="bg-orange-500/10 text-zinc-400 border-b border-white/10">
+                                        <th className="px-3 py-2 font-medium">입력 이름</th>
+                                        <th className="px-3 py-2 font-medium">소스</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-white/5">
+                                    {node.data.inputs.length > 0 ? (
+                                        node.data.inputs.map((inp: { name: string; source: string }, i: number) => (
+                                            <tr key={i}>
+                                                <td className="px-3 py-2 font-mono text-orange-300">{inp.name}</td>
+                                                <td className="px-3 py-2">
+                                                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${inp.source === 'POST' ? 'bg-red-500/20 text-red-300' :
+                                                            inp.source === 'GET' ? 'bg-blue-500/20 text-blue-300' :
+                                                                inp.source === 'COOKIE' ? 'bg-yellow-500/20 text-yellow-300' :
+                                                                    inp.source === 'HEADER' ? 'bg-purple-500/20 text-purple-300' :
+                                                                        'bg-zinc-500/20 text-zinc-300'
+                                                        }`}>
+                                                        {inp.source}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    ) : (
+                                        <tr>
+                                            <td colSpan={2} className="px-3 py-4 text-center text-zinc-500 italic">
+                                                탐지된 입력 없음
                                             </td>
                                         </tr>
                                     )}

@@ -76,6 +76,7 @@ export interface NodeData {
     findings?: SecurityFinding[];
     vulnerabilityCount?: number;
     initialStyle?: React.CSSProperties;
+    inputs?: { name: string; source: string }[];
     [key: string]: any;
 }
 

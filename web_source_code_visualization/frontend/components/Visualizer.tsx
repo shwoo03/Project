@@ -353,6 +353,14 @@ const Visualizer = () => {
                 style = s; width = w; height = h;
             }
 
+            // Extract inputs from children (type='input' nodes)
+            const extractedInputs = (node.children || [])
+                .filter((child: Endpoint) => child.type === 'input')
+                .map((inp: Endpoint) => ({
+                    name: inp.path,
+                    source: inp.method || 'unknown'
+                }));
+
             if (!addedNodeIds.has(node.id)) {
                 addNodeSafe({
                     id: node.id,
@@ -361,6 +369,7 @@ const Visualizer = () => {
                         label: label,
                         ...node,
                         params: node.params || [],
+                        inputs: extractedInputs,
                         initialStyle: style
                     },
                     style: { ...style, width, height },

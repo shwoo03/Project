@@ -2,27 +2,41 @@ import subprocess
 import json
 import os
 import shutil
+import tempfile
+import sys
 from typing import List, Dict, Any
 
 class SemgrepAnalyzer:
     def __init__(self):
-        # Check if semgrep is available in path
-        self.semgrep_path = shutil.which("semgrep")
-        if not self.semgrep_path:
-            # Try to use the one in venv if not found globally
-            venv_semgrep = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "venv", "Scripts", "semgrep.exe")
-            if os.path.exists(venv_semgrep):
-                self.semgrep_path = venv_semgrep
-            else:
-                 # Fallback to just 'semgrep' command hope it works
-                self.semgrep_path = "semgrep"
+        # Use 'python -m semgrep' to avoid Korean path issues with .exe launchers
+        self.python_path = sys.executable
+        # Semgrep command will be: python -m semgrep scan ...
+
+    def _has_non_ascii(self, path: str) -> bool:
+        """Check if path contains non-ASCII characters (e.g., Korean)."""
+        try:
+            path.encode('ascii')
+            return False
+        except UnicodeEncodeError:
+            return True
 
     def scan_project(self, project_path: str) -> List[Dict[str, Any]]:
         if not os.path.exists(project_path):
             return [{"error": "Project path does not exist"}]
 
         findings = []
+        temp_dir = None
+        scan_path = project_path
+        
         try:
+            # Handle non-ASCII paths by copying to temp directory
+            if self._has_non_ascii(project_path):
+                print(f"Detected non-ASCII path, copying to temp directory...")
+                temp_dir = tempfile.mkdtemp(prefix="semgrep_scan_")
+                scan_path = os.path.join(temp_dir, "project")
+                shutil.copytree(project_path, scan_path)
+                print(f"Copied to: {scan_path}")
+            
             # Custom rules path
             custom_rules_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "rules", "custom_security.yaml")
             
@@ -35,17 +49,17 @@ class SemgrepAnalyzer:
                      f.write("rules: []\n")
 
             cmd = [
-                self.semgrep_path,
+                self.python_path,
+                "-m", "semgrep",
                 "scan",
                 "--json",
                 f"--config={custom_rules_path}",
-                project_path
+                scan_path
             ]
             
             print(f"Running Semgrep (Custom Only): {' '.join(cmd)}")
             
             # Run command
-            # Creation flags for hiding console window on Windows if needed, but subprocess usually fine
             env = os.environ.copy()
             env["PYTHONUTF8"] = "1"
             
@@ -54,35 +68,46 @@ class SemgrepAnalyzer:
                 capture_output=True, 
                 text=True, 
                 encoding='utf-8', 
-                errors='ignore', # Handle encoding issues
+                errors='ignore',
                 env=env
             )
             
             if result.returncode != 0 and result.stderr:
                  print(f"Semgrep Error: {result.stderr}")
-                 # Sometimes semgrep returns exit code 1 if findings are found? 
-                 # No, usually 0 success, 1 error. finding triggers exit code if --error flag used.
-                 # Let's check output regardless.
             
             if result.stdout:
                 data = json.loads(result.stdout)
                 results = data.get("results", [])
                 
                 for r in results:
-                    # Parse interesting fields
+                    # Get path and restore original path if we used temp dir
+                    file_path = r.get("path", "")
+                    if temp_dir and file_path.startswith(scan_path):
+                        # Replace temp path with original path
+                        relative_path = os.path.relpath(file_path, scan_path)
+                        file_path = os.path.join(project_path, relative_path)
+                    
                     findings.append({
                         "check_id": r.get("check_id"),
-                        "path": r.get("path"), # Relative path usually
+                        "path": file_path,
                         "line": r.get("start", {}).get("line"),
                         "col": r.get("start", {}).get("col"),
                         "message": r.get("extra", {}).get("message"),
-                        "severity": r.get("extra", {}).get("severity"), # ERROR, WARNING
+                        "severity": r.get("extra", {}).get("severity"),
                         "lines": r.get("extra", {}).get("lines")
                     })
                     
         except Exception as e:
             print(f"Semgrep execution failed: {e}")
             return [{"error": str(e)}]
+        finally:
+            # Clean up temp directory
+            if temp_dir and os.path.exists(temp_dir):
+                try:
+                    shutil.rmtree(temp_dir)
+                    print(f"Cleaned up temp directory: {temp_dir}")
+                except Exception as e:
+                    print(f"Failed to clean up temp directory: {e}")
             
         return findings
 

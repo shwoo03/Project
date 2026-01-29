@@ -4,23 +4,14 @@ rules:
     languages: [python]
     message: |
       쿠키 기반 인증 취약점이 감지되었습니다 (Cookie Manipulation / Broken Access Control).
-      request.cookies.get()으로 가져온 값을 직접 권한 검사에 사용하면 공격자가 쿠키를 조작하여
+      request.cookies.get()으로 가져온 값을 직접 사용하면 공격자가 쿠키를 조작하여
       권한을 상승시킬 수 있습니다. Flask session 객체를 사용하거나 서버 측에서 세션을 관리하세요.
       CWE-284: 부적절한 접근 제어
       CWE-565: 검증 및 무결성 확인 없이 쿠키에 의존
     severity: ERROR
-    patterns:
-      - pattern-either:
-          - pattern: |
-              $VAR = request.cookies.get(...)
-              ...
-              if $VAR == "admin":
-                  ...
-          - pattern: |
-              $VAR = request.cookies.get("username", ...)
-              ...
-              if $VAR:
-                  ...
+    pattern-either:
+      - pattern: request.cookies.get(...)
+      - pattern: request.cookies[...]
     metadata:
       category: security
       subcategory:

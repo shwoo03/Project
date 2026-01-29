@@ -7,7 +7,7 @@
 ```
 Phase 1: The Runner     [==================>    ] 1~2주 ✅
 Phase 2: The Brain      [===================>    ] 2~3주 ✅
-Phase 3: The Chameleon  [===============>        ] 3~4주
+Phase 3: The Chameleon  [====================>  ] 3~4주
 Phase 4: Polish         [                        ] 2주
                         ────────────────────────────────
                         Total: 8~11주
@@ -122,18 +122,23 @@ Phase 4: Polish         [                        ] 2주
   - [x] 변이 전략 인터페이스
   - [x] 랜덤 변이 선택기
 
-### Task 3.5: AFL 스타일 변이
-- [ ] `internal/mutator/afl.go` 구현
-  - [ ] Bit flip (1, 2, 4 bits)
-  - [ ] Byte flip
-  - [ ] Arithmetic operations
-  - [ ] Interesting values
+### Task 3.5: AFL 스타일 변이 ✅
+- [x] `internal/mutator/afl.go` 구현
+  - [x] Bit flip (1, 2, 4 bits)
+  - [x] Byte flip (1, 2, 4 bytes)
+  - [x] Arithmetic operations (8, 16, 32 bit)
+  - [x] Interesting values (8, 16, 32 bit)
+  - [x] Byte swap (2, 4 bytes)
+  - [x] Random byte mutation
+  - [x] Delete/Insert/Clone mutations
 
-### Task 3.6: 타입 인식 변이
-- [ ] `internal/mutator/smart.go` 구현
-  - [ ] 자료형 추론
-  - [ ] 타입별 페이로드 선택
-  - [ ] JSON/XML 구조 보존
+### Task 3.6: 타입 인식 변이 ✅
+- [x] `internal/mutator/smart.go` 구현
+  - [x] 자료형 추론 (TypeInferrer)
+  - [x] 타입별 페이로드 선택 (SQLi, XSS, 등)
+  - [x] JSON/XML 구조 보존
+  - [x] 경계값 변이 (BoundaryMutator)
+  - [x] 유니코드 공격 (UnicodeAttackMutator)
 
 ### Task 3.7: 시나리오 엔진
 - [ ] `internal/scenario/scenario.go` 구현
@@ -187,6 +192,8 @@ Phase 4: Polish         [                        ] 2주
 | 2026-01-30 | 3 | Task 3.2 Dynamic Pool | Thread-safe 저장소, TTL 만료, 중복 제거 |
 | 2026-01-30 | 3 | Task 3.3 템플릿 치환 | 변수 치환, 내장 함수, 조건부 치환 |
 | 2026-01-30 | 3 | Task 3.4 Mutator 엔진 | Mutator 인터페이스, Registry, 랜덤/가중치 선택기 |
+| 2026-01-30 | 3 | Task 3.5 AFL 스타일 변이 | BitFlip, ByteFlip, Arithmetic, InterestingValue, 기타 |
+| 2026-01-30 | 3 | Task 3.6 타입 인식 변이 | SmartMutator, JSON/XML 변이, TypeInferrer, Unicode 공격 |
 
 ---
 

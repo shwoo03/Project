@@ -153,11 +153,25 @@ def analyze_project(request: AnalyzeRequest):
     if not request.use_parallel:
         # 1. Collect all files first
         all_files = []
-        for root, _, files in os.walk(project_path):
-            if "venv" in root or "node_modules" in root or ".git" in root:
-                continue
-            for file in files:
-                all_files.append(os.path.join(root, file))
+        try:
+            # Normalize path for Unicode handling
+            normalized_project_path = os.path.normpath(project_path)
+            
+            for root, _, files in os.walk(normalized_project_path):
+                if "venv" in root or "node_modules" in root or ".git" in root:
+                    continue
+                for file in files:
+                    try:
+                        file_path = os.path.join(root, file)
+                        # Verify file is accessible
+                        if os.path.isfile(file_path) and os.access(file_path, os.R_OK):
+                            all_files.append(file_path)
+                    except (OSError, UnicodeDecodeError) as e:
+                        print(f"[WARN] Skipping file {file}: {e}")
+                        continue
+        except Exception as e:
+            print(f"[ERROR] Failed to walk directory {project_path}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to access directory: {str(e)}")
 
         # Phase 1: Global Symbol Scan
         global_symbols = {}
@@ -168,7 +182,9 @@ def analyze_project(request: AnalyzeRequest):
             parser = parser_manager.get_parser(file_path)
             if parser:
                 try:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    # Normalize path for Unicode
+                    normalized_path = os.path.normpath(file_path)
+                    with open(normalized_path, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
                     # Scan symbols (lightweight parse)
                     symbols = parser.scan_symbols(file_path, content)
@@ -192,15 +208,20 @@ def analyze_project(request: AnalyzeRequest):
                             end_line_number=info.get("end_line", 0),
                             inherits_from=info.get("inherits", [])
                         ))
+                except (UnicodeDecodeError, IOError, OSError) as file_err:
+                    print(f"[WARN] File read error during symbol scan {file_path}: {file_err}")
+                    continue
                 except Exception as e:
-                    print(f"Error scanning symbols {file_path}: {e}")
+                    print(f"[ERROR] Error scanning symbols {file_path}: {e}")
 
         # Phase 2: Detailed Parse with Global Context
         for file_path in all_files:
             parser = parser_manager.get_parser(file_path)
             if parser:
                 try:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    # Normalize path for Unicode
+                    normalized_path = os.path.normpath(file_path)
+                    with open(normalized_path, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
                         
                     # Pass global_symbols to parse functionality
@@ -212,8 +233,11 @@ def analyze_project(request: AnalyzeRequest):
                     lang = parser.__class__.__name__.replace("Parser", "").lower()
                     language_stats[lang] = language_stats.get(lang, 0) + 1
                     
+                except (UnicodeDecodeError, IOError, OSError) as file_err:
+                    print(f"[WARN] File read error during parsing {file_path}: {file_err}")
+                    continue
                 except Exception as e:
-                    print(f"Error parsing {file_path}: {e}")
+                    print(f"[ERROR] Error parsing {file_path}: {e}")
     
     # Phase 3: Clustering (Optional)
     if request.cluster:

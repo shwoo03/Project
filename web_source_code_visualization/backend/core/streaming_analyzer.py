@@ -91,14 +91,27 @@ class StreamingAnalyzer:
     def _collect_files(self, project_path: str) -> List[str]:
         """Collect all parseable files from project."""
         files = []
-        for root, dirs, filenames in os.walk(project_path):
-            # Skip ignored directories
-            dirs[:] = [d for d in dirs if d not in self.SKIP_DIRS]
+        try:
+            # Normalize path to handle Unicode correctly
+            normalized_project_path = os.path.normpath(project_path)
             
-            for filename in filenames:
-                ext = os.path.splitext(filename)[1].lower()
-                if ext in self.SUPPORTED_EXTENSIONS:
-                    files.append(os.path.join(root, filename))
+            for root, dirs, filenames in os.walk(normalized_project_path):
+                # Skip ignored directories
+                dirs[:] = [d for d in dirs if d not in self.SKIP_DIRS]
+                
+                for filename in filenames:
+                    try:
+                        ext = os.path.splitext(filename)[1].lower()
+                        if ext in self.SUPPORTED_EXTENSIONS:
+                            file_path = os.path.join(root, filename)
+                            # Verify file is accessible
+                            if os.path.isfile(file_path) and os.access(file_path, os.R_OK):
+                                files.append(file_path)
+                    except (OSError, UnicodeDecodeError) as e:
+                        print(f"[WARN] Skipping file {filename}: {e}")
+                        continue
+        except Exception as e:
+            print(f"[ERROR] Failed to collect files from {project_path}: {e}")
         
         return files
     
@@ -276,19 +289,29 @@ class StreamingAnalyzer:
                 
                 # Parse if not cached
                 if not from_cache:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        content = f.read()
-                    
-                    endpoints = parser.parse(
-                        file_path, content,
-                        global_symbols=global_symbols,
-                        symbol_table=symbol_table
-                    )
-                    
-                    # Cache the result
-                    if use_cache and endpoints:
-                        file_hash = analysis_cache.compute_file_hash(file_path)
-                        analysis_cache.save(file_path, file_hash, endpoints)
+                    # Add timeout and better error handling for file reading
+                    try:
+                        # Normalize path for Unicode handling
+                        normalized_path = os.path.normpath(file_path)
+                        with open(normalized_path, "r", encoding="utf-8", errors="ignore") as f:
+                            content = f.read()
+                        
+                        # Parse with timeout protection
+                        endpoints = parser.parse(
+                            file_path, content,
+                            global_symbols=global_symbols,
+                            symbol_table=symbol_table
+                        )
+                        
+                        # Cache the result
+                        if use_cache and endpoints:
+                            file_hash = analysis_cache.compute_file_hash(file_path)
+                            analysis_cache.save(file_path, file_hash, endpoints)
+                            
+                    except (UnicodeDecodeError, IOError, OSError) as file_err:
+                        print(f"[WARN] File read error: {file_path}: {file_err}")
+                        failed_count += 1
+                        continue
                 
                 all_endpoints.extend(endpoints)
                 
@@ -317,6 +340,7 @@ class StreamingAnalyzer:
                     await asyncio.sleep(0)
                 
             except Exception as e:
+                print(f"[ERROR] Parse error for {file_path}: {e}")
                 failed_count += 1
             
             # Progress update

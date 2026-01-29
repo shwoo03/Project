@@ -43,9 +43,11 @@ smart web fuzzer/
 │   ├── mutator/                 # 변이 엔진 ✅
 │   │   ├── mutator.go          # 변이 인터페이스, Registry, Engine
 │   │   ├── mutator_test.go     # 변이 엔진 테스트
-│   │   ├── radamsa.go          # Radamsa 스타일 변이 (예정)
-│   │   ├── afl.go              # AFL 스타일 변이 (예정)
-│   │   └── smart.go            # 타입 인식 스마트 변이 (예정)
+│   │   ├── afl.go              # AFL 스타일 변이 ✅
+│   │   ├── afl_test.go         # AFL 변이 테스트 ✅
+│   │   ├── smart.go            # 타입 인식 스마트 변이 ✅
+│   │   ├── smart_test.go       # 스마트 변이 테스트 ✅
+│   │   └── radamsa.go          # Radamsa 스타일 변이 (예정)
 │   │
 │   ├── requester/              # HTTP 요청 엔진
 │   │   ├── requester.go        # 요청 처리 메인 로직

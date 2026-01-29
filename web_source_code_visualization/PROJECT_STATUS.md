@@ -3,8 +3,8 @@
 This document summarizes the current state of the project to assist future AI sessions in picking up the work immediately.
 
 **Last Updated**: 2026-01-31  
-**Version**: 0.11.0  
-**Roadmap**: See [ROADMAP.md](ROADMAP.md) for future development plans
+**Version**: 0.11.2  
+**Roadmap**: See [ROADMAP2.md](ROADMAP2.md) for future development plans
 
 ## 1. Project Overview
 A comprehensive security analysis tool that visualizes the call graph, data flow, and security vulnerabilities of web applications across multiple languages and frameworks.
@@ -543,3 +543,44 @@ react-syntax-highlighter, tailwindcss
 - [ ] **Real-time File Watching**: Auto-refresh on file change
 - [ ] **CI/CD Integration**: GitHub Actions support
 - [ ] **Collaboration**: Comments and assignments
+
+---
+
+## 2.20 Bug Fix: Analysis Stuck Issue (2026-01-31)
+
+### Issue
+- 분석 버튼 클릭 시 "분석 중..." 메시지에서 멈춤
+- 한글 경로(`새싹` 등) 포함 디렉토리 분석 실패
+- 백엔드 서버 시작 오류
+
+### Resolution ✅
+1. **한글 경로 처리 개선**
+   - `os.path.normpath()` 추가로 경로 정규화
+   - Unicode 인코딩 에러 핸들링 강화
+   
+2. **파일 접근성 검증**
+   - `os.access()`, `os.path.isfile()` 체크 추가
+   - 접근 불가능한 파일 자동 스킵
+
+3. **에러 핸들링 강화**
+   - `UnicodeDecodeError`, `IOError`, `OSError` 분리 처리
+   - 상세한 로깅 추가
+
+4. **진단 도구 추가**
+   - `diagnose_directory.py` - 디렉토리 분석 진단
+   - `check_backend.py` - 백엔드 서버 상태 확인
+   - `start_server.ps1` - 자동 서버 시작 스크립트
+
+### Files Modified
+- `backend/core/streaming_analyzer.py`
+- `backend/main.py`
+
+### Files Added
+- `backend/diagnose_directory.py`
+- `backend/check_backend.py`
+- `backend/start_server.ps1`
+- `docs/TROUBLESHOOTING_ANALYSIS_STUCK.md`
+- `QUICK_FIX.md`
+- `FIXED.md`
+
+**Version**: 0.11.1 → 0.11.2

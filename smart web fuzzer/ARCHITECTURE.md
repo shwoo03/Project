@@ -82,6 +82,28 @@ type MutatorEngine struct {
 | UUID | 형식 유지, 부분 변조 | `00000000-0000-0000-...` |
 | JSON | 타입 혼란, 키 조작 | `{"id": "string"}` → `{"id": 999}` |
 
+**AFL 스타일 변이기** (내장):
+| 변이기 | 설명 |
+|--------|------|
+| BitFlipMutator | 비트 플립 (1, 2, 4 bits) |
+| ByteFlipMutator | 바이트 플립 (1, 2, 4 bytes) |
+| ArithmeticMutator | 산술 연산 (8, 16, 32 bit) |
+| InterestingValueMutator | 경계값 삽입 (8, 16, 32 bit) |
+| ByteSwapMutator | 바이트 스왑 (2, 4 bytes) |
+| RandomByteMutator | 랜덤 바이트 대체 |
+| DeleteMutator | 바이트 삭제 |
+| InsertMutator | 바이트 삽입 |
+| CloneMutator | 바이트 복제 |
+
+**스마트 변이기** (타입 인식):
+| 카테고리 | 변이기 | 설명 |
+|----------|--------|------|
+| Security | SmartMutator | SQLi, XSS, Path Traversal, Cmd Injection 등 10종 |
+| JSON | JSONMutator | Type Confusion, Key Mangling, Structure Mutation 등 |
+| XML | XMLMutator | XXE, Tag Mangling, CDATA Injection 등 |
+| General | BoundaryMutator | 정수, 실수, 문자열, UUID, 이메일 경계값 |
+| Unicode | UnicodeAttackMutator | Homoglyphs, Null Injection, Overflows |
+
 ### 2.2 Requester Engine (요청 엔진)
 
 **역할**: 초당 수천 건의 HTTP 요청을 비동기로 전송

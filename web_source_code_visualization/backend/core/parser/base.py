@@ -9,7 +9,7 @@ class BaseParser(ABC):
         pass
 
     @abstractmethod
-    def parse(self, file_path: str, content: str) -> List[EndpointNodes]:
+    def parse(self, file_path: str, content: str, global_symbols: dict = None, symbol_table: Any = None) -> List[EndpointNodes]:
         """Parse source code and return a list of endpoints."""
         pass
 

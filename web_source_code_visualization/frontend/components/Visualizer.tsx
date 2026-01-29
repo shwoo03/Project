@@ -42,13 +42,14 @@ const Visualizer = () => {
     const [allFiles, setAllFiles] = useState<string[]>([]);
     const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
     const [showFileTree, setShowFileTree] = useState(true);
+    const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
 
     // When selectedFiles changes, re-process nodes
     useEffect(() => {
         if (analysisData && analysisData.endpoints) {
             processNodes(analysisData.endpoints);
         }
-    }, [selectedFiles, analysisData]);
+    }, [selectedFiles, analysisData, expandedClusters]);
 
     const getNamedArg = (args: string[] | undefined, name: string) => {
         if (!args || args.length === 0) return null;
@@ -183,6 +184,14 @@ const Visualizer = () => {
     };
 
     const onNodeClick = async (event: React.MouseEvent, node: Node) => {
+        if (node.type === 'cluster') {
+            const next = new Set(expandedClusters);
+            if (next.has(node.id)) next.delete(node.id);
+            else next.add(node.id);
+            setExpandedClusters(next);
+            return;
+        }
+
         setSelectedNode(node);
         setCurrentCode("");
 
@@ -377,6 +386,7 @@ const Visualizer = () => {
         }
     };
 
+
     const analyzeProject = async () => {
         if (!projectPath) return;
         setLoading(true);
@@ -384,7 +394,7 @@ const Visualizer = () => {
             const res = await fetch('http://localhost:8000/api/analyze', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ path: projectPath })
+                body: JSON.stringify({ path: projectPath, cluster: true })
             });
             const data = await res.json();
 
@@ -471,158 +481,131 @@ const Visualizer = () => {
             }
         }, 180, 60);
 
-        // 2. Process Routes
-        endpoints.forEach((ep: any) => {
-            // FILTER: Only process endpoints belonging to selected files
-            if (!selectedFiles.has(ep.file_path)) return;
+        // Recursive Node Processor
+        const processNode = (node: any, parentId: string, level: number) => {
+            // FILTER: If it's a file node, check selection.
+            // If it's a cluster, we might want to show it if ANY child is selected?
+            // For now, lenient filtering. To avoid empty graph, maybe show all clusters?
+            // Or filter clusters that contain NO selected files?
 
-            if (ep.type === 'root') {
-                const routeId = ep.id;
-                // Aggregate discovered inputs to display in Details Panel
-                const inputParams = (ep.children || [])
-                    .filter((c: any) => c.type === 'input')
-                    .map((c: any) => {
-                        let typeLabel = "Unknown";
-                        if (c.method === 'GET') typeLabel = 'Query Param (GET)';
-                        else if (c.method === 'POST') typeLabel = 'Form Data (POST)';
-                        else if (c.method === 'COOKIE') typeLabel = 'Cookie';
-                        else if (c.method === 'HEADER') typeLabel = 'Header';
-                        else if (c.method === 'FILE') typeLabel = 'File Upload';
-                        else if (c.method === 'PATH') typeLabel = 'Path Param';
-                        else if (c.method === 'BODY_JSON') typeLabel = 'JSON Body';
-                        else if (c.method === 'BODY_RAW') typeLabel = 'Raw Body';
+            // Visual config based on type
+            let style = {};
+            let label = node.path;
+            let nodeType = 'default';
+            let width = 200;
+            let height = 60;
 
-                        return {
-                            name: c.path,
-                            type: typeLabel,
-                            source: 'discovered'
-                        };
-                    });
-
-                // Route Node (Depth 1)
-                addNodeSafe({
-                    id: routeId,
-                    position: { x: 0, y: 0 },
-                    data: {
-                        label: ep.path,
-                        params: [...ep.params, ...inputParams],
-                        file_path: ep.file_path,
-                        line_number: ep.line_number,
-                        end_line_number: ep.end_line_number,
-                        filters: ep.filters || []
-                    },
-                    style: {
+            if (node.type === 'cluster') {
+                label = `📁 ${node.path}`;
+                style = {
+                    background: '#1e293b',
+                    color: '#fcd34d', // Amber-300
+                    border: '2px dashed #fcd34d',
+                    borderRadius: '8px',
+                    padding: '10px',
+                    fontWeight: 'bold',
+                    textAlign: 'center'
+                };
+            } else if (node.type === 'root' || node.method === 'FUNC' || node.type === 'function') {
+                width = 220;
+                if (node.file_path && !node.metadata) { // Likely a File
+                    style = {
                         background: '#0a0a0a',
                         color: '#00f0ff',
                         borderRadius: '12px',
                         border: '2px solid #00f0ff',
                         padding: '10px',
-                        width: 220,
                         fontWeight: 'bold',
                         textAlign: 'center',
                         boxShadow: '0 0 15px #00f0ff20'
-                    },
-                    type: 'default'
-                }, 220, 70);
+                    };
+                } else { // Function inside
+                    width = 160;
+                    height = 40;
+                    style = {
+                        background: '#1a001a',
+                        border: '1px solid #bd00ff',
+                        color: '#bd00ff',
+                        borderRadius: '4px',
+                        padding: '5px',
+                        fontSize: '12px'
+                    };
+                }
+            } else if (node.type === 'call') {
+                label = `Call: ${node.path}()`;
+                width = 150; height = 40;
+                style = {
+                    background: '#1a001a',
+                    border: '1px dashed #bd00ff',
+                    color: '#bd00ff',
+                    borderRadius: '4px',
+                    padding: '5px 10px',
+                    fontSize: '12px'
+                };
+            } else if (node.type === 'database') {
+                label = `🗄️ ${node.path.replace("Table: ", "")}`;
+                width = 180;
+                style = {
+                    background: '#1c1c1c',
+                    border: '2px solid #ea580c',
+                    color: '#fb923c',
+                    borderRadius: '12px',
+                    padding: '10px',
+                    fontSize: '13px',
+                    fontWeight: 'bold',
+                    boxShadow: '0 0 15px #ea580c40',
+                    textAlign: 'center'
+                };
+            } else if (node.type === 'input') {
+                return; // Skip inputs
+            }
 
-                // Connect Root -> Route
+            // Add Node
+            if (!addedNodeIds.has(node.id)) {
+                addNodeSafe({
+                    id: node.id,
+                    position: { x: 0, y: 0 }, // Position calculated later
+                    data: {
+                        label: label,
+                        ...node,
+                        params: node.params || []
+                    },
+                    style: { ...style, width, height },
+                    type: nodeType
+                }, width, height);
+            }
+
+            // Add Edge from Parent
+            if (parentId) {
                 addEdgeSafe({
-                    id: `e-${rootId}-${routeId}`,
-                    source: rootId,
-                    target: routeId,
+                    id: `e-${parentId}-${node.id}`,
+                    source: parentId,
+                    target: node.id,
                     type: 'smoothstep',
                     animated: true,
-                    style: { stroke: '#00f0ff', strokeWidth: 2 }
+                    style: { stroke: '#475569', strokeWidth: 1.5 }
                 });
-
-                // Process Inputs & Calls (Children) - Linear Flow
-                // We can chain them: Route -> Node1 -> Node2 ...
-
-                let previousNodeId = routeId;
-
-                if (ep.children && ep.children.length > 0) {
-                    ep.children.forEach((child: any, i: number) => {
-                        // Skip Input nodes for visualization (requested by user)
-                        if (child.type === 'input') return;
-
-                        // Ensure unique ID for children if backend sends duplicates
-                        // Appending index creates unique ID within this route context if needed, 
-                        // but better to rely on backend ID if unique. 
-                        // If backend ID is not unique across tree, we might need a prefix.
-                        // Assuming backend ID might be duplicated across calls, allow it but don't add duplicate node.
-                        // However, different calls to same template should be different nodes ideally.
-                        // If endpoint returns same ID for different calls, that's a backend issue, 
-                        // but we can handle it by checking if ID exists.
-
-                        const childId = child.id;
-                        let childLabel = "";
-                        let childStyle = {};
-
-                        if (child.type === 'child') { // Call
-                            childLabel = `Call: ${child.path}()`;
-                            childStyle = {
-                                background: '#1a001a',
-                                border: '1px dashed #bd00ff',
-                                color: '#bd00ff',
-                                borderRadius: '4px',
-                                padding: '5px 10px',
-                                fontSize: '12px',
-                                width: 150
-                            };
-                        } else if (child.type === 'database') {
-                            childLabel = `🗄️ ${child.path.replace("Table: ", "")}`; // Show Icon + Table Name
-                            childStyle = {
-                                background: '#1c1c1c',
-                                border: '2px solid #ea580c', // Orange color for DB
-                                color: '#fb923c',
-                                borderRadius: '12px',
-                                padding: '10px',
-                                fontSize: '13px',
-                                fontWeight: 'bold',
-                                width: 180,
-                                boxShadow: '0 0 15px #ea580c40',
-                                textAlign: 'center'
-                            };
-                        } else {
-                            return;
-                        }
-
-                        // Try to add node. If it exists, we might still want an edge if it's a shared node logic (unlikely here)
-                        // But for tree visualization, we usually want unique instances.
-                        // If we see duplicate ID, we could append a suffix to make it unique if it's actually a different call.
-                        // For now, let's just use addNodeSafe which prevents duplicates.
-
-                        // If childId is already added, it means we have a duplicate node ID.
-                        // To show all calls even if IDs clash, we should generate unique ID.
-                        const uniqueChildId = addedNodeIds.has(childId) ? `${childId}_${i}` : childId;
-
-                        addNodeSafe({
-                            id: uniqueChildId,
-                            position: { x: 0, y: 0 },
-                            data: {
-                                label: childLabel,
-                                file_path: child.file_path,
-                                line_number: child.line_number,
-                                end_line_number: child.end_line_number,
-                                filters: child.filters || [],
-                                template_context: child.template_context,
-                                template_usage: child.template_usage
-                            },
-                            style: childStyle,
-                            type: 'default'
-                        }, 150, 40);
-
-                        addEdgeSafe({
-                            id: `e-${routeId}-${uniqueChildId}`,
-                            source: routeId,
-                            target: uniqueChildId,
-                            type: 'smoothstep',
-                            markerEnd: { type: MarkerType.ArrowClosed, color: '#555' },
-                            style: { stroke: '#555', strokeDasharray: '5,5' }
-                        });
-                    });
-                }
             }
+
+            // Recurse children
+            // Recurse children
+            const isCluster = node.type === 'cluster';
+            const shouldRecurse = !isCluster || expandedClusters.has(node.id);
+
+            if (shouldRecurse && node.children && node.children.length > 0) {
+                node.children.forEach((child: any) => {
+                    processNode(child, node.id, level + 1);
+                });
+            }
+        };
+
+        // 2. Process Routes (Endpoints) recursively
+        endpoints.forEach((ep: any) => {
+            // Top level filter
+            if (ep.type !== 'cluster' && !selectedFiles.has(ep.file_path)) return;
+
+            // Connect to Root
+            processNode(ep, rootId, 1);
         });
 
         dagre.layout(g);
@@ -641,7 +624,6 @@ const Visualizer = () => {
         setNodes(newNodes);
         setEdges(newEdges);
     };
-
     return (
         <div className="flex h-screen w-full bg-[#050505] text-white">
             {/* Header/Control Bar */}
@@ -704,11 +686,11 @@ const Visualizer = () => {
                                 >
                                     <div className={`w-3 h-3 flex-shrink-0 rounded-full border ${isSelected ? 'bg-blue-500 border-blue-400' : 'border-zinc-600'}`} />
                                     <span className="truncate" title={file}>{fileName}</span>
-                                </div>
+                                </div >
                             );
                         })}
-                    </div>
-                </div>
+                    </div >
+                </div >
             )}
 
             <div className="flex-1 h-full relative">
@@ -753,37 +735,39 @@ const Visualizer = () => {
             </div>
 
             {/* File Tree Sidebar */}
-            {allFiles.length > 0 && showFileTree && (
-                <div className="absolute top-24 left-4 z-40 w-64 max-h-[calc(100vh-150px)] bg-black/80 backdrop-blur rounded-xl border border-white/10 flex flex-col overflow-hidden">
-                    <div className="p-3 border-b border-white/10 bg-white/5 flex justify-between items-center">
-                        <span className="font-bold text-sm text-zinc-300">File Browser ({allFiles.length})</span>
-                        <div className="flex gap-2 text-xs">
-                            <button onClick={() => setSelectedFiles(new Set(allFiles))} className="hover:text-white text-zinc-500">All</button>
-                            <button onClick={() => setSelectedFiles(new Set())} className="hover:text-white text-zinc-500">None</button>
+            {
+                allFiles.length > 0 && showFileTree && (
+                    <div className="absolute top-24 left-4 z-40 w-64 max-h-[calc(100vh-150px)] bg-black/80 backdrop-blur rounded-xl border border-white/10 flex flex-col overflow-hidden">
+                        <div className="p-3 border-b border-white/10 bg-white/5 flex justify-between items-center">
+                            <span className="font-bold text-sm text-zinc-300">File Browser ({allFiles.length})</span>
+                            <div className="flex gap-2 text-xs">
+                                <button onClick={() => setSelectedFiles(new Set(allFiles))} className="hover:text-white text-zinc-500">All</button>
+                                <button onClick={() => setSelectedFiles(new Set())} className="hover:text-white text-zinc-500">None</button>
+                            </div>
+                        </div>
+                        <div className="overflow-y-auto p-2 space-y-1">
+                            {allFiles.map(file => {
+                                const isSelected = selectedFiles.has(file);
+                                const fileName = file.split(/[/\\]/).pop(); // Simple basename
+                                return (
+                                    <div key={file}
+                                        className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-xs ${isSelected ? 'bg-blue-500/20 text-blue-300' : 'hover:bg-white/5 text-zinc-500'}`}
+                                        onClick={() => {
+                                            const next = new Set(selectedFiles);
+                                            if (next.has(file)) next.delete(file);
+                                            else next.add(file);
+                                            setSelectedFiles(next);
+                                        }}
+                                    >
+                                        <div className={`w-3 h-3 rounded-full border ${isSelected ? 'bg-blue-500 border-blue-400' : 'border-zinc-600'}`} />
+                                        <span className="truncate" title={file}>{fileName}</span>
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
-                    <div className="overflow-y-auto p-2 space-y-1">
-                        {allFiles.map(file => {
-                            const isSelected = selectedFiles.has(file);
-                            const fileName = file.split(/[/\\]/).pop(); // Simple basename
-                            return (
-                                <div key={file}
-                                    className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-xs ${isSelected ? 'bg-blue-500/20 text-blue-300' : 'hover:bg-white/5 text-zinc-500'}`}
-                                    onClick={() => {
-                                        const next = new Set(selectedFiles);
-                                        if (next.has(file)) next.delete(file);
-                                        else next.add(file);
-                                        setSelectedFiles(next);
-                                    }}
-                                >
-                                    <div className={`w-3 h-3 rounded-full border ${isSelected ? 'bg-blue-500 border-blue-400' : 'border-zinc-600'}`} />
-                                    <span className="truncate" title={file}>{fileName}</span>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            )}
+                )
+            }
 
             <AnimatePresence>
                 {selectedNode && (

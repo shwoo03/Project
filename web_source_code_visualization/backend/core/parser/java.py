@@ -14,7 +14,7 @@ class JavaParser(BaseParser):
     def can_parse(self, file_path: str) -> bool:
         return file_path.endswith('.java')
 
-    def parse(self, file_path: str, content: str, global_symbols: Dict[str, Dict] = None) -> List[EndpointNodes]:
+    def parse(self, file_path: str, content: str, global_symbols: Dict[str, Dict] = None, symbol_table: Any = None) -> List[EndpointNodes]:
         tree = self.parser.parse(bytes(content, "utf8"))
         root_node = tree.root_node
         

@@ -7,22 +7,8 @@ from dotenv import load_dotenv
 
 from core.parser import ParserManager
 from core.ai_analyzer import AIAnalyzer
+from core.cluster_manager import ClusterManager
 from models import ProjectStructure, EndpointNodes
-
-# Load .env from root directory
-load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
-
-app = FastAPI(title="Web Source Code Visualization API")
-
-# CORS Setup
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"], 
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 
 # Load .env from root directory
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
@@ -40,9 +26,11 @@ app.add_middleware(
 
 parser_manager = ParserManager()
 ai_analyzer = AIAnalyzer()
+cluster_manager = ClusterManager()
 
 class AnalyzeRequest(BaseModel):
     path: str
+    cluster: bool = False
 
 @app.post("/api/analyze", response_model=ProjectStructure)
 def analyze_project(request: AnalyzeRequest):
@@ -63,6 +51,9 @@ def analyze_project(request: AnalyzeRequest):
 
     # Phase 1: Global Symbol Scan
     global_symbols = {}
+    from core.symbol_table import SymbolTable, Symbol, SymbolType
+    symbol_table = SymbolTable()
+
     for file_path in all_files:
         parser = parser_manager.get_parser(file_path)
         if parser:
@@ -72,6 +63,25 @@ def analyze_project(request: AnalyzeRequest):
                 # Scan symbols (lightweight parse)
                 symbols = parser.scan_symbols(file_path, content)
                 global_symbols.update(symbols)
+                
+                # Populate SymbolTable
+                for name, info in symbols.items():
+                    # Determine type
+                    sym_type = SymbolType.FUNCTION
+                    if info.get("type") == "class":
+                        sym_type = SymbolType.CLASS
+                    elif info.get("type") == "variable":
+                        sym_type = SymbolType.VARIABLE
+                    
+                    symbol_table.add(Symbol(
+                        name=name,
+                        full_name=name, # TODO: Resolve full name with module path
+                        type=sym_type,
+                        file_path=file_path,
+                        line_number=info.get("start_line", 0),
+                        end_line_number=info.get("end_line", 0),
+                        inherits_from=info.get("inherits", [])
+                    ))
             except Exception as e:
                 print(f"Error scanning symbols {file_path}: {e}")
 
@@ -84,10 +94,7 @@ def analyze_project(request: AnalyzeRequest):
                     content = f.read()
                     
                 # Pass global_symbols to parse functionality
-                # Check signature of parse first? We updated PythonParser, but others might need update if any
-                # Assuming BaseParser definition updated in all subclasses or kwargs used. 
-                # Our PythonParser supports it.
-                parsed_endpoints = parser.parse(file_path, content, global_symbols=global_symbols)
+                parsed_endpoints = parser.parse(file_path, content, global_symbols=global_symbols, symbol_table=symbol_table)
                 
                 endpoints.extend(parsed_endpoints)
                 
@@ -95,8 +102,11 @@ def analyze_project(request: AnalyzeRequest):
                 lang = parser.__class__.__name__.replace("Parser", "").lower()
                 language_stats[lang] = language_stats.get(lang, 0) + 1
                 
-            except Exception as e:
                 print(f"Error parsing {file_path}: {e}")
+    
+    # Phase 3: Clustering (Optional)
+    if request.cluster:
+        endpoints = cluster_manager.cluster_endpoints(endpoints)
 
     return ProjectStructure(
         root_path=project_path,
@@ -167,41 +177,6 @@ def analyze_code_with_ai(request: AIAnalyzeRequest):
         referenced_files=referenced_files
     )
     
-    return result
-    # Also deduplicate
-    unique_paths = list(set(request.related_paths))
-    
-    total_size = 0
-    MAX_CONTEXT_SIZE = 50000 # Increased to 50KB for deep analysis 
-
-    for path in unique_paths:
-        if not path or not os.path.exists(path):
-            continue
-            
-        try:
-             size = os.path.getsize(path)
-             if total_size + size > MAX_CONTEXT_SIZE:
-                 break # Stop if too big
-                 
-             with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                 content = f.read()
-                 rel_path = os.path.relpath(path, request.project_path) if request.project_path else os.path.basename(path)
-                 file_contexts.append(f"File: {rel_path}\n```\n{content}\n```")
-                 total_size += size
-        except Exception as e:
-            print(f"Failed to read context file {path}: {e}")
-
-    # If no related paths (or too few), maybe fallback to project scan? 
-    # But user specifically requested focusing on the call stack. 
-    # So strictly use what Frontend sends.
-    
-    project_context = "\n--- Related Files (Call Stack & Templates) ---\n" + "\n".join(file_contexts)
-    
-    # Combine specific context (node info) with gathered files
-    full_context = f"{request.context}\n{project_context}"
-
-    # Perform Analysis
-    result = ai_analyzer.analyze_code(request.code, full_context)
     return result
 
 from core.analyzer.semgrep_analyzer import semgrep_analyzer

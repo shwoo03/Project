@@ -30,7 +30,7 @@ class PythonParser(BaseParser):
     def can_parse(self, file_path: str) -> bool:
         return file_path.endswith(".py")
 
-    def parse(self, file_path: str, content: str, global_symbols: Dict[str, Dict] = None) -> List[EndpointNodes]:
+    def parse(self, file_path: str, content: str, global_symbols: Dict[str, Dict] = None, symbol_table: Any = None) -> List[EndpointNodes]:
         tree = self.parser.parse(bytes(content, "utf8"))
         root_node = tree.root_node
         endpoints = []
@@ -39,8 +39,15 @@ class PythonParser(BaseParser):
         if global_symbols is None:
             global_symbols = self.scan_symbols(file_path, content)
 
-        
+        # Extract imports for this file
+        file_imports = self.extract_imports(root_node, content)
+
         def get_node_text(node):
+            return node.text.decode('utf-8')
+
+        # ... (helpers omitted for brevity in diff, assume they exist) ...
+
+        def traverse_clean(node, defined_funcs):
             return node.text.decode('utf-8')
 
         def extract_path_params(path_text: str) -> List[str]:
@@ -174,7 +181,7 @@ class PythonParser(BaseParser):
             return params
 
         # Helper to find function calls inside a block
-        def extract_calls(node, defined_funcs: Dict[str, Dict]) -> List[Dict]:
+        def extract_calls(node, defined_funcs: Dict[str, Dict], file_imports: Dict[str, str] = None, symbol_table: Any = None) -> List[Dict]:
             calls = []
             if node.type == 'call':
                 func_node = node.child_by_field_name('function')
@@ -229,15 +236,38 @@ class PythonParser(BaseParser):
                                          }
                                      })
 
-                    # 2. Check if it references a known function (Local or Global)
-                    elif func_name in defined_funcs:
-                        calls.append({
-                            "name": func_name,
-                            "def_info": defined_funcs[func_name]
-                        })
+                    else:
+                        # 2. General logic: Check Symbol Table -> Local Def -> Global Def
+                        def_info = None
+                        
+                        # A. Symbol Table Resolution (Deep Analysis)
+                        if symbol_table:
+                             resolved = symbol_table.lookup(func_name, imports=file_imports)
+                             if resolved:
+                                 def_info = {
+                                     "file_path": resolved.file_path,
+                                     "start_line": resolved.line_number,
+                                     "end_line": resolved.end_line_number,
+                                     "filters": [], # TODO: Store filters in Symbol?
+                                     "sanitization": []
+                                 }
+                        
+                        # B. Local Definition
+                        if not def_info and func_name in defined_funcs:
+                             def_info = defined_funcs[func_name]
+                        
+                        # C. Global Dict Resolution (Fallback/Legacy)
+                        if not def_info and func_name in global_symbols:
+                             def_info = global_symbols[func_name]
+                             
+                        if def_info:
+                            calls.append({
+                                "name": func_name,
+                                "def_info": def_info
+                            })
             
             for child in node.children:
-                calls.extend(extract_calls(child, defined_funcs))
+                calls.extend(extract_calls(child, defined_funcs, file_imports, symbol_table))
             return calls
 
         def get_input_from_call(node):
@@ -572,7 +602,7 @@ class PythonParser(BaseParser):
                                              "type": "UserInput"
                                          })
 
-                        calls = extract_calls(definition, defined_funcs) # Internal calls (using global defs)
+                        calls = extract_calls(definition, defined_funcs, file_imports, symbol_table) # Internal calls (using global defs)
                         filters = extract_sanitizers(definition)
 
                         sanitization = extract_sanitization_details(definition)
@@ -664,15 +694,17 @@ class PythonParser(BaseParser):
                         path=call_info['name'],
                         method="CALL",
                         language="python",
-                        # Use Definition Location
-                        file_path=def_info['file_path'],
-                        line_number=def_info['start_line'],
-                        end_line_number=def_info['end_line'],
+                        file_path=file_path, 
+                        line_number=node.start_point.row + 1,
+                        
+                        # Metadata for resolution
+                        metadata={"definition": def_info},
+                        
                         filters=def_info.get("filters", []),
                         sanitization=def_info.get("sanitization", []),
                         template_context=def_info.get("template_context", []),
                         template_usage=def_info.get("template_usage", []),
-                        type="child"
+                        type="call"
                     ))
 
                 endpoints.append(EndpointNodes(
@@ -755,18 +787,39 @@ class PythonParser(BaseParser):
                 name_node = n.child_by_field_name('name')
                 if name_node: 
                     fn_name = get_node_text(name_node)
-                    # We can do a light pass for sanitizers or just skip deep analysis for global table
-                    # Ideally we want full info.
-                    # Since we are implementing scan_symbols, we can copy the logic or refactor.
-                    # For now, let's copy the light sanitizer extraction to ensure 'filters' field exists.
                     filters = extract_sanitizers(n)
                     
                     defined_funcs[fn_name] = {
+                        "type": "function",
                         "file_path": file_path,
                         "start_line": n.start_point.row + 1,
                         "end_line": n.end_point.row + 1,
                         "filters": filters,
-                        "sanitization": [], # skipping deep analysis for perf in pass 1
+                        "sanitization": [],
+                        "template_context": [],
+                        "template_usage": []
+                    }
+            elif n.type == 'class_definition':
+                name_node = n.child_by_field_name('name')
+                if name_node:
+                    class_name = get_node_text(name_node)
+                    
+                    # Extract inheritance
+                    inherits = []
+                    args_node = n.child_by_field_name('superclasses')
+                    if args_node:
+                        for child in args_node.children:
+                            if child.is_named:
+                                inherits.append(get_node_text(child))
+
+                    defined_funcs[class_name] = {
+                        "type": "class",
+                        "file_path": file_path,
+                        "start_line": n.start_point.row + 1,
+                        "end_line": n.end_point.row + 1,
+                        "inherits": inherits,
+                        "filters": [],
+                        "sanitization": [],
                         "template_context": [],
                         "template_usage": []
                     }
@@ -820,3 +873,62 @@ class PythonParser(BaseParser):
                 nodes_to_visit.append(child)
                 
         return sql_nodes
+
+    def extract_imports(self, node, content: str) -> Dict[str, str]:
+        """
+        Extract imports mapping: alias -> full_name
+        e.g. from models import User -> {'User': 'models.User'}
+        import utils -> {'utils': 'utils'}
+        import utils as u -> {'u': 'utils'}
+        """
+        imports = {}
+        
+        stack = [node]
+        while stack:
+            curr = stack.pop()
+            
+            if curr.type == 'import_from_statement':
+                # from module_name import name
+                module_node = curr.child_by_field_name('module_name')
+                if module_node:
+                    module_name = content[module_node.start_byte:module_node.end_byte]
+                    
+                    # Iterate names
+                    for child in curr.children:
+                        if child.type == 'aliased_import':
+                            # from x import y as z
+                            name_node = child.child_by_field_name('name')
+                            alias_node = child.child_by_field_name('alias')
+                            if name_node and alias_node:
+                                real_name = content[name_node.start_byte:name_node.end_byte]
+                                alias = content[alias_node.start_byte:alias_node.end_byte]
+                                imports[alias] = f"{module_name}.{real_name}"
+                        elif child.type == 'dotted_name' and child != module_node:
+                            # from x import y.z
+                            name = content[child.start_byte:child.end_byte]
+                            imports[name] = f"{module_name}.{name}"
+                            pass
+                        elif child.type == 'identifier' and child != module_node:
+                            # from x import y
+                            name = content[child.start_byte:child.end_byte]
+                            imports[name] = f"{module_name}.{name}"
+                            
+            elif curr.type == 'import_statement':
+                # import x, y as z
+                for child in curr.children:
+                    if child.type == 'dotted_name':
+                        name = content[child.start_byte:child.end_byte]
+                        imports[name] = name
+                    elif child.type == 'aliased_import':
+                        name_node = child.child_by_field_name('name')
+                        alias_node = child.child_by_field_name('alias')
+                        if name_node and alias_node:
+                            real_name = content[name_node.start_byte:name_node.end_byte]
+                            alias = content[alias_node.start_byte:alias_node.end_byte]
+                            imports[alias] = real_name
+            
+            if curr.type not in ['function_definition', 'class_definition']:
+                for c in curr.children:
+                    stack.append(c)
+                    
+        return imports

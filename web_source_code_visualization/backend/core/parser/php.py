@@ -16,7 +16,7 @@ class PHPParser(BaseParser):
     def scan_symbols(self, file_path: str, content: str) -> dict:
         return {}
 
-    def parse(self, file_path: str, content: str) -> List[EndpointNodes]:
+    def parse(self, file_path: str, content: str, global_symbols: Dict[str, Dict] = None, symbol_table: Any = None) -> List[EndpointNodes]:
         tree = self.parser.parse(bytes(content, "utf8"))
         root_node = tree.root_node
         

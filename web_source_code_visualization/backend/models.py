@@ -17,11 +17,12 @@ class EndpointNodes(BaseModel):
     params: List[Parameter] = []
     children: List['EndpointNodes'] = []
     depth: int = 1
-    type: Literal['root', 'child', 'input', 'call', 'default', 'database'] = 'root' 
+    type: Literal['root', 'child', 'input', 'call', 'default', 'database', 'cluster'] = 'root' 
     filters: List[dict] = []
     sanitization: List[dict] = []
     template_context: List[dict] = []
     template_usage: List[dict] = []
+    metadata: dict = {}
 
     class Config:
         populate_by_name = True

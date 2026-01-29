@@ -2,8 +2,8 @@
 
 This document summarizes the current state of the project to assist future AI sessions in picking up the work immediately.
 
-**Last Updated**: 2026-01-30  
-**Version**: 0.6.0  
+**Last Updated**: 2025-01-31  
+**Version**: 0.7.0  
 **Roadmap**: See [ROADMAP.md](ROADMAP.md) for future development plans
 
 ## 1. Project Overview
@@ -131,6 +131,51 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
   - `backend/core/import_resolver.py` - Import resolution engine
   - `backend/test_import_resolver.py` - Test suite
 
+### 2.14 Type Inference ✨ NEW
+- **Multi-Source Type Inference**: Extracts types from annotations, literals, and expressions
+- **Language Support**: Python, JavaScript, TypeScript
+- **Type Categories**: Primitive, Collection, Class, Function, Union, Generic, Any, None, Unknown
+- **Confidence Scoring**: Each inferred type includes confidence level
+- **Inference Sources**:
+  - Python: Type annotations, literals, docstrings, function return types
+  - JavaScript: Literal inference, JSDoc comments, class definitions
+  - TypeScript: Full type system (interfaces, generics, unions)
+- **Key Features**:
+  - Variable type tracking with scope awareness
+  - Function signature extraction (params, return types, decorators)
+  - Class type information (attributes, methods, base classes)
+  - Type history tracking for variables
+- **Stats on Real Project**:
+  - 54 files analyzed
+  - 939 types from annotations, 1165 from literals, 864 inferred
+  - 2968 variables, 523 functions, 96 classes
+- **Files**:
+  - `backend/core/type_inferencer.py` - Type inference engine (~1000 LOC)
+  - `backend/test_type_inferencer.py` - Test suite (6 tests)
+
+### 2.15 Class Hierarchy Analysis ✨ NEW
+- **Inheritance Graph**: Complete class inheritance relationship mapping
+- **Multi-Language Support**: Python, JavaScript, TypeScript
+- **Class Kinds**: CLASS, ABSTRACT_CLASS, INTERFACE, MIXIN, PROTOCOL, ENUM, DATACLASS
+- **Method Kinds**: INSTANCE, STATIC, CLASS_METHOD, ABSTRACT, PROPERTY, CONSTRUCTOR
+- **Key Features**:
+  - Method Resolution Order (MRO) using C3 linearization algorithm
+  - Method override detection with parent tracking
+  - Diamond inheritance detection
+  - Interface implementation tracking
+  - Polymorphic call resolution
+  - Visualization-ready inheritance graph
+- **Language-Specific**:
+  - Python: `@abstractmethod`, `@staticmethod`, `@classmethod`, `@property`, `ABC`, `Protocol`
+  - JavaScript: ES6 classes, prototype patterns, constructor detection
+  - TypeScript: Interfaces, abstract classes, implements clauses
+- **Stats on Real Project**:
+  - 96 classes, 366 methods, 51 overrides
+  - 48 inheritance edges, 0 diamond patterns
+- **Files**:
+  - `backend/core/class_hierarchy.py` - Class hierarchy analyzer (~1200 LOC)
+  - `backend/test_class_hierarchy.py` - Test suite (9 tests)
+
 ## 3. Key Architecture & Files
 
 ### Backend (`backend/`)
@@ -147,10 +192,20 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
   - `POST /api/taint/interprocedural` - Inter-procedural taint analysis
   - `POST /api/taint/interprocedural/full` - Full analysis with summaries
   - `POST /api/taint/paths` - Taint path discovery
-  - `POST /api/imports/resolve` - Import resolution & dependency graph ✨ NEW
-  - `POST /api/imports/graph` - Visualization-friendly dependency graph ✨ NEW
-  - `POST /api/imports/symbol` - Symbol definition resolution ✨ NEW
-  - `POST /api/imports/module` - Module details with exports ✨ NEW
+  - `POST /api/imports/resolve` - Import resolution & dependency graph
+  - `POST /api/imports/graph` - Visualization-friendly dependency graph
+  - `POST /api/imports/symbol` - Symbol definition resolution
+  - `POST /api/imports/module` - Module details with exports
+  - `POST /api/types/analyze` - Full project type analysis ✨ NEW
+  - `POST /api/types/variable` - Query variable type ✨ NEW
+  - `POST /api/types/function` - Query function signature ✨ NEW
+  - `POST /api/types/class` - Query class type info ✨ NEW
+  - `POST /api/hierarchy/analyze` - Full class hierarchy analysis ✨ NEW
+  - `POST /api/hierarchy/class` - Get class ancestors/descendants ✨ NEW
+  - `POST /api/hierarchy/implementations` - Find interface implementors ✨ NEW
+  - `POST /api/hierarchy/method` - Get method override chain ✨ NEW
+  - `POST /api/hierarchy/polymorphic` - Resolve polymorphic call targets ✨ NEW
+  - `POST /api/hierarchy/graph` - Visualization-ready inheritance graph ✨ NEW
   - `POST /api/callgraph` - Call graph analysis
   - `POST /api/callgraph/paths` - Find paths to sinks
   - `POST /api/callgraph/metrics` - Function metrics
@@ -184,7 +239,9 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
 - **`analysis_cache.py`**: SQLite-based analysis caching
 - **`taint_analyzer.py`**: Taint analysis engine
 - **`interprocedural_taint.py`**: Inter-procedural taint analysis
-- **`import_resolver.py`**: Enhanced import resolution ✨ NEW
+- **`import_resolver.py`**: Enhanced import resolution
+- **`type_inferencer.py`**: Type inference engine ✨ NEW
+- **`class_hierarchy.py`**: Class hierarchy analyzer ✨ NEW
 - **`call_graph_analyzer.py`**: Call graph builder
 - **`streaming_analyzer.py`**: Streaming analysis engine
 - **`ai_analyzer.py`**: Groq LLM integration

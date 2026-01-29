@@ -6,7 +6,7 @@
 
 ```
 Phase 1: The Runner     [==================>    ] 1~2주 ✅
-Phase 2: The Brain      [                        ] 2~3주
+Phase 2: The Brain      [======>                 ] 2~3주
 Phase 3: The Chameleon  [                        ] 3~4주
 Phase 4: Polish         [                        ] 2주
                         ────────────────────────────────
@@ -60,18 +60,18 @@ Phase 4: Polish         [                        ] 2주
 > **예상 기간**: 2~3주  
 > **성공 기준**: 정상 응답과 에러 페이지를 구조적으로 구분
 
-### Task 2.1: Baseline 학습 시스템
-- [ ] `internal/analyzer/baseline.go` 구현
-  - [ ] 초기 N회 요청으로 기준 수집
-  - [ ] 평균 응답 시간 계산
-  - [ ] 평균 응답 길이 계산
-  - [ ] 표준 편차 계산
+### Task 2.1: Baseline 학습 시스템 ✅
+- [x] `internal/analyzer/baseline.go` 구현
+  - [x] 초기 N회 요청으로 기준 수집
+  - [x] 평균 응답 시간 계산
+  - [x] 평균 응답 길이 계산
+  - [x] 표준 편차 계산
 
-### Task 2.2: SimHash 구현
-- [ ] `internal/analyzer/simhash.go` 구현
-  - [ ] HTML 구조 추출
-  - [ ] 토큰화 및 해시 생성
-  - [ ] Hamming Distance 계산
+### Task 2.2: SimHash 구현 ✅
+- [x] `internal/analyzer/simhash.go` 구현
+  - [x] HTML 구조 추출
+  - [x] 토큰화 및 해시 생성
+  - [x] Hamming Distance 계산
 
 ### Task 2.3: TLSH 연동
 - [ ] `internal/analyzer/tlsh.go` 구현
@@ -178,6 +178,8 @@ Phase 4: Polish         [                        ] 2주
 |------|-------|----------|------|
 | 2026-01-30 | 1 | 프로젝트 초기화, 문서 작성 | 시작 |
 | 2026-01-30 | 1 | Task 1.6 검증 구현 | 벤치마크, 안정성, 메모리 테스트 완료 |
+| 2026-01-30 | 2 | Task 2.1 Baseline 학습 시스템 | 통계 분석, 이상 탐지 기능 구현 |
+| 2026-01-30 | 2 | Task 2.2 SimHash 구현 | HTML 구조 추출, Hamming Distance |
 
 ---
 

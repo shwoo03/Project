@@ -14,6 +14,8 @@
 - ✅ Basic taint analysis (source → sink)
 - ✅ Inter-procedural taint analysis (Phase 2.1 완료)
 - ✅ Enhanced import resolution (Phase 2.2 완료, 86.7% 해석률)
+- ✅ Type inference (Phase 2.3 완료)
+- ✅ Class hierarchy analysis (Phase 2.4 완료)
 - ✅ Call graph visualization
 - ✅ Security scanning (Semgrep integration)
 - ✅ Parallel file processing (Phase 1.1 완료)
@@ -22,9 +24,8 @@
 - ✅ Streaming API (Phase 1.4 완료)
 
 **한계점**:
-- ⏳ 동적 타입 언어 타입 추론 → Phase 2.3 예정
-- ⏳ 클래스 계층 구조 분석 → Phase 2.4 예정
 - ❌ 마이크로서비스 API 추적 미지원 → Phase 3 예정
+- ❌ 분산 분석 아키텍처 미구현 → Phase 3 예정
 
 ---
 
@@ -111,7 +112,7 @@
 
 ---
 
-## 🔧 Phase 2: Core Analysis Enhancement (3-4주)
+## 🔧 Phase 2: Core Analysis Enhancement ✅ COMPLETE
 
 > **목표**: 정확한 코드 분석과 함수 간 데이터 흐름 추적
 

@@ -135,6 +135,7 @@ func TestBaseline_CheckAnomaly_LongResponse(t *testing.T) {
 	b := NewBaseline(&BaselineConfig{
 		MinSamples:                5,
 		MaxSamples:                10,
+		TimeThresholdMultiplier:   10.0, // Set high to avoid false positives
 		LengthThresholdMultiplier: 2.0,
 	})
 
@@ -164,8 +165,10 @@ func TestBaseline_CheckAnomaly_LongResponse(t *testing.T) {
 
 func TestBaseline_CheckAnomaly_UnexpectedStatus(t *testing.T) {
 	b := NewBaseline(&BaselineConfig{
-		MinSamples: 5,
-		MaxSamples: 10,
+		MinSamples:                5,
+		MaxSamples:                10,
+		TimeThresholdMultiplier:   10.0,
+		LengthThresholdMultiplier: 10.0,
 	})
 
 	// Add baseline samples with 200 status

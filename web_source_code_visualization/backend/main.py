@@ -14,6 +14,7 @@ from core.call_graph_analyzer import CallGraphAnalyzer
 from core.parallel_analyzer import ParallelAnalyzer
 from core.analysis_cache import analysis_cache
 from core.streaming_analyzer import streaming_analyzer, StreamEvent
+from core.interprocedural_taint import InterProceduralTaintAnalyzer, analyze_interprocedural_taint
 from models import ProjectStructure, EndpointNodes, TaintFlowEdge, CallGraphData
 
 # Load .env from root directory
@@ -505,5 +506,109 @@ def get_function_metrics(request: CallGraphRequest):
         metrics = call_graph_analyzer.get_function_metrics()
         
         return {"metrics": metrics}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# Inter-Procedural Taint Analysis API
+# ============================================
+
+class InterProceduralRequest(BaseModel):
+    project_path: str
+    max_depth: int = 10
+    max_call_chain: int = 20
+
+
+@app.post("/api/taint/interprocedural")
+def analyze_interprocedural(request: InterProceduralRequest):
+    """
+    Perform inter-procedural taint analysis on a project.
+    
+    This analyzes taint flow across function calls:
+    - Function summaries: Tracks input→output taint mappings
+    - Call graph integration: Propagates taint through function calls
+    - Context-sensitive: Considers call context for precision
+    
+    Returns:
+        - flows: List of inter-procedural taint flows
+        - summaries: Function taint summaries
+        - statistics: Analysis metrics
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        analyzer = InterProceduralTaintAnalyzer(
+            max_depth=request.max_depth,
+            max_call_chain=request.max_call_chain
+        )
+        result = analyzer.analyze_project(request.project_path)
+        
+        return {
+            "flows": result["flows"],
+            "statistics": result["statistics"],
+            "summaries_count": len(result["summaries"]),
+            "vulnerable_functions": analyzer.get_vulnerable_functions()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/taint/interprocedural/full")
+def analyze_interprocedural_full(request: InterProceduralRequest):
+    """
+    Perform full inter-procedural taint analysis with complete summaries.
+    
+    Returns complete data including all function summaries.
+    Warning: May be large for big projects.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        result = analyze_interprocedural_taint(
+            request.project_path,
+            max_depth=request.max_depth
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/taint/paths")
+def get_taint_paths(request: CallGraphRequest):
+    """
+    Find all taint paths between functions.
+    
+    Returns paths that can propagate taint from entry points to sinks.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        analyzer = InterProceduralTaintAnalyzer()
+        result = analyzer.analyze_project(request.project_path)
+        
+        # Group flows by source→sink
+        paths_by_flow = {}
+        for flow in result["flows"]:
+            key = f"{flow['source']['file']}:{flow['source']['line']} → {flow['sink']['file']}:{flow['sink']['line']}"
+            if key not in paths_by_flow:
+                paths_by_flow[key] = {
+                    "source": flow["source"],
+                    "sink": flow["sink"],
+                    "paths": []
+                }
+            paths_by_flow[key]["paths"].append({
+                "call_chain": flow["call_chain"],
+                "description": flow["path_description"],
+                "sanitized": flow["sanitized"]
+            })
+        
+        return {
+            "taint_paths": list(paths_by_flow.values()),
+            "total_paths": len(result["flows"])
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

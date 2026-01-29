@@ -3,7 +3,7 @@
 This document summarizes the current state of the project to assist future AI sessions in picking up the work immediately.
 
 **Last Updated**: 2026-01-30  
-**Version**: 0.4.0  
+**Version**: 0.5.0  
 **Roadmap**: See [ROADMAP.md](ROADMAP.md) for future development plans
 
 ## 1. Project Overview
@@ -36,6 +36,7 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
 - **Sink Detection**: Identifies dangerous functions (eval, exec, SQL queries, etc.)
 - **Semgrep Integration**: External security scanner with custom rules support
 - **AI-Powered Analysis**: Groq LLM integration for code security review
+- **Inter-Procedural Taint Analysis** ✨ NEW: Tracks taint across function calls
 
 ### 2.4 Call Graph Analysis
 - **Function-to-function call tracking**: Who calls whom?
@@ -104,6 +105,18 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
 - Resolves template file paths
 - Shows template source code
 
+### 2.12 Inter-Procedural Taint Analysis ✨ NEW
+- **Function Summaries**: Captures how functions propagate taint (input→output mapping)
+- **Call Graph Integration**: Follows taint through function call chains
+- **Context-Sensitive**: Considers call context for precise tracking
+- **Recursive Handling**: Detects and safely handles recursive calls
+- **Configurable Depth**: Limits analysis depth to prevent infinite loops
+- **Sanitizer Recognition**: Detects when taint is sanitized (html.escape, shlex.quote, etc.)
+- **Vulnerability Types**: XSS, SQLi, Command Injection, Path Traversal, SSTI, SSRF
+- **Files**:
+  - `backend/core/interprocedural_taint.py` - Analysis engine
+  - `backend/test_interprocedural.py` - Test suite
+
 ## 3. Key Architecture & Files
 
 ### Backend (`backend/`)
@@ -111,12 +124,15 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
 #### Main Application
 - **`main.py`**: FastAPI app with endpoints:
   - `POST /api/analyze` - Parse and analyze project (supports parallel mode)
-  - `POST /api/analyze/stream` - Streaming analysis (SSE/NDJSON) ✨ NEW
-  - `POST /api/analyze/stream/cancel` - Cancel streaming analysis ✨ NEW
+  - `POST /api/analyze/stream` - Streaming analysis (SSE/NDJSON)
+  - `POST /api/analyze/stream/cancel` - Cancel streaming analysis
   - `GET /api/analyze/stats` - Get analysis statistics
   - `POST /api/snippet` - Get source code snippet
   - `POST /api/analyze/ai` - AI-powered security analysis
   - `POST /api/analyze/semgrep` - Semgrep security scan
+  - `POST /api/taint/interprocedural` - Inter-procedural taint analysis ✨ NEW
+  - `POST /api/taint/interprocedural/full` - Full analysis with summaries ✨ NEW
+  - `POST /api/taint/paths` - Taint path discovery ✨ NEW
   - `POST /api/callgraph` - Call graph analysis
   - `POST /api/callgraph/paths` - Find paths to sinks
   - `POST /api/callgraph/metrics` - Function metrics
@@ -149,7 +165,9 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
 - **`parallel_analyzer.py`**: Parallel/sequential file processing
 - **`analysis_cache.py`**: SQLite-based analysis caching
 - **`taint_analyzer.py`**: Taint analysis engine
+- **`interprocedural_taint.py`**: Inter-procedural taint analysis ✨ NEW
 - **`call_graph_analyzer.py`**: Call graph builder
+- **`streaming_analyzer.py`**: Streaming analysis engine
 - **`ai_analyzer.py`**: Groq LLM integration
 - **`cluster_manager.py`**: Node grouping logic
 - **`symbol_table.py`**: Cross-file symbol resolution

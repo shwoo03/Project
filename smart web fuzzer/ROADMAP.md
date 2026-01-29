@@ -1,0 +1,206 @@
+# 📊 FluxFuzzer 개발 로드맵
+
+> 이 문서는 프로젝트의 단계별 개발 계획을 정의합니다.
+
+## 전체 타임라인 개요
+
+```
+Phase 1: The Runner     [===>                    ] 1~2주
+Phase 2: The Brain      [                        ] 2~3주
+Phase 3: The Chameleon  [                        ] 3~4주
+Phase 4: Polish         [                        ] 2주
+                        ────────────────────────────────
+                        Total: 8~11주
+```
+
+---
+
+## 📦 Phase 1: The Runner (기초 체력 다지기)
+
+> **목표**: 빠르고 안정적인 요청 엔진 구축  
+> **예상 기간**: 1~2주  
+> **성공 기준**: 로컬 테스트 서버에 초당 1,000 RPS 달성
+
+### Task 1.1: 프로젝트 초기 설정 ✅
+- [x] Go 모듈 초기화
+- [x] 디렉토리 구조 생성
+- [x] 기본 의존성 정의
+
+### Task 1.2: FastHTTP 기반 HTTP 클라이언트
+- [ ] `internal/requester/client.go` 구현
+  - [ ] fasthttp.Client 래퍼
+  - [ ] 연결 풀링 설정
+  - [ ] 타임아웃/재시도 로직
+
+### Task 1.3: Worker Pool 구현
+- [ ] `internal/requester/worker_pool.go` 구현
+  - [ ] panjf2000/ants 기반 고루틴 풀
+  - [ ] 동적 워커 스케일링
+  - [ ] 우아한 종료 처리
+
+### Task 1.4: 워드리스트 로더
+- [ ] `internal/config/wordlist.go` 구현
+  - [ ] SecLists 형식 지원
+  - [ ] 메모리 효율적 로딩 (스트리밍)
+  - [ ] 중복 제거
+
+### Task 1.5: 기본 CLI
+- [ ] `cmd/fluxfuzzer/main.go` 구현
+  - [ ] 기본 플래그 파싱
+  - [ ] 설정 파일 로딩
+  - [ ] 버전 정보
+
+### Task 1.6: 검증
+- [ ] 벤치마크 테스트 작성
+- [ ] 1시간 안정성 테스트
+- [ ] 메모리 누수 검사
+
+---
+
+## 🧠 Phase 2: The Brain (구조적 차분 분석)
+
+> **목표**: 서버의 미세한 반응 변화를 감지하는 분석 엔진  
+> **예상 기간**: 2~3주  
+> **성공 기준**: 정상 응답과 에러 페이지를 구조적으로 구분
+
+### Task 2.1: Baseline 학습 시스템
+- [ ] `internal/analyzer/baseline.go` 구현
+  - [ ] 초기 N회 요청으로 기준 수집
+  - [ ] 평균 응답 시간 계산
+  - [ ] 평균 응답 길이 계산
+  - [ ] 표준 편차 계산
+
+### Task 2.2: SimHash 구현
+- [ ] `internal/analyzer/simhash.go` 구현
+  - [ ] HTML 구조 추출
+  - [ ] 토큰화 및 해시 생성
+  - [ ] Hamming Distance 계산
+
+### Task 2.3: TLSH 연동
+- [ ] `internal/analyzer/tlsh.go` 구현
+  - [ ] glaslos/tlsh 라이브러리 연동
+  - [ ] 유사도 점수 계산
+  - [ ] 임계값 기반 판정
+
+### Task 2.4: 기본 필터링
+- [ ] `internal/analyzer/filter.go` 구현
+  - [ ] 응답 길이 기반 필터
+  - [ ] 단어 수 기반 필터
+  - [ ] 상태 코드 기반 필터
+
+### Task 2.5: 분석 통합
+- [ ] `internal/analyzer/analyzer.go` 구현
+  - [ ] 분석 파이프라인 조합
+  - [ ] 복합 이상 판정 로직
+  - [ ] 결과 집계
+
+---
+
+## 🦎 Phase 3: The Chameleon (상태 기반 & 변이)
+
+> **목표**: 이전 요청의 결과값을 활용하는 지능적 퍼징  
+> **예상 기간**: 3~4주  
+> **성공 기준**: 다단계 API 시나리오 자동 실행
+
+### Task 3.1: 값 추출기
+- [ ] `internal/state/extractor.go` 구현
+  - [ ] 정규식 기반 패턴 매칭
+  - [ ] JSON Path 지원
+  - [ ] 커스텀 추출 규칙
+
+### Task 3.2: Dynamic Pool
+- [ ] `internal/state/pool.go` 구현
+  - [ ] Thread-safe 저장소
+  - [ ] TTL 기반 만료
+  - [ ] 중복 제거
+
+### Task 3.3: 템플릿 치환
+- [ ] `internal/state/manager.go` 구현
+  - [ ] `{{variable}}` 문법 지원
+  - [ ] 내장 함수 (random_str, timestamp 등)
+  - [ ] 조건부 치환
+
+### Task 3.4: Mutator 엔진
+- [ ] `internal/mutator/mutator.go` 구현
+  - [ ] 변이 전략 인터페이스
+  - [ ] 랜덤 변이 선택기
+
+### Task 3.5: AFL 스타일 변이
+- [ ] `internal/mutator/afl.go` 구현
+  - [ ] Bit flip (1, 2, 4 bits)
+  - [ ] Byte flip
+  - [ ] Arithmetic operations
+  - [ ] Interesting values
+
+### Task 3.6: 타입 인식 변이
+- [ ] `internal/mutator/smart.go` 구현
+  - [ ] 자료형 추론
+  - [ ] 타입별 페이로드 선택
+  - [ ] JSON/XML 구조 보존
+
+### Task 3.7: 시나리오 엔진
+- [ ] `internal/scenario/scenario.go` 구현
+  - [ ] YAML 기반 시나리오 정의
+  - [ ] 순차 실행 지원
+  - [ ] 조건부 분기
+
+---
+
+## 💎 Phase 4: Polish (마무리)
+
+> **목표**: 사용성 및 안정성 강화  
+> **예상 기간**: 2주
+
+### Task 4.1: TUI 대시보드
+- [ ] `internal/ui/dashboard.go` 구현
+  - [ ] bubbletea 기반 UI
+  - [ ] 실시간 통계 표시
+  - [ ] 진행률 바
+
+### Task 4.2: 리포트 생성
+- [ ] `internal/report/report.go` 구현
+  - [ ] JSON 출력
+  - [ ] HTML 리포트 (템플릿)
+  - [ ] Markdown 요약
+
+### Task 4.3: 문서화
+- [ ] API 문서 작성
+- [ ] 사용 예제 추가
+- [ ] 튜토리얼 작성
+
+### Task 4.4: 테스트 강화
+- [ ] 단위 테스트 커버리지 80% 이상
+- [ ] 통합 테스트 작성
+- [ ] 성능 회귀 테스트
+
+---
+
+## 📈 진행 상황 기록
+
+| 날짜 | Phase | 완료 항목 | 비고 |
+|------|-------|----------|------|
+| 2026-01-30 | 1 | 프로젝트 초기화, 문서 작성 | 시작 |
+
+---
+
+## 🎯 마일스톤
+
+### v0.1.0 - Runner 완성
+- FastHTTP 기반 고속 요청 엔진
+- 기본 CLI 인터페이스
+- 워드리스트 지원
+
+### v0.2.0 - Brain 완성
+- 구조적 차분 분석
+- Baseline 자동 학습
+- 이상 탐지 알림
+
+### v0.3.0 - Chameleon 완성
+- 상태 기반 퍼징
+- 스마트 변이
+- 시나리오 지원
+
+### v1.0.0 - 정식 출시
+- TUI 대시보드
+- 리포트 생성
+- 완전한 문서화

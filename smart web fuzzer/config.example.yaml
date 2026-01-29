@@ -1,0 +1,43 @@
+# FluxFuzzer 기본 설정 파일
+# 복사하여 사용하세요: cp config.example.yaml config.yaml
+
+target:
+  url: "http://localhost:8080/api"
+  method: "GET"
+  headers:
+    User-Agent: "FluxFuzzer/1.0"
+    Content-Type: "application/json"
+  wordlists:
+    - "wordlists/common.txt"
+
+engine:
+  workers: 50
+  rps: 100
+  timeout: 10s
+  max_retries: 3
+  user_agent: "FluxFuzzer/1.0"
+
+analyzer:
+  # 구조적 차분 분석 설정
+  structure_threshold: 15    # Hamming Distance 임계값 (0-64)
+  time_threshold: 2.5        # 응답 시간 임계값 (배수)
+  baseline_samples: 10       # 기준점 수집용 초기 요청 수
+  enable_simhash: true       # SimHash 활성화
+  enable_tlsh: false         # TLSH 활성화 (더 정밀하지만 느림)
+
+state:
+  # 상태 기반 퍼징 설정
+  enable_extraction: true
+  extract_patterns:
+    - "uuid"        # UUID 형식
+    - "jwt"         # JWT 토큰
+    - "numeric_id"  # 숫자 ID
+    - "token"       # 일반 토큰
+  pool_ttl: 3600    # Pool 값 만료 시간 (초)
+
+output:
+  format: "json"              # json, html, markdown
+  output_file: "results.json"
+  verbose: false
+  enable_tui: true
+  quiet_mode: false

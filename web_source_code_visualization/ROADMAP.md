@@ -12,19 +12,22 @@
 - ✅ Multi-language parsing (Python, JS/TS, PHP, Java, Go)
 - ✅ Framework detection (Flask, FastAPI, Express, Spring, etc.)
 - ✅ Basic taint analysis (source → sink)
+- ✅ Inter-procedural taint analysis (Phase 2.1 완료)
 - ✅ Call graph visualization
 - ✅ Security scanning (Semgrep integration)
 - ✅ Parallel file processing (Phase 1.1 완료)
+- ✅ Analysis caching (Phase 1.2 완료, 23x 속도 향상)
+- ✅ UI virtualization (Phase 1.3 완료)
+- ✅ Streaming API (Phase 1.4 완료)
 
 **한계점**:
-- ⏳ 대용량 파일 처리 시 메모리 부족 → 캐싱으로 해결 예정
-- ⏳ 수천 개 파일 분석 시 성능 저하 → 병렬 처리 완료, 캐싱 예정
-- ❌ 함수 간 데이터 흐름 추적 미지원
-- ❌ UI에서 대용량 그래프 렌더링 문제
+- ⏳ Import 해석 정확도 향상 필요 → Phase 2.2 예정
+- ⏳ 동적 타입 언어 타입 추론 → Phase 2.3 예정
+- ❌ 마이크로서비스 API 추적 미지원 → Phase 3 예정
 
 ---
 
-## 🚀 Phase 1: Performance Foundation (1-2주)
+## 🚀 Phase 1: Performance Foundation ✅ COMPLETE
 
 > **목표**: 대용량 프로젝트의 기본적인 파싱 및 렌더링 지원
 
@@ -111,10 +114,14 @@
 
 > **목표**: 정확한 코드 분석과 함수 간 데이터 흐름 추적
 
-### 2.1 Inter-Procedural Taint Analysis
-- [ ] 함수 호출을 통한 taint 전파 추적
-- [ ] 함수 요약(Function Summaries) 생성
-- [ ] Context-sensitive 분석
+### 2.1 Inter-Procedural Taint Analysis ✅ DONE
+- [x] 함수 호출을 통한 taint 전파 추적
+- [x] 함수 요약(Function Summaries) 생성
+- [x] Context-sensitive 분석
+- [x] `TaintSummary` 클래스 - 함수의 input→output 매핑
+- [x] Call Graph 기반 taint 전파
+- [x] 재귀 호출 처리 (감지 및 무한 루프 방지)
+- [x] 최대 깊이 제한 설정 (기본값 10)
 
 ```
 예시:
@@ -130,11 +137,22 @@ def execute(cmd):
 # 추적: get_user_input() → process() → execute()
 ```
 
-**구현 항목**:
-- [ ] `TaintSummary` 클래스 - 함수의 input→output 매핑
-- [ ] Call Graph 기반 taint 전파
-- [ ] 재귀 호출 처리
-- [ ] 최대 깊이 제한 설정
+**핵심 기능**:
+- **TaintSummary**: 함수별 taint 동작 요약 (파라미터→반환값, 파라미터→싱크)
+- **InterProceduralFlow**: 함수 간 taint 흐름 표현 (call chain 포함)
+- **PropagationMode**: DIRECT, TRANSFORMED, SANITIZED, BLOCKED
+- **자동 소스 감지**: request.args, request.form, request.json 등
+- **자동 싱크 감지**: os.system, eval, cursor.execute 등
+- **새니타이저 인식**: html.escape, shlex.quote 등
+
+**구현 파일**:
+- `backend/core/interprocedural_taint.py` - Inter-Procedural 분석 엔진
+- `backend/test_interprocedural.py` - 테스트 스크립트
+
+**API 엔드포인트**:
+- `POST /api/taint/interprocedural` - Inter-Procedural 분석 실행
+- `POST /api/taint/interprocedural/full` - 전체 결과 (summaries 포함)
+- `POST /api/taint/paths` - Taint 경로 조회
 
 ### 2.2 Enhanced Import Resolution
 - [ ] 모듈 의존성 그래프 구축

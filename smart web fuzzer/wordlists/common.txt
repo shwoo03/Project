@@ -1,0 +1,92 @@
+# Common Web Paths Wordlist
+# FluxFuzzer Default Wordlist
+
+# Admin panels
+admin
+administrator
+admin.php
+admin/login
+admin/index
+wp-admin
+cpanel
+
+# API endpoints
+api
+api/v1
+api/v2
+graphql
+swagger
+swagger-ui
+
+# Authentication
+login
+logout
+signin
+signup
+register
+auth
+oauth
+token
+
+# Common files
+index.php
+index.html
+robots.txt
+sitemap.xml
+.htaccess
+.env
+config
+config.php
+config.json
+settings
+
+# Backup files
+backup
+backup.sql
+backup.zip
+db.sql
+database.sql
+
+# Development
+debug
+test
+dev
+staging
+phpinfo
+phpinfo.php
+info.php
+
+# User paths
+user
+users
+profile
+account
+dashboard
+settings
+
+# File operations
+upload
+download
+files
+file
+export
+import
+
+# Search
+search
+query
+find
+
+# Static resources
+static
+assets
+js
+css
+images
+img
+media
+
+# Error pages
+error
+404
+500

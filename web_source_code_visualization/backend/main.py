@@ -10,6 +10,7 @@ from core.ai_analyzer import AIAnalyzer
 from core.cluster_manager import ClusterManager
 from core.taint_analyzer import TaintAnalyzer, TaintSource, TaintSink, detect_sink, TaintType
 from core.call_graph_analyzer import CallGraphAnalyzer
+from core.parallel_analyzer import ParallelAnalyzer
 from models import ProjectStructure, EndpointNodes, TaintFlowEdge, CallGraphData
 
 # Load .env from root directory
@@ -30,6 +31,7 @@ parser_manager = ParserManager()
 ai_analyzer = AIAnalyzer()
 cluster_manager = ClusterManager()
 call_graph_analyzer = CallGraphAnalyzer()
+parallel_analyzer = ParallelAnalyzer()  # New parallel analyzer
 
 
 def collect_taint_flows(endpoints: List[EndpointNodes]) -> List[TaintFlowEdge]:
@@ -108,6 +110,7 @@ def collect_taint_flows(endpoints: List[EndpointNodes]) -> List[TaintFlowEdge]:
 class AnalyzeRequest(BaseModel):
     path: str
     cluster: bool = False
+    use_parallel: bool = True  # Enable parallel analysis by default
 
 @app.post("/api/analyze", response_model=ProjectStructure)
 def analyze_project(request: AnalyzeRequest):
@@ -118,69 +121,85 @@ def analyze_project(request: AnalyzeRequest):
     endpoints: List[EndpointNodes] = []
     language_stats = {}
     
-    # 1. Collect all files first
-    all_files = []
-    for root, _, files in os.walk(project_path):
-        if "venv" in root or "node_modules" in root or ".git" in root:
-            continue
-        for file in files:
-            all_files.append(os.path.join(root, file))
+    # Use parallel analyzer for better performance
+    if request.use_parallel:
+        try:
+            endpoints, language_stats, symbol_table = parallel_analyzer.analyze_project(project_path)
+            
+            # Print stats
+            stats = parallel_analyzer.get_stats()
+            print(f"[API] Parallel analysis complete: {stats['parsed_files']}/{stats['total_files']} files, {stats['total_time_ms']:.1f}ms")
+            
+        except Exception as e:
+            print(f"[API] Parallel analysis failed, falling back to sequential: {e}")
+            # Fall back to sequential analysis
+            request.use_parallel = False
+    
+    # Sequential analysis (fallback or when parallel is disabled)
+    if not request.use_parallel:
+        # 1. Collect all files first
+        all_files = []
+        for root, _, files in os.walk(project_path):
+            if "venv" in root or "node_modules" in root or ".git" in root:
+                continue
+            for file in files:
+                all_files.append(os.path.join(root, file))
 
-    # Phase 1: Global Symbol Scan
-    global_symbols = {}
-    from core.symbol_table import SymbolTable, Symbol, SymbolType
-    symbol_table = SymbolTable()
+        # Phase 1: Global Symbol Scan
+        global_symbols = {}
+        from core.symbol_table import SymbolTable, Symbol, SymbolType
+        symbol_table = SymbolTable()
 
-    for file_path in all_files:
-        parser = parser_manager.get_parser(file_path)
-        if parser:
-            try:
-                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                    content = f.read()
-                # Scan symbols (lightweight parse)
-                symbols = parser.scan_symbols(file_path, content)
-                global_symbols.update(symbols)
-                
-                # Populate SymbolTable
-                for name, info in symbols.items():
-                    # Determine type
-                    sym_type = SymbolType.FUNCTION
-                    if info.get("type") == "class":
-                        sym_type = SymbolType.CLASS
-                    elif info.get("type") == "variable":
-                        sym_type = SymbolType.VARIABLE
+        for file_path in all_files:
+            parser = parser_manager.get_parser(file_path)
+            if parser:
+                try:
+                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read()
+                    # Scan symbols (lightweight parse)
+                    symbols = parser.scan_symbols(file_path, content)
+                    global_symbols.update(symbols)
                     
-                    symbol_table.add(Symbol(
-                        name=name,
-                        full_name=name, # TODO: Resolve full name with module path
-                        type=sym_type,
-                        file_path=file_path,
-                        line_number=info.get("start_line", 0),
-                        end_line_number=info.get("end_line", 0),
-                        inherits_from=info.get("inherits", [])
-                    ))
-            except Exception as e:
-                print(f"Error scanning symbols {file_path}: {e}")
+                    # Populate SymbolTable
+                    for name, info in symbols.items():
+                        # Determine type
+                        sym_type = SymbolType.FUNCTION
+                        if info.get("type") == "class":
+                            sym_type = SymbolType.CLASS
+                        elif info.get("type") == "variable":
+                            sym_type = SymbolType.VARIABLE
+                        
+                        symbol_table.add(Symbol(
+                            name=name,
+                            full_name=name,
+                            type=sym_type,
+                            file_path=file_path,
+                            line_number=info.get("start_line", 0),
+                            end_line_number=info.get("end_line", 0),
+                            inherits_from=info.get("inherits", [])
+                        ))
+                except Exception as e:
+                    print(f"Error scanning symbols {file_path}: {e}")
 
-    # Phase 2: Detailed Parse with Global Context
-    for file_path in all_files:
-        parser = parser_manager.get_parser(file_path)
-        if parser:
-            try:
-                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                    content = f.read()
+        # Phase 2: Detailed Parse with Global Context
+        for file_path in all_files:
+            parser = parser_manager.get_parser(file_path)
+            if parser:
+                try:
+                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read()
+                        
+                    # Pass global_symbols to parse functionality
+                    parsed_endpoints = parser.parse(file_path, content, global_symbols=global_symbols, symbol_table=symbol_table)
                     
-                # Pass global_symbols to parse functionality
-                parsed_endpoints = parser.parse(file_path, content, global_symbols=global_symbols, symbol_table=symbol_table)
-                
-                endpoints.extend(parsed_endpoints)
-                
-                # Update stats
-                lang = parser.__class__.__name__.replace("Parser", "").lower()
-                language_stats[lang] = language_stats.get(lang, 0) + 1
-                
-            except Exception as e:
-                print(f"Error parsing {file_path}: {e}")
+                    endpoints.extend(parsed_endpoints)
+                    
+                    # Update stats
+                    lang = parser.__class__.__name__.replace("Parser", "").lower()
+                    language_stats[lang] = language_stats.get(lang, 0) + 1
+                    
+                except Exception as e:
+                    print(f"Error parsing {file_path}: {e}")
     
     # Phase 3: Clustering (Optional)
     if request.cluster:
@@ -195,6 +214,14 @@ def analyze_project(request: AnalyzeRequest):
         endpoints=endpoints,
         taint_flows=taint_flows
     )
+
+
+@app.get("/api/analyze/stats")
+def get_analysis_stats():
+    """Get statistics from the last parallel analysis."""
+    return parallel_analyzer.get_stats()
+
+
 class CodeSnippetRequest(BaseModel):
     file_path: str
     start_line: int

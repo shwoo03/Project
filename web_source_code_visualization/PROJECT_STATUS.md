@@ -2,7 +2,9 @@
 
 This document summarizes the current state of the project to assist future AI sessions in picking up the work immediately.
 
-**Last Updated**: 2026-01-30
+**Last Updated**: 2026-01-30  
+**Version**: 0.2.0  
+**Roadmap**: See [ROADMAP.md](ROADMAP.md) for future development plans
 
 ## 1. Project Overview
 A comprehensive security analysis tool that visualizes the call graph, data flow, and security vulnerabilities of web applications across multiple languages and frameworks.
@@ -35,19 +37,25 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
 - **Semgrep Integration**: External security scanner with custom rules support
 - **AI-Powered Analysis**: Groq LLM integration for code security review
 
-### 2.4 Call Graph Analysis (NEW - 2026-01-30)
+### 2.4 Call Graph Analysis
 - **Function-to-function call tracking**: Who calls whom?
 - **Entry point detection**: Route handlers, main functions
 - **Sink identification**: Functions that reach dangerous operations
 - **Path finding**: Find all paths from entry points to sinks
 - **Metrics**: Fan-in, fan-out, hub detection, orphan detection
 
-### 2.5 Detail Panel & Source Code Viewer
+### 2.5 Parallel Analysis Engine ✨ NEW
+- **File**: `backend/core/parallel_analyzer.py`
+- **Auto mode selection**: Sequential for <100 files, Parallel for ≥100 files
+- **ThreadPoolExecutor**: Concurrent file processing with CPU-based worker count
+- **Statistics tracking**: Parse time, success/failure rates, language distribution
+
+### 2.6 Detail Panel & Source Code Viewer
 - Clicking a node opens a slide-over panel
 - Shows metadata (URL, Method, Params) and source code with syntax highlighting
 - AI security analysis button for deep code review
 
-### 2.6 Backtrace Highlighting
+### 2.7 Backtrace Highlighting
 - Clicking a deep node highlights the upstream path in neon yellow
 - Helps trace data flow backwards
 
@@ -172,7 +180,22 @@ react-syntax-highlighter, tailwindcss
 4. **tree-sitter-typescript missing**: → Installed in venv
 5. **nonlocal error in main.py**: → Removed unnecessary nonlocal declaration
 
-## 7. Future Enhancements
+## 7. Recent Additions (2026-01-30)
+
+### 7.1 Parallel Analyzer ✅ NEW
+- **File**: `backend/core/parallel_analyzer.py`
+- **Features**:
+  - `ThreadPoolExecutor` 기반 병렬 파일 분석
+  - 자동 모드 선택 (파일 < 100개: 순차, >= 100개: 병렬)
+  - CPU 코어 수 기반 워커 자동 설정
+  - 분석 통계 수집 및 리포팅
+- **API**: `GET /api/analyze/stats` - 분석 통계 조회
+
+### 7.2 Development Roadmap
+- **File**: `ROADMAP.md`
+- Phase 1~3 구현 계획 문서화
+
+## 8. Future Enhancements
 
 ### High Priority
 - [ ] **Vulnerability Dashboard**: Statistics and charts

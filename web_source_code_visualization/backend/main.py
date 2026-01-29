@@ -16,6 +16,8 @@ from core.analysis_cache import analysis_cache
 from core.streaming_analyzer import streaming_analyzer, StreamEvent
 from core.interprocedural_taint import InterProceduralTaintAnalyzer, analyze_interprocedural_taint
 from core.import_resolver import ImportResolver, resolve_project_imports
+from core.type_inferencer import TypeInferencer, analyze_project_types
+from core.class_hierarchy import ClassHierarchyAnalyzer, analyze_class_hierarchy
 from models import ProjectStructure, EndpointNodes, TaintFlowEdge, CallGraphData
 
 # Load .env from root directory
@@ -755,5 +757,300 @@ def get_module_info(request: SymbolResolveRequest):
             raise HTTPException(status_code=404, detail="Module not found")
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# Type Inference API
+# ============================================
+
+class TypeInferenceRequest(BaseModel):
+    project_path: str
+
+
+class VariableTypeRequest(BaseModel):
+    project_path: str
+    variable_name: str
+    file_path: Optional[str] = None
+    scope: Optional[str] = None
+    line: Optional[int] = None
+
+
+class FunctionSignatureRequest(BaseModel):
+    project_path: str
+    function_name: str
+    file_path: Optional[str] = None
+
+
+@app.post("/api/types/analyze")
+def analyze_types(request: TypeInferenceRequest):
+    """
+    Analyze the entire project for type information.
+    
+    Returns inferred types for variables, function signatures, and class types.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        result = analyze_project_types(request.project_path)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/types/variable")
+def get_variable_type(request: VariableTypeRequest):
+    """
+    Get the inferred type for a specific variable.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        inferencer = TypeInferencer(request.project_path)
+        inferencer.analyze_project()
+        
+        type_info = inferencer.get_variable_type(
+            request.variable_name,
+            request.file_path,
+            request.scope,
+            request.line
+        )
+        
+        if type_info:
+            return {"found": True, "type": type_info.to_dict()}
+        else:
+            return {"found": False, "message": f"Variable '{request.variable_name}' not found"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/types/function")
+def get_function_type(request: FunctionSignatureRequest):
+    """
+    Get the type signature for a function.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        inferencer = TypeInferencer(request.project_path)
+        inferencer.analyze_project()
+        
+        signature = inferencer.get_function_signature(
+            request.function_name,
+            request.file_path
+        )
+        
+        if signature:
+            return {
+                "found": True,
+                "signature": {
+                    "name": signature.name,
+                    "qualified_name": signature.qualified_name,
+                    "parameters": [(p[0], p[1].to_dict()) for p in signature.parameters],
+                    "return_type": signature.return_type.to_dict(),
+                    "is_method": signature.is_method,
+                    "is_async": signature.is_async,
+                    "decorators": signature.decorators
+                }
+            }
+        else:
+            return {"found": False, "message": f"Function '{request.function_name}' not found"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/types/class")
+def get_class_types(request: FunctionSignatureRequest):
+    """
+    Get type information for a class (attributes, methods with types).
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        inferencer = TypeInferencer(request.project_path)
+        inferencer.analyze_project()
+        
+        class_info = inferencer.get_class_info(
+            request.function_name,  # Using function_name field for class name
+            request.file_path
+        )
+        
+        if class_info:
+            return {
+                "found": True,
+                "class": {
+                    "name": class_info.name,
+                    "qualified_name": class_info.qualified_name,
+                    "file_path": class_info.file_path,
+                    "base_classes": class_info.base_classes,
+                    "attributes": {k: v.to_dict() for k, v in class_info.attributes.items()},
+                    "class_attributes": {k: v.to_dict() for k, v in class_info.class_attributes.items()},
+                    "methods": list(class_info.methods.keys()),
+                    "is_dataclass": class_info.is_dataclass,
+                    "is_abstract": class_info.is_abstract
+                }
+            }
+        else:
+            return {"found": False, "message": f"Class '{request.function_name}' not found"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# Class Hierarchy API
+# ============================================
+
+class ClassHierarchyRequest(BaseModel):
+    project_path: str
+
+
+class ClassQueryRequest(BaseModel):
+    project_path: str
+    class_name: str
+
+
+class PolymorphicCallRequest(BaseModel):
+    project_path: str
+    receiver_type: str
+    method_name: str
+
+
+@app.post("/api/hierarchy/analyze")
+def analyze_hierarchy(request: ClassHierarchyRequest):
+    """
+    Analyze the entire project for class hierarchies.
+    
+    Returns inheritance relationships, method overrides, and class metadata.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        result = analyze_class_hierarchy(request.project_path)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/hierarchy/class")
+def get_class_hierarchy(request: ClassQueryRequest):
+    """
+    Get the full inheritance hierarchy for a specific class.
+    
+    Returns ancestors, descendants, and methods.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        analyzer = ClassHierarchyAnalyzer(request.project_path)
+        analyzer.analyze_project()
+        
+        hierarchy = analyzer.get_class_hierarchy(request.class_name)
+        
+        if hierarchy:
+            return {"found": True, **hierarchy}
+        else:
+            return {"found": False, "message": f"Class '{request.class_name}' not found"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/hierarchy/implementations")
+def get_implementations(request: ClassQueryRequest):
+    """
+    Get all classes that implement an interface or extend an abstract class.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        analyzer = ClassHierarchyAnalyzer(request.project_path)
+        analyzer.analyze_project()
+        
+        implementations = analyzer.get_implementations(request.class_name)
+        
+        return {
+            "interface": request.class_name,
+            "implementations": implementations,
+            "count": len(implementations)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/hierarchy/method")
+def get_method_implementations(request: ClassQueryRequest):
+    """
+    Get all implementations of a method across the class hierarchy.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        analyzer = ClassHierarchyAnalyzer(request.project_path)
+        analyzer.analyze_project()
+        
+        implementations = analyzer.get_method_implementations(request.class_name)
+        
+        return {
+            "method_name": request.class_name,
+            "implementations": implementations,
+            "count": len(implementations)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/hierarchy/polymorphic")
+def resolve_polymorphic(request: PolymorphicCallRequest):
+    """
+    Resolve possible method implementations for a polymorphic call.
+    
+    Given a receiver type and method name, returns all possible target methods.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        analyzer = ClassHierarchyAnalyzer(request.project_path)
+        analyzer.analyze_project()
+        
+        targets = analyzer.resolve_polymorphic_call(
+            request.receiver_type,
+            request.method_name
+        )
+        
+        return {
+            "receiver_type": request.receiver_type,
+            "method_name": request.method_name,
+            "possible_targets": targets,
+            "count": len(targets)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/hierarchy/graph")
+def get_hierarchy_graph(request: ClassHierarchyRequest):
+    """
+    Get the full inheritance graph for visualization.
+    
+    Returns nodes (classes) and edges (inheritance relationships).
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        analyzer = ClassHierarchyAnalyzer(request.project_path)
+        analyzer.analyze_project()
+        
+        graph = analyzer.get_inheritance_graph()
+        return graph
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

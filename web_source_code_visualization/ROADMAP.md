@@ -184,17 +184,72 @@ def execute(cmd):
 - `POST /api/imports/symbol` - 심볼 정의 위치 해석
 - `POST /api/imports/module` - 모듈 상세 정보
 
-### 2.3 Type Inference
-- [ ] 동적 타입 언어 변수 타입 추론
-- [ ] 함수 반환 타입 추론
-- [ ] 클래스 인스턴스 추적
-- [ ] Type hints 활용 (Python, TypeScript)
+### 2.3 Type Inference ✅ DONE
+- [x] 동적 타입 언어 변수 타입 추론
+- [x] 함수 반환 타입 추론
+- [x] 클래스 인스턴스 추적
+- [x] Type hints 활용 (Python, TypeScript)
 
-### 2.4 Class Hierarchy Analysis
-- [ ] 상속 관계 그래프
-- [ ] 메서드 오버라이딩 추적
-- [ ] 다형성(Polymorphism) 호출 해석
-- [ ] Mixin/Interface 분석
+**지원 언어 및 기능**:
+| 언어 | 타입 소스 |
+|------|----------|
+| **Python** | Type annotations, 리터럴 추론, docstrings |
+| **JavaScript** | 리터럴 추론, JSDoc, new 표현식 |
+| **TypeScript** | 전체 타입 시스템 지원 |
+
+**타입 추론 방식**:
+- 리터럴 추론: `x = "hello"` → `str`
+- 어노테이션: `def foo(x: int) -> str:` → 파싱
+- 표현식 분석: `x = User()` → `User` 인스턴스
+- 연산자 추론: `a + b` → 피연산자 기반 결과 타입
+
+**구현 파일**:
+- `backend/core/type_inferencer.py` - 타입 추론 엔진
+- `backend/test_type_inferencer.py` - 테스트 스크립트
+
+**API 엔드포인트**:
+- `POST /api/types/analyze` - 전체 프로젝트 타입 분석
+- `POST /api/types/variable` - 변수 타입 조회
+- `POST /api/types/function` - 함수 시그니처 조회
+- `POST /api/types/class` - 클래스 타입 정보 조회
+
+### 2.4 Class Hierarchy Analysis ✅ DONE
+- [x] 상속 관계 그래프
+- [x] 메서드 오버라이딩 추적
+- [x] 다형성(Polymorphism) 호출 해석
+- [x] Mixin/Interface 분석
+- [x] Method Resolution Order (MRO) 계산
+- [x] Diamond Inheritance 감지
+
+**지원 클래스 종류**:
+| 종류 | 언어 |
+|------|------|
+| **Class** | Python, JS, TS |
+| **Abstract Class** | Python (ABC), TS |
+| **Interface** | TypeScript |
+| **Protocol** | Python 3.8+ |
+| **Mixin** | Python (다중 상속) |
+| **Enum** | TypeScript |
+| **Dataclass** | Python |
+
+**핵심 기능**:
+- **상속 그래프**: 전체 프로젝트의 클래스 상속 관계 시각화
+- **오버라이드 감지**: 어떤 메서드가 부모 메서드를 오버라이드하는지 추적
+- **다형성 해석**: 정적 타입 기반 가능한 구현체 목록 제공
+- **MRO 계산**: Python C3 linearization 알고리즘 적용
+- **Diamond 감지**: 다중 상속 시 공통 조상 감지
+
+**구현 파일**:
+- `backend/core/class_hierarchy.py` - 클래스 계층 분석 엔진
+- `backend/test_class_hierarchy.py` - 테스트 스크립트
+
+**API 엔드포인트**:
+- `POST /api/hierarchy/analyze` - 전체 계층 분석
+- `POST /api/hierarchy/class` - 특정 클래스 상속 트리
+- `POST /api/hierarchy/implementations` - 인터페이스 구현체 목록
+- `POST /api/hierarchy/method` - 메서드 구현 목록
+- `POST /api/hierarchy/polymorphic` - 다형성 호출 해석
+- `POST /api/hierarchy/graph` - 시각화용 상속 그래프
 
 ---
 

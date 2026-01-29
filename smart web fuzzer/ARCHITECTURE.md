@@ -23,7 +23,26 @@ FluxFuzzer는 4단계 파이프라인 구조로 설계된 스마트 웹 퍼저�
 
 **역할**: 입력값(Seed)을 다양한 방법으로 변형하여 새로운 페이로드 생성
 
-**변이 전략**:
+**핵심 인터페이스**:
+```go
+// Mutator 인터페이스 - 모든 변이기 구현의 기본
+type Mutator interface {
+    Name() string                                        // 변이기 이름
+    Description() string                                 // 설명
+    Mutate(input []byte) ([]byte, error)                // 기본 변이
+    MutateWithType(input []byte, t InputType) ([]byte, error)  // 타입 인식 변이
+    Type() types.MutationType                           // 변이 타입
+}
+
+// MutationStrategy 인터페이스 - 변이 선택 전략
+type MutationStrategy interface {
+    SelectMutator(mutators []Mutator) Mutator  // 변이기 선택
+    ShouldMutate(probability float64) bool     // 변이 여부 결정
+    Reset()                                     // 상태 초기화
+}
+```
+
+**변이 타입 정의**:
 ```go
 // 변이 타입 정의
 type MutationType int
@@ -37,6 +56,23 @@ const (
     StructureAware                     // JSON/XML 구조 인식 변이
 )
 ```
+
+**MutatorEngine 구조**:
+```go
+type MutatorEngine struct {
+    registry        *Registry          // 변이기 등록소
+    strategy        MutationStrategy   // 선택 전략
+    probability     float64            // 변이 확률 (0.0-1.0)
+    maxMutations    int                // 최대 연쇄 변이 횟수
+    typeDetectors   []TypeDetector     // 입력 타입 감지기
+}
+```
+
+**변이 선택 전략**:
+| 전략 | 설명 |
+|------|------|
+| RandomSelector | 무작위 선택 |
+| WeightedSelector | 가중치 기반 선택 |
 
 **타입별 스마트 변이**:
 | 입력 타입 | 변이 전략 | 예시 |

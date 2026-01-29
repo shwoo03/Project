@@ -112,7 +112,7 @@ go build -o fluxfuzzer ./cmd/fluxfuzzer
 
 ## 📊 개발 현황
 
-현재 개발 단계: **Phase 1 - The Runner**
+현재 개발 단계: **Phase 3 - The Chameleon** (상태 기반 & 변이)
 
 자세한 개발 로드맵은 [ROADMAP.md](./ROADMAP.md)를 참조하세요.
 

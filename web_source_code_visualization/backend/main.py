@@ -20,6 +20,11 @@ from core.type_inferencer import TypeInferencer, analyze_project_types
 from core.class_hierarchy import ClassHierarchyAnalyzer, analyze_class_hierarchy
 from core.microservice_analyzer import MicroserviceAnalyzer, analyze_microservices, parse_openapi, parse_proto
 from core.monorepo_analyzer import MonorepoAnalyzer, analyze_monorepo, get_project_details, get_dependency_graph, get_affected_projects
+from core.lsp_client import (
+    LSPManager, get_lsp_manager, start_lsp_servers, stop_lsp_servers,
+    goto_definition, find_references, get_hover_info, get_completions,
+    get_symbols, search_symbols, LANGUAGE_SERVERS
+)
 from models import ProjectStructure, EndpointNodes, TaintFlowEdge, CallGraphData
 
 # Load .env from root directory
@@ -1773,4 +1778,304 @@ def get_build_order_endpoint(request: MonorepoAnalysisRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# LSP (Language Server Protocol) Endpoints
+# =============================================================================
+
+class LSPInitRequest(BaseModel):
+    """Request to initialize LSP servers."""
+    workspace_path: str
+    languages: Optional[List[str]] = None  # None = all available
+
+
+class LSPPositionRequest(BaseModel):
+    """Request with file path and position."""
+    workspace_path: str
+    file_path: str
+    line: int  # 0-indexed
+    character: int  # 0-indexed
+
+
+class LSPDocumentRequest(BaseModel):
+    """Request for document-level operations."""
+    workspace_path: str
+    file_path: str
+
+
+class LSPSymbolSearchRequest(BaseModel):
+    """Request to search symbols."""
+    workspace_path: str
+    query: str
+
+
+@app.post("/api/lsp/initialize")
+def initialize_lsp_servers(request: LSPInitRequest):
+    """
+    Initialize LSP servers for the workspace.
+    
+    Starts language servers for code intelligence features.
+    Supports: Python (Pyright), TypeScript, JavaScript, Java, Go, Rust
+    
+    Returns status of each server initialization.
+    """
+    if not os.path.exists(request.workspace_path):
+        raise HTTPException(status_code=404, detail="Workspace path not found")
+    
+    try:
+        manager = get_lsp_manager(request.workspace_path)
+        
+        if request.languages:
+            results = {}
+            for lang in request.languages:
+                results[lang] = manager.start_server(lang)
+        else:
+            results = manager.start_all_available()
+        
+        return {
+            "success": True,
+            "workspace": request.workspace_path,
+            "servers": results,
+            "status": manager.get_status()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/lsp/shutdown")
+def shutdown_lsp_servers(request: LSPInitRequest):
+    """
+    Shutdown all LSP servers for the workspace.
+    """
+    try:
+        stop_lsp_servers()
+        return {"success": True, "message": "All LSP servers stopped"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/lsp/status")
+def get_lsp_status(workspace_path: str):
+    """
+    Get status of LSP servers.
+    
+    Returns information about running servers and available languages.
+    """
+    if not os.path.exists(workspace_path):
+        raise HTTPException(status_code=404, detail="Workspace path not found")
+    
+    try:
+        manager = get_lsp_manager(workspace_path)
+        return manager.get_status()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/lsp/available")
+def get_available_languages():
+    """
+    Get list of available language servers.
+    """
+    return {
+        "languages": [
+            {
+                "id": lang,
+                "name": config.name,
+                "extensions": config.file_extensions,
+                "command": config.command[0]
+            }
+            for lang, config in LANGUAGE_SERVERS.items()
+        ]
+    }
+
+
+@app.post("/api/lsp/definition")
+def lsp_goto_definition(request: LSPPositionRequest):
+    """
+    Go to definition of symbol at position.
+    
+    Returns list of definition locations for the symbol
+    at the specified position.
+    """
+    if not os.path.exists(request.workspace_path):
+        raise HTTPException(status_code=404, detail="Workspace path not found")
+    if not os.path.exists(request.file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    try:
+        locations = goto_definition(
+            request.workspace_path,
+            request.file_path,
+            request.line,
+            request.character
+        )
+        return {
+            "success": True,
+            "definitions": locations,
+            "count": len(locations)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/lsp/references")
+def lsp_find_references(request: LSPPositionRequest):
+    """
+    Find all references to symbol at position.
+    
+    Returns all locations where the symbol is referenced.
+    """
+    if not os.path.exists(request.workspace_path):
+        raise HTTPException(status_code=404, detail="Workspace path not found")
+    if not os.path.exists(request.file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    try:
+        locations = find_references(
+            request.workspace_path,
+            request.file_path,
+            request.line,
+            request.character
+        )
+        return {
+            "success": True,
+            "references": locations,
+            "count": len(locations)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/lsp/hover")
+def lsp_get_hover(request: LSPPositionRequest):
+    """
+    Get hover information for symbol at position.
+    
+    Returns documentation, type signature, and other
+    information for the symbol.
+    """
+    if not os.path.exists(request.workspace_path):
+        raise HTTPException(status_code=404, detail="Workspace path not found")
+    if not os.path.exists(request.file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    try:
+        hover = get_hover_info(
+            request.workspace_path,
+            request.file_path,
+            request.line,
+            request.character
+        )
+        return {
+            "success": True,
+            "hover": hover
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/lsp/completions")
+def lsp_get_completions(request: LSPPositionRequest):
+    """
+    Get code completions at position.
+    
+    Returns suggested completions for the current context.
+    """
+    if not os.path.exists(request.workspace_path):
+        raise HTTPException(status_code=404, detail="Workspace path not found")
+    if not os.path.exists(request.file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    try:
+        completions = get_completions(
+            request.workspace_path,
+            request.file_path,
+            request.line,
+            request.character
+        )
+        return {
+            "success": True,
+            "completions": completions,
+            "count": len(completions)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/lsp/symbols")
+def lsp_get_document_symbols(request: LSPDocumentRequest):
+    """
+    Get symbols in a document.
+    
+    Returns hierarchical list of all symbols (classes, functions,
+    variables, etc.) in the document.
+    """
+    if not os.path.exists(request.workspace_path):
+        raise HTTPException(status_code=404, detail="Workspace path not found")
+    if not os.path.exists(request.file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    try:
+        symbols = get_symbols(
+            request.workspace_path,
+            request.file_path
+        )
+        return {
+            "success": True,
+            "symbols": symbols,
+            "count": len(symbols)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/lsp/workspace-symbols")
+def lsp_search_workspace_symbols(request: LSPSymbolSearchRequest):
+    """
+    Search for symbols in the workspace.
+    
+    Returns matching symbols from all active language servers.
+    """
+    if not os.path.exists(request.workspace_path):
+        raise HTTPException(status_code=404, detail="Workspace path not found")
+    
+    try:
+        symbols = search_symbols(
+            request.workspace_path,
+            request.query
+        )
+        return {
+            "success": True,
+            "symbols": symbols,
+            "count": len(symbols)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/lsp/diagnostics")
+def lsp_get_diagnostics(request: LSPDocumentRequest):
+    """
+    Get diagnostics (errors, warnings) for a document.
+    
+    Returns compiler/linter errors and warnings from the
+    language server.
+    """
+    if not os.path.exists(request.workspace_path):
+        raise HTTPException(status_code=404, detail="Workspace path not found")
+    if not os.path.exists(request.file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    try:
+        manager = get_lsp_manager(request.workspace_path)
+        diagnostics = manager.get_diagnostics(request.file_path)
+        return {
+            "success": True,
+            "diagnostics": diagnostics,
+            "count": len(diagnostics)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 

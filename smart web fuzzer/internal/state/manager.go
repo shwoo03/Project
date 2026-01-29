@@ -190,8 +190,8 @@ var (
 	// {{func()}} or {{func(arg1, arg2)}}
 	functionPattern = regexp.MustCompile(`\{\{([a-zA-Z_][a-zA-Z0-9_]*)\(([^)]*)\)\}\}`)
 
-	// {{?condition:value_if_true:value_if_false}}
-	conditionalPattern = regexp.MustCompile(`\{\{\?([^:]+):([^:]*):([^}]*)\}\}`)
+	// {{?condition|value_if_true|value_if_false}}
+	conditionalPattern = regexp.MustCompile(`\{\{\?([^|]+)\|([^|]*)\|([^}]*)\}\}`)
 )
 
 // Substitute replaces all template variables in the input

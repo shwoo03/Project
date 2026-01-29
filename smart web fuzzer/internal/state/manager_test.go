@@ -177,13 +177,13 @@ func TestTemplateEngine_Conditional_Exists(t *testing.T) {
 	e.SetVariable("token", "abc123")
 
 	// Variable exists
-	result := e.Substitute("{{?exists:token:has_token:no_token}}")
+	result := e.Substitute("{{?exists:token|has_token|no_token}}")
 	if result != "has_token" {
 		t.Errorf("Expected 'has_token', got '%s'", result)
 	}
 
 	// Variable doesn't exist
-	result = e.Substitute("{{?exists:missing:has_val:no_val}}")
+	result = e.Substitute("{{?exists:missing|has_val|no_val}}")
 	if result != "no_val" {
 		t.Errorf("Expected 'no_val', got '%s'", result)
 	}
@@ -193,12 +193,12 @@ func TestTemplateEngine_Conditional_Equality(t *testing.T) {
 	e := NewTemplateEngine(nil)
 	e.SetVariable("status", "200")
 
-	result := e.Substitute("{{?status==200:success:failure}}")
+	result := e.Substitute("{{?status==200|success|failure}}")
 	if result != "success" {
 		t.Errorf("Expected 'success', got '%s'", result)
 	}
 
-	result = e.Substitute("{{?status==404:not_found:other}}")
+	result = e.Substitute("{{?status==404|not_found|other}}")
 	if result != "other" {
 		t.Errorf("Expected 'other', got '%s'", result)
 	}
@@ -208,7 +208,7 @@ func TestTemplateEngine_Conditional_Inequality(t *testing.T) {
 	e := NewTemplateEngine(nil)
 	e.SetVariable("status", "200")
 
-	result := e.Substitute("{{?status!=200:error:ok}}")
+	result := e.Substitute("{{?status!=200|error|ok}}")
 	if result != "ok" {
 		t.Errorf("Expected 'ok', got '%s'", result)
 	}

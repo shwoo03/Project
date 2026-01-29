@@ -7,7 +7,7 @@
 ```
 Phase 1: The Runner     [==================>    ] 1~2주 ✅
 Phase 2: The Brain      [===================>    ] 2~3주 ✅
-Phase 3: The Chameleon  [========>               ] 3~4주
+Phase 3: The Chameleon  [===============>        ] 3~4주
 Phase 4: Polish         [                        ] 2주
                         ────────────────────────────────
                         Total: 8~11주
@@ -111,16 +111,16 @@ Phase 4: Polish         [                        ] 2주
   - [x] TTL 기반 만료
   - [x] 중복 제거
 
-### Task 3.3: 템플릿 치환
-- [ ] `internal/state/manager.go` 구현
-  - [ ] `{{variable}}` 문법 지원
-  - [ ] 내장 함수 (random_str, timestamp 등)
-  - [ ] 조건부 치환
+### Task 3.3: 템플릿 치환 ✅
+- [x] `internal/state/manager.go` 구현
+  - [x] `{{variable}}` 문법 지원
+  - [x] 내장 함수 (random_str, timestamp 등)
+  - [x] 조건부 치환
 
-### Task 3.4: Mutator 엔진
-- [ ] `internal/mutator/mutator.go` 구현
-  - [ ] 변이 전략 인터페이스
-  - [ ] 랜덤 변이 선택기
+### Task 3.4: Mutator 엔진 ✅
+- [x] `internal/mutator/mutator.go` 구현
+  - [x] 변이 전략 인터페이스
+  - [x] 랜덤 변이 선택기
 
 ### Task 3.5: AFL 스타일 변이
 - [ ] `internal/mutator/afl.go` 구현
@@ -185,6 +185,8 @@ Phase 4: Polish         [                        ] 2주
 | 2026-01-30 | 2 | Task 2.5 분석 통합 | 분석 파이프라인, 복합 이상 판정, 결과 집계 |
 | 2026-01-30 | 3 | Task 3.1 값 추출기 | 정규식, JSON Path, 헤더, 쿠키 추출 |
 | 2026-01-30 | 3 | Task 3.2 Dynamic Pool | Thread-safe 저장소, TTL 만료, 중복 제거 |
+| 2026-01-30 | 3 | Task 3.3 템플릿 치환 | 변수 치환, 내장 함수, 조건부 치환 |
+| 2026-01-30 | 3 | Task 3.4 Mutator 엔진 | Mutator 인터페이스, Registry, 랜덤/가중치 선택기 |
 
 ---
 

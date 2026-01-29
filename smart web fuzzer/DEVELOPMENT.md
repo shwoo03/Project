@@ -40,11 +40,12 @@ smart web fuzzer/
 │       └── main.go              # 엔트리포인트
 │
 ├── internal/                    # 내부 패키지 (외부 import 불가)
-│   ├── mutator/                 # 변이 엔진
-│   │   ├── mutator.go          # 변이 인터페이스 및 팩토리
-│   │   ├── radamsa.go          # Radamsa 스타일 변이
-│   │   ├── afl.go              # AFL 스타일 변이
-│   │   └── smart.go            # 타입 인식 스마트 변이
+│   ├── mutator/                 # 변이 엔진 ✅
+│   │   ├── mutator.go          # 변이 인터페이스, Registry, Engine
+│   │   ├── mutator_test.go     # 변이 엔진 테스트
+│   │   ├── radamsa.go          # Radamsa 스타일 변이 (예정)
+│   │   ├── afl.go              # AFL 스타일 변이 (예정)
+│   │   └── smart.go            # 타입 인식 스마트 변이 (예정)
 │   │
 │   ├── requester/              # HTTP 요청 엔진
 │   │   ├── requester.go        # 요청 처리 메인 로직

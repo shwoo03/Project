@@ -2,8 +2,8 @@
 
 This document summarizes the current state of the project to assist future AI sessions in picking up the work immediately.
 
-**Last Updated**: 2025-01-31  
-**Version**: 0.9.0  
+**Last Updated**: 2026-01-31  
+**Version**: 0.11.0  
 **Roadmap**: See [ROADMAP.md](ROADMAP.md) for future development plans
 
 ## 1. Project Overview
@@ -237,6 +237,68 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
   - `backend/core/microservice_analyzer.py` - Microservice analyzer (~960 LOC)
   - `backend/test_microservice.py` - Test suite (8 tests)
 
+### 2.18 Monorepo Support ✨ NEW
+- **Multi-Project Detection**: Automatically detects monorepo structures
+- **Build Configuration Parsing**: Parses various build files
+- **Shared Library Tracking**: Identifies shared packages across projects
+- **Dependency Graph**: Internal dependency visualization
+- **Supported Monorepo Tools**:
+  - JavaScript: npm/yarn/pnpm workspaces, Lerna, Turborepo, Nx, Rush
+  - Java: Maven multi-module, Gradle multi-project
+  - Go: Go workspaces (go.work)
+  - Rust: Cargo workspaces
+  - Python: Poetry monorepos
+- **Supported Build Files**:
+  - `package.json` (npm/yarn/pnpm)
+  - `pom.xml` (Maven)
+  - `build.gradle` / `build.gradle.kts` (Gradle)
+  - `go.mod` / `go.work` (Go)
+  - `Cargo.toml` (Rust)
+  - `pyproject.toml` (Python)
+- **Key Features**:
+  - Project discovery by workspace patterns
+  - Internal dependency resolution
+  - Shared package identification
+  - Topological build order calculation
+  - Affected projects analysis (change impact)
+  - Visualization-ready dependency graph
+- **Files**:
+  - `backend/core/monorepo_analyzer.py` - Monorepo analyzer (~950 LOC)
+  - `backend/test_monorepo.py` - Test suite (9 tests)
+
+### 2.19 Language Server Protocol (LSP) Integration ✨ NEW
+- **LSP Client**: Communicates with language servers via JSON-RPC over stdio
+- **Multi-Language Support**: Python (Pyright), TypeScript, JavaScript, Java (JDT LS), Go (gopls), Rust (rust-analyzer)
+- **Code Intelligence Features**:
+  - **Go-to-Definition**: Navigate to symbol definitions with IDE-level accuracy
+  - **Find References**: Find all references to a symbol across the project
+  - **Hover Info**: Display type information, documentation, and signatures
+  - **Code Completion**: Intelligent autocomplete suggestions
+  - **Document Symbols**: Hierarchical symbol list for files
+  - **Workspace Symbols**: Search symbols across entire project
+  - **Diagnostics**: Compiler errors and warnings from language servers
+- **LSP Manager**: Manages multiple language servers simultaneously
+- **Document Lifecycle**: Automatic document open/close/update synchronization
+- **Language Servers**:
+  - Python: `pyright-langserver` (.py, .pyi)
+  - TypeScript: `typescript-language-server` (.ts, .tsx)
+  - JavaScript: `typescript-language-server` (.js, .jsx)
+  - Java: `jdtls` (.java)
+  - Go: `gopls` (.go)
+  - Rust: `rust-analyzer` (.rs)
+- **JSON-RPC Transport**: Full LSP protocol implementation with request/response/notification handling
+- **Key Features**:
+  - Subprocess-based server spawning
+  - Automatic server initialization and shutdown
+  - File extension-based server selection
+  - IDE-level type information extraction
+  - Real-time diagnostics updates
+  - Graceful error handling
+- **API Coverage**: 10 endpoints for comprehensive LSP functionality
+- **Files**:
+  - `backend/core/lsp_client.py` - LSP client and manager (~900 LOC)
+  - `backend/test_lsp.py` - Test suite (32 tests, 31 passed, 1 skipped)
+
 ## 3. Key Architecture & Files
 
 ### Backend (`backend/`)
@@ -283,6 +345,23 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
   - `POST /api/microservices/calls` - Get service calls ✨ NEW
   - `POST /api/microservices/dataflow` - Get data flow between services ✨ NEW
   - `POST /api/microservices/graph` - Get service dependency graph ✨ NEW
+  - `POST /api/monorepo/analyze` - Full monorepo analysis ✨ NEW
+  - `POST /api/monorepo/project` - Get project details ✨ NEW
+  - `POST /api/monorepo/graph` - Get dependency graph ✨ NEW
+  - `POST /api/monorepo/affected` - Get affected projects ✨ NEW
+  - `POST /api/monorepo/dependencies` - Get project dependencies ✨ NEW
+  - `POST /api/monorepo/build-order` - Get build order ✨ NEW
+  - `POST /api/lsp/initialize` - Initialize LSP servers ✨ NEW
+  - `POST /api/lsp/shutdown` - Shutdown LSP servers ✨ NEW
+  - `GET /api/lsp/status` - LSP server status ✨ NEW
+  - `GET /api/lsp/available` - Available language servers ✨ NEW
+  - `POST /api/lsp/definition` - Go-to-definition ✨ NEW
+  - `POST /api/lsp/references` - Find references ✨ NEW
+  - `POST /api/lsp/hover` - Hover information ✨ NEW
+  - `POST /api/lsp/completions` - Code completions ✨ NEW
+  - `POST /api/lsp/symbols` - Document symbols ✨ NEW
+  - `POST /api/lsp/workspace-symbols` - Workspace symbol search ✨ NEW
+  - `POST /api/lsp/diagnostics` - Get diagnostics ✨ NEW
   - `POST /api/callgraph` - Call graph analysis
   - `POST /api/callgraph/paths` - Find paths to sinks
   - `POST /api/callgraph/metrics` - Function metrics
@@ -322,7 +401,9 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
 - **`celery_config.py`**: Celery + Redis configuration
 - **`distributed_tasks.py`**: Distributed analysis tasks
 - **`websocket_progress.py`**: WebSocket progress reporter
-- **`microservice_analyzer.py`**: Microservice API tracking ✨ NEW
+- **`microservice_analyzer.py`**: Microservice API tracking
+- **`monorepo_analyzer.py`**: Monorepo structure analyzer ✨ NEW
+- **`lsp_client.py`**: Language Server Protocol client ✨ NEW
 - **`call_graph_analyzer.py`**: Call graph builder
 - **`streaming_analyzer.py`**: Streaming analysis engine
 - **`ai_analyzer.py`**: Groq LLM integration

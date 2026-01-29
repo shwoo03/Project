@@ -23,11 +23,13 @@
 - ✅ UI virtualization (Phase 1.3 완료)
 - ✅ Streaming API (Phase 1.4 완료)
 - ✅ Distributed analysis architecture (Phase 3.1 완료)
+- ✅ Microservice API tracking (Phase 3.2 완료)
+- ✅ Monorepo support (Phase 3.3 완료)
+- ✅ LSP integration (Phase 3.4 완료)
 
 **한계점**:
-- ❌ 마이크로서비스 API 추적 미지원 → Phase 3.2 예정
-- ❌ Monorepo 지원 미구현 → Phase 3.3 예정
-- ❌ LSP 통합 미구현 → Phase 3.4 예정
+- ❌ 보안 대시보드 미구현 → Phase 3.5 예정
+- ❌ CI/CD 통합 미구현 → Phase 3.6 예정
 
 ---
 
@@ -387,11 +389,71 @@ def execute(cmd):
 - `POST /api/monorepo/dependencies` - 프로젝트 의존성
 - `POST /api/monorepo/build-order` - 빌드 순서
 
-### 3.4 Language Server Protocol (LSP) 통합
-- [ ] LSP 서버 연동으로 정확한 타입 정보 획득
-- [ ] Go-to-definition 정확도 향상
-- [ ] IDE 수준의 심볼 해석
-- [ ] 지원 언어: Python (Pylance), TypeScript, Java
+### 3.4 Language Server Protocol (LSP) 통합 ✅ DONE
+- [x] LSP 서버 연동으로 정확한 타입 정보 획득
+- [x] Go-to-definition 정확도 향상
+- [x] IDE 수준의 심볼 해석
+- [x] 지원 언어: Python (Pyright), TypeScript, JavaScript, Java, Go, Rust
+
+**지원 기능**:
+| 기능 | 설명 |
+|------|------|
+| **Go-to-definition** | 심볼 정의 위치 탐색 |
+| **Find References** | 모든 참조 위치 검색 |
+| **Hover** | 타입 정보, 문서 표시 |
+| **Completions** | 코드 자동완성 |
+| **Document Symbols** | 파일 내 심볼 목록 |
+| **Workspace Symbols** | 프로젝트 전체 심볼 검색 |
+| **Diagnostics** | 컴파일 에러, 경고 |
+
+**지원 Language Server**:
+| 언어 | Language Server | 파일 확장자 |
+|------|----------------|-------------|
+| Python | Pyright | .py, .pyi |
+| TypeScript | typescript-language-server | .ts, .tsx |
+| JavaScript | typescript-language-server | .js, .jsx |
+| Java | Eclipse JDT LS | .java |
+| Go | gopls | .go |
+| Rust | rust-analyzer | .rs |
+
+**아키텍처**:
+```
+┌─────────────────┐     JSON-RPC     ┌──────────────────┐
+│   LSP Client    │◀───────────────▶│  Language Server │
+│   (Python)      │   stdio/pipe    │  (Subprocess)    │
+└─────────────────┘                  └──────────────────┘
+        │
+        ▼
+┌─────────────────┐
+│   LSP Manager   │  - 다중 언어 서버 관리
+│                 │  - 파일 확장자 기반 서버 선택
+│                 │  - 자동 초기화/종료
+└─────────────────┘
+```
+
+**핵심 기능**:
+- **JsonRpcTransport**: LSP JSON-RPC 프로토콜 구현 (요청/응답/알림)
+- **LSPClient**: 언어 서버와 통신하는 클라이언트
+- **LSPManager**: 다중 언어 서버 관리자 (싱글톤)
+- **Document Management**: 열기/닫기/업데이트 동기화
+- **Graceful Shutdown**: 서버 정상 종료 처리
+
+**구현 파일**:
+- `backend/core/lsp_client.py` - LSP 클라이언트 모듈 (~900 LOC)
+- `backend/test_lsp.py` - 테스트 스크립트 (32 tests)
+
+**API 엔드포인트**:
+- `POST /api/lsp/initialize` - LSP 서버 초기화
+- `POST /api/lsp/shutdown` - LSP 서버 종료
+- `GET /api/lsp/status` - 서버 상태 조회
+- `GET /api/lsp/available` - 사용 가능한 언어 서버 목록
+- `POST /api/lsp/definition` - Go-to-definition
+- `POST /api/lsp/references` - Find References
+- `POST /api/lsp/hover` - Hover 정보
+- `POST /api/lsp/completions` - 코드 완성
+- `POST /api/lsp/symbols` - 문서 심볼
+- `POST /api/lsp/workspace-symbols` - 워크스페이스 심볼 검색
+- `POST /api/lsp/diagnostics` - 진단 정보
 
 ### 3.5 보안 대시보드
 - [ ] 취약점 통계 차트

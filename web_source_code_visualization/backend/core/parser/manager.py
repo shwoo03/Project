@@ -4,13 +4,17 @@ from .base import BaseParser
 from .python import PythonParser
 from .javascript import JavascriptParser
 from .php import PHPParser
+from .java import JavaParser
+from .go import GoParser
 
 class ParserManager:
     def __init__(self):
         self.parsers: list[BaseParser] = [
             PythonParser(),
             JavascriptParser(),
-            PHPParser()
+            PHPParser(),
+            JavaParser(),
+            GoParser()
         ]
 
     def get_parser(self, file_path: str) -> Optional[BaseParser]:

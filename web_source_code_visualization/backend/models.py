@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 class Parameter(BaseModel):
     name: str
     type: Optional[str] = None
-    source: Literal['query', 'body', 'path', 'header', 'cookie', 'unknown'] = 'unknown'
+    source: Literal['query', 'body', 'path', 'header', 'cookie', 'unknown', 'arg'] = 'unknown'
 
 class EndpointNodes(BaseModel):
     id: str

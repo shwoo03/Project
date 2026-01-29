@@ -121,20 +121,20 @@ class CallGraphAnalyzer:
     def _analyze_python_file(self, filepath: str):
         """Analyze a Python file for functions and calls."""
         try:
-            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
+            with open(filepath, 'rb') as f:
+                content_bytes = f.read()
         except Exception:
             return
         
-        tree = self.py_parser.parse(content.encode())
-        self._extract_python_definitions(tree.root_node, filepath, content, None)
+        tree = self.py_parser.parse(content_bytes)
+        self._extract_python_definitions(tree.root_node, filepath, content_bytes, None)
     
-    def _extract_python_definitions(self, node, filepath: str, content: str, 
+    def _extract_python_definitions(self, node, filepath: str, content_bytes: bytes, 
                                      current_class: Optional[str], depth: int = 0):
         """Recursively extract Python function/class definitions."""
         
         if node.type == 'class_definition':
-            class_name = self._get_child_text(node, 'name', content)
+            class_name = self._get_node_text(node.child_by_field_name('name'), content_bytes)
             if class_name:
                 # Register class
                 qualified = f"{os.path.basename(filepath)}::{class_name}"
@@ -151,11 +151,11 @@ class CallGraphAnalyzer:
                 body = node.child_by_field_name('body')
                 if body:
                     for child in body.children:
-                        self._extract_python_definitions(child, filepath, content, class_name, depth + 1)
+                        self._extract_python_definitions(child, filepath, content_bytes, class_name, depth + 1)
                 return
         
         elif node.type == 'function_definition':
-            func_name = self._get_child_text(node, 'name', content)
+            func_name = self._get_node_text(node.child_by_field_name('name'), content_bytes)
             if func_name:
                 # Build qualified name
                 if current_class:
@@ -170,13 +170,13 @@ class CallGraphAnalyzer:
                 is_entry_point = False
                 for child in node.children:
                     if child.type == 'decorator':
-                        dec_text = content[child.start_byte:child.end_byte]
+                        dec_text = self._get_node_text(child, content_bytes)
                         decorators.append(dec_text)
                         if any(p in dec_text for p in ['@app.route', '@router.', '@api_view', '@action']):
                             is_entry_point = True
                 
                 # Extract calls within this function
-                calls = self._extract_python_calls(node, content)
+                calls = self._extract_python_calls(node, content_bytes)
                 
                 # Check if any call is a sink
                 is_sink = any(call[0] in self.PYTHON_SINKS for call in calls)
@@ -198,9 +198,9 @@ class CallGraphAnalyzer:
         
         # Continue traversing
         for child in node.children:
-            self._extract_python_definitions(child, filepath, content, current_class, depth)
+            self._extract_python_definitions(child, filepath, content_bytes, current_class, depth)
     
-    def _extract_python_calls(self, node, content: str) -> List[Tuple[str, int]]:
+    def _extract_python_calls(self, node, content_bytes: bytes) -> List[Tuple[str, int]]:
         """Extract all function calls within a node."""
         calls = []
         
@@ -208,10 +208,11 @@ class CallGraphAnalyzer:
             if n.type == 'call':
                 func = n.child_by_field_name('function')
                 if func:
-                    call_text = content[func.start_byte:func.end_byte]
-                    # Simplify to base function name
-                    call_name = call_text.split('.')[-1].split('(')[0]
-                    calls.append((call_name, n.start_point[0] + 1))
+                    call_text = self._get_node_text(func, content_bytes)
+                    if call_text:
+                        # Simplify to base function name
+                        call_name = call_text.split('.')[-1].split('(')[0]
+                        calls.append((call_name, n.start_point[0] + 1))
             
             for child in n.children:
                 traverse(child)
@@ -226,19 +227,19 @@ class CallGraphAnalyzer:
     def _analyze_javascript_file(self, filepath: str):
         """Analyze a JavaScript file for functions and calls."""
         try:
-            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
+            with open(filepath, 'rb') as f:
+                content_bytes = f.read()
         except Exception:
             return
         
-        tree = self.js_parser.parse(content.encode())
-        self._extract_js_definitions(tree.root_node, filepath, content)
+        tree = self.js_parser.parse(content_bytes)
+        self._extract_js_definitions(tree.root_node, filepath, content_bytes)
     
     def _analyze_typescript_file(self, filepath: str):
         """Analyze a TypeScript file for functions and calls."""
         try:
-            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
+            with open(filepath, 'rb') as f:
+                content_bytes = f.read()
         except Exception:
             return
         
@@ -246,20 +247,22 @@ class CallGraphAnalyzer:
         if not parser:
             return
         
-        tree = parser.parse(content.encode())
-        self._extract_js_definitions(tree.root_node, filepath, content)
+        tree = parser.parse(content_bytes)
+        self._extract_js_definitions(tree.root_node, filepath, content_bytes)
     
-    def _extract_js_definitions(self, node, filepath: str, content: str, 
+    def _extract_js_definitions(self, node, filepath: str, content_bytes: bytes, 
                                  current_class: Optional[str] = None):
         """Extract JavaScript/TypeScript function definitions."""
         
         if node.type in ('function_declaration', 'generator_function_declaration'):
             name_node = node.child_by_field_name('name')
             if name_node:
-                func_name = content[name_node.start_byte:name_node.end_byte]
+                func_name = self._get_node_text(name_node, content_bytes)
+                if not func_name:
+                    return
                 qualified = f"{os.path.basename(filepath)}::{func_name}"
                 
-                calls = self._extract_js_calls(node, content)
+                calls = self._extract_js_calls(node, content_bytes)
                 is_sink = any(call[0] in self.JS_SINKS for call in calls)
                 
                 self.functions[qualified] = FunctionInfo(
@@ -275,7 +278,7 @@ class CallGraphAnalyzer:
         
         elif node.type == 'class_declaration':
             name_node = node.child_by_field_name('name')
-            class_name = content[name_node.start_byte:name_node.end_byte] if name_node else None
+            class_name = self._get_node_text(name_node, content_bytes) if name_node else None
             
             if class_name:
                 qualified = f"{os.path.basename(filepath)}::{class_name}"
@@ -293,9 +296,9 @@ class CallGraphAnalyzer:
             if body:
                 for child in body.children:
                     if child.type == 'method_definition':
-                        self._extract_js_method(child, filepath, content, class_name)
+                        self._extract_js_method(child, filepath, content_bytes, class_name)
                     else:
-                        self._extract_js_definitions(child, filepath, content, class_name)
+                        self._extract_js_definitions(child, filepath, content_bytes, class_name)
             return
         
         elif node.type == 'variable_declaration':
@@ -306,14 +309,17 @@ class CallGraphAnalyzer:
                     value_node = child.child_by_field_name('value')
                     
                     if name_node and value_node and value_node.type == 'arrow_function':
-                        func_name = content[name_node.start_byte:name_node.end_byte]
+                        func_name = self._get_node_text(name_node, content_bytes)
+                        if not func_name:
+                            continue
                         qualified = f"{os.path.basename(filepath)}::{func_name}"
                         
-                        calls = self._extract_js_calls(value_node, content)
+                        calls = self._extract_js_calls(value_node, content_bytes)
                         is_sink = any(call[0] in self.JS_SINKS for call in calls)
                         
                         # Check if it's a route handler (export default, app.get, etc.)
-                        is_entry_point = 'export default' in content[max(0, node.start_byte-20):node.start_byte]
+                        prefix_bytes = content_bytes[max(0, node.start_byte-20):node.start_byte]
+                        is_entry_point = b'export default' in prefix_bytes
                         
                         self.functions[qualified] = FunctionInfo(
                             name=func_name,
@@ -329,16 +335,18 @@ class CallGraphAnalyzer:
         
         # Continue traversing
         for child in node.children:
-            self._extract_js_definitions(child, filepath, content, current_class)
+            self._extract_js_definitions(child, filepath, content_bytes, current_class)
     
-    def _extract_js_method(self, node, filepath: str, content: str, class_name: str):
+    def _extract_js_method(self, node, filepath: str, content_bytes: bytes, class_name: str):
         """Extract a JavaScript class method."""
         name_node = node.child_by_field_name('name')
         if name_node:
-            method_name = content[name_node.start_byte:name_node.end_byte]
+            method_name = self._get_node_text(name_node, content_bytes)
+            if not method_name:
+                return
             qualified = f"{os.path.basename(filepath)}::{class_name}.{method_name}"
             
-            calls = self._extract_js_calls(node, content)
+            calls = self._extract_js_calls(node, content_bytes)
             is_sink = any(call[0] in self.JS_SINKS for call in calls)
             
             self.functions[qualified] = FunctionInfo(
@@ -353,7 +361,7 @@ class CallGraphAnalyzer:
                 is_sink=is_sink
             )
     
-    def _extract_js_calls(self, node, content: str) -> List[Tuple[str, int]]:
+    def _extract_js_calls(self, node, content_bytes: bytes) -> List[Tuple[str, int]]:
         """Extract all function calls within a JavaScript node."""
         calls = []
         
@@ -361,7 +369,7 @@ class CallGraphAnalyzer:
             if n.type == 'call_expression':
                 func = n.child_by_field_name('function')
                 if func:
-                    call_text = content[func.start_byte:func.end_byte]
+                    call_text = content_bytes[func.start_byte:func.end_byte].decode('utf-8', errors='ignore')
                     # Simplify to base function name
                     call_name = call_text.split('.')[-1].split('(')[0]
                     calls.append((call_name, n.start_point[0] + 1))
@@ -372,11 +380,20 @@ class CallGraphAnalyzer:
         traverse(node)
         return calls
     
-    def _get_child_text(self, node, field_name: str, content: str) -> Optional[str]:
+    def _get_node_text(self, node, content_bytes: bytes) -> Optional[str]:
+        """Get text from a node using byte offsets (handles UTF-8 correctly)."""
+        if node is None:
+            return None
+        try:
+            return content_bytes[node.start_byte:node.end_byte].decode('utf-8', errors='ignore')
+        except Exception:
+            return None
+    
+    def _get_child_text(self, node, field_name: str, content_bytes: bytes) -> Optional[str]:
         """Get text of a named child."""
         child = node.child_by_field_name(field_name)
         if child:
-            return content[child.start_byte:child.end_byte]
+            return self._get_node_text(child, content_bytes)
         return None
     
     def _resolve_calls(self):

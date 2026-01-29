@@ -57,11 +57,25 @@
 - `POST /api/cache/invalidate` - 선택적 캐시 무효화
 - `DELETE /api/cache` - 전체 캐시 삭제
 
-### 1.3 UI 가상화 (Virtual Rendering)
-- [ ] `react-window` 또는 `@tanstack/virtual` 적용
-- [ ] 화면에 보이는 노드만 렌더링
-- [ ] 스크롤 시 동적 노드 로딩
-- [ ] 대용량 그래프 성능 테스트 (10,000+ 노드)
+### 1.3 UI 가상화 (Virtual Rendering) ✅ DONE
+- [x] `@tanstack/react-virtual` 적용
+- [x] 파일 트리 가상화 (VirtualizedFileTree)
+- [x] 대용량 코드 뷰어 가상화 (VirtualizedCodeViewer)
+- [x] 성능 모니터 컴포넌트 (PerformanceMonitor)
+- [x] 점진적 노드 로딩 (Progressive Loading)
+- [x] 뷰포트 최적화 훅 (useViewportOptimization)
+- [x] ReactFlow 성능 최적화 (드래그/연결 조건부 비활성화)
+
+**성능 기능**:
+- 10,000+ 파일 목록 부드러운 스크롤
+- 100+ 노드 그래프에서 자동 최적화 활성화
+- 실시간 FPS 모니터링
+
+**구현 파일**:
+- `frontend/components/panels/VirtualizedFileTree.tsx` - 가상화된 파일 트리
+- `frontend/components/virtualized/VirtualizedCodeViewer.tsx` - 가상화된 코드 뷰어
+- `frontend/components/feedback/PerformanceMonitor.tsx` - 성능 모니터
+- `frontend/hooks/useViewportOptimization.ts` - 뷰포트 최적화 훅
 
 ### 1.4 스트리밍 API 응답
 - [ ] FastAPI StreamingResponse 활용

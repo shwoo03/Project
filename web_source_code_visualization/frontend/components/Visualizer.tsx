@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect, useMemo } from 'react';
 import ReactFlow, {
     Background,
     Controls,
@@ -10,7 +10,8 @@ import ReactFlow, {
     addEdge,
     Connection,
     Node,
-    Edge
+    Edge,
+    ReactFlowProvider
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { AnimatePresence } from 'framer-motion';
@@ -23,19 +24,24 @@ import { AppError, createError, getErrorMessage, getErrorType } from '@/types/er
 // Hooks
 import { useResizePanel } from '@/hooks/useResizePanel';
 import { useBacktrace } from '@/hooks/useBacktrace';
+import { useProgressiveLoading } from '@/hooks/useViewportOptimization';
 
 // Utils
 import { getNodeStyle, ROOT_STYLE } from '@/utils/nodeStyles';
 
 // Components
 import { ControlBar } from '@/components/controls/ControlBar';
-import { FileTreeSidebar } from '@/components/panels/FileTreeSidebar';
+import { VirtualizedFileTree } from '@/components/panels/VirtualizedFileTree';
 import { DetailPanel } from '@/components/panels/DetailPanel';
 import { ErrorToast } from '@/components/feedback/ErrorToast';
+import { PerformanceMonitor } from '@/components/feedback/PerformanceMonitor';
 
 const API_BASE = 'http://localhost:8000';
 
-const Visualizer = () => {
+// Threshold for enabling virtualization
+const VIRTUALIZATION_THRESHOLD = 100;
+
+const VisualizerContent = () => {
     // Graph State
     const [nodes, setNodes, onNodesChange] = useNodesState([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -63,6 +69,25 @@ const Visualizer = () => {
     // Custom Hooks
     const { panelWidth, isResizing, startResizing } = useResizePanel({ initialWidth: 800 });
     const { highlightBacktrace, resetHighlight } = useBacktrace();
+
+    // Performance Stats for virtualization
+    const performanceStats = useMemo(() => ({
+        totalNodes: nodes.length,
+        visibleNodes: nodes.length, // Will be updated by viewport optimization
+        totalEdges: edges.length,
+        visibleEdges: edges.length,
+        renderRatio: 100
+    }), [nodes.length, edges.length]);
+
+    // Check if virtualization should be enabled
+    const isVirtualized = useMemo(() => 
+        allFiles.length >= VIRTUALIZATION_THRESHOLD || nodes.length >= VIRTUALIZATION_THRESHOLD,
+        [allFiles.length, nodes.length]
+    );
+
+    // Progressive loading for large node sets
+    const { loadedItems: progressiveNodes, isLoading: nodesLoading, progress: loadProgress } = 
+        useProgressiveLoading(nodes, 200, 30);
 
     // Process nodes when filters change
     useEffect(() => {
@@ -702,9 +727,9 @@ const Visualizer = () => {
                 showCallGraph={showCallGraph}
             />
 
-            {/* File Tree Sidebar */}
+            {/* File Tree Sidebar - Virtualized for large file lists */}
             {showFileTree && (
-                <FileTreeSidebar
+                <VirtualizedFileTree
                     files={allFiles}
                     selectedFiles={selectedFiles}
                     onToggleFile={handleToggleFile}
@@ -713,10 +738,26 @@ const Visualizer = () => {
                 />
             )}
 
+            {/* Loading progress indicator for large graphs */}
+            {nodesLoading && (
+                <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-50 bg-black/80 backdrop-blur px-4 py-2 rounded-lg border border-white/10">
+                    <div className="flex items-center gap-3">
+                        <div className="w-4 h-4 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+                        <span className="text-sm text-zinc-300">Loading nodes... {loadProgress}%</span>
+                    </div>
+                    <div className="w-48 h-1 bg-zinc-700 rounded-full mt-2 overflow-hidden">
+                        <div 
+                            className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all duration-300"
+                            style={{ width: `${loadProgress}%` }}
+                        />
+                    </div>
+                </div>
+            )}
+
             {/* Main Graph Area */}
             <div className="flex-1 h-full relative">
                 <ReactFlow
-                    nodes={nodes}
+                    nodes={nodesLoading ? progressiveNodes : nodes}
                     edges={edges}
                     onNodesChange={onNodesChange}
                     onEdgesChange={onEdgesChange}
@@ -725,11 +766,29 @@ const Visualizer = () => {
                     onPaneClick={onPaneClick}
                     fitView
                     className="bg-black/50"
+                    // Performance optimizations for large graphs
+                    minZoom={0.1}
+                    maxZoom={2}
+                    nodesDraggable={nodes.length < 1000}
+                    nodesConnectable={nodes.length < 500}
+                    elementsSelectable={true}
                 >
                     <Background color="#333" gap={20} />
                     <Controls className="bg-zinc-800 border-zinc-700 fill-white" />
-                    <MiniMap className="bg-zinc-900 border-zinc-700" nodeColor="#00f0ff" />
+                    <MiniMap 
+                        className="bg-zinc-900 border-zinc-700" 
+                        nodeColor="#00f0ff"
+                        maskColor="rgba(0, 0, 0, 0.8)"
+                        pannable
+                        zoomable
+                    />
                 </ReactFlow>
+
+                {/* Performance Monitor - shows when graph is large */}
+                <PerformanceMonitor 
+                    stats={performanceStats}
+                    isVirtualized={isVirtualized}
+                />
             </div>
 
             {/* Detail Panel */}
@@ -751,6 +810,18 @@ const Visualizer = () => {
             {/* Error Toast */}
             <ErrorToast error={error} onDismiss={() => setError(null)} />
         </div>
+    );
+};
+
+/**
+ * Main Visualizer component wrapped with ReactFlowProvider
+ * for viewport optimization hooks to work properly.
+ */
+const Visualizer = () => {
+    return (
+        <ReactFlowProvider>
+            <VisualizerContent />
+        </ReactFlowProvider>
     );
 };
 

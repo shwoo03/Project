@@ -3,7 +3,7 @@
 This document summarizes the current state of the project to assist future AI sessions in picking up the work immediately.
 
 **Last Updated**: 2026-01-30  
-**Version**: 0.2.0  
+**Version**: 0.3.0  
 **Roadmap**: See [ROADMAP.md](ROADMAP.md) for future development plans
 
 ## 1. Project Overview
@@ -44,22 +44,39 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
 - **Path finding**: Find all paths from entry points to sinks
 - **Metrics**: Fan-in, fan-out, hub detection, orphan detection
 
-### 2.5 Parallel Analysis Engine ✨ NEW
+### 2.5 Parallel Analysis Engine
 - **File**: `backend/core/parallel_analyzer.py`
 - **Auto mode selection**: Sequential for <100 files, Parallel for ≥100 files
 - **ThreadPoolExecutor**: Concurrent file processing with CPU-based worker count
 - **Statistics tracking**: Parse time, success/failure rates, language distribution
 
-### 2.6 Detail Panel & Source Code Viewer
+### 2.6 Analysis Caching System
+- **File**: `backend/core/analysis_cache.py`
+- **SQLite-based**: Persistent cache with file hash validation
+- **Incremental analysis**: Only re-parse changed files
+- **Performance**: 23x speedup on repeated analysis (95.7% time saved)
+
+### 2.7 UI Virtualization ✨ NEW
+- **Virtualized File Tree**: Handles 10,000+ files with smooth scrolling
+- **Progressive Node Loading**: Loads large graphs in batches to prevent UI freeze
+- **Performance Monitor**: Real-time FPS and render statistics
+- **Viewport Optimization**: Renders only visible elements
+- **Files**:
+  - `frontend/components/panels/VirtualizedFileTree.tsx`
+  - `frontend/components/virtualized/VirtualizedCodeViewer.tsx`
+  - `frontend/components/feedback/PerformanceMonitor.tsx`
+  - `frontend/hooks/useViewportOptimization.ts`
+
+### 2.8 Detail Panel & Source Code Viewer
 - Clicking a node opens a slide-over panel
 - Shows metadata (URL, Method, Params) and source code with syntax highlighting
 - AI security analysis button for deep code review
 
-### 2.7 Backtrace Highlighting
+### 2.9 Backtrace Highlighting
 - Clicking a deep node highlights the upstream path in neon yellow
 - Helps trace data flow backwards
 
-### 2.8 Template Linking
+### 2.10 Template Linking
 - Detects `render_template()` calls
 - Resolves template file paths
 - Shows template source code

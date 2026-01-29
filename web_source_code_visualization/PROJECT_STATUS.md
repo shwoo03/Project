@@ -3,7 +3,7 @@
 This document summarizes the current state of the project to assist future AI sessions in picking up the work immediately.
 
 **Last Updated**: 2026-01-30  
-**Version**: 0.3.0  
+**Version**: 0.4.0  
 **Roadmap**: See [ROADMAP.md](ROADMAP.md) for future development plans
 
 ## 1. Project Overview
@@ -56,7 +56,7 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
 - **Incremental analysis**: Only re-parse changed files
 - **Performance**: 23x speedup on repeated analysis (95.7% time saved)
 
-### 2.7 UI Virtualization ✨ NEW
+### 2.7 UI Virtualization
 - **Virtualized File Tree**: Handles 10,000+ files with smooth scrolling
 - **Progressive Node Loading**: Loads large graphs in batches to prevent UI freeze
 - **Performance Monitor**: Real-time FPS and render statistics
@@ -67,16 +67,39 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
   - `frontend/components/feedback/PerformanceMonitor.tsx`
   - `frontend/hooks/useViewportOptimization.ts`
 
-### 2.8 Detail Panel & Source Code Viewer
+### 2.8 Streaming API ✨ NEW
+- **Real-time Analysis**: Server-Sent Events (SSE) and NDJSON streaming
+- **Progress Tracking**: Phase-based progress with file counts and percentages
+- **Incremental Results**: Endpoints and taint flows delivered in batches
+- **Cancellation Support**: AbortController for stream termination
+- **Visual Progress UI**: StreamingProgress component with phase indicators
+- **Event Types**:
+  - `init` - Analysis initialization info
+  - `progress` - File processing updates
+  - `symbols` - Symbol table chunks
+  - `endpoints` - Endpoint batches
+  - `taint` - Taint flow results
+  - `stats` - Final statistics
+  - `complete` - Analysis completion
+  - `error` - Error information
+- **Files**:
+  - `backend/core/streaming_analyzer.py` - Async streaming engine
+  - `frontend/hooks/useStreamingAnalysis.ts` - Stream consumer hook
+  - `frontend/components/feedback/StreamingProgress.tsx` - Progress UI
+- **API Endpoints**:
+  - `POST /api/analyze/stream?format=sse|ndjson` - Streaming analysis
+  - `POST /api/analyze/stream/cancel` - Cancel ongoing stream
+
+### 2.9 Detail Panel & Source Code Viewer
 - Clicking a node opens a slide-over panel
 - Shows metadata (URL, Method, Params) and source code with syntax highlighting
 - AI security analysis button for deep code review
 
-### 2.9 Backtrace Highlighting
+### 2.10 Backtrace Highlighting
 - Clicking a deep node highlights the upstream path in neon yellow
 - Helps trace data flow backwards
 
-### 2.10 Template Linking
+### 2.11 Template Linking
 - Detects `render_template()` calls
 - Resolves template file paths
 - Shows template source code
@@ -88,13 +111,18 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
 #### Main Application
 - **`main.py`**: FastAPI app with endpoints:
   - `POST /api/analyze` - Parse and analyze project (supports parallel mode)
-  - `GET /api/analyze/stats` - Get analysis statistics ✨ NEW
+  - `POST /api/analyze/stream` - Streaming analysis (SSE/NDJSON) ✨ NEW
+  - `POST /api/analyze/stream/cancel` - Cancel streaming analysis ✨ NEW
+  - `GET /api/analyze/stats` - Get analysis statistics
   - `POST /api/snippet` - Get source code snippet
   - `POST /api/analyze/ai` - AI-powered security analysis
   - `POST /api/analyze/semgrep` - Semgrep security scan
   - `POST /api/callgraph` - Call graph analysis
   - `POST /api/callgraph/paths` - Find paths to sinks
   - `POST /api/callgraph/metrics` - Function metrics
+  - `GET /api/cache/stats` - Cache statistics
+  - `POST /api/cache/invalidate` - Selective cache invalidation
+  - `DELETE /api/cache` - Clear all cache
 
 #### Parser Module (`core/parser/`)
 ```
@@ -118,7 +146,8 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
 ```
 
 #### Security Analysis (`core/`)
-- **`parallel_analyzer.py`**: Parallel/sequential file processing ✨ NEW
+- **`parallel_analyzer.py`**: Parallel/sequential file processing
+- **`analysis_cache.py`**: SQLite-based analysis caching
 - **`taint_analyzer.py`**: Taint analysis engine
 - **`call_graph_analyzer.py`**: Call graph builder
 - **`ai_analyzer.py`**: Groq LLM integration
@@ -142,20 +171,25 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
 #### Components
 ```
 ├── components/
-│   ├── Visualizer.tsx      # Main graph component
+│   ├── Visualizer.tsx           # Main graph component (ReactFlowProvider wrapped)
 │   ├── controls/
-│   │   └── ControlBar.tsx  # Top control bar with toggles
+│   │   └── ControlBar.tsx       # Top control bar with toggles
 │   ├── panels/
-│   │   ├── DetailPanel.tsx # Node detail view
-│   │   └── FileTreeSidebar.tsx
+│   │   ├── DetailPanel.tsx      # Node detail view
+│   │   ├── FileTreeSidebar.tsx  # Original file tree (deprecated)
+│   │   └── VirtualizedFileTree.tsx  # Virtualized file tree ✨ NEW
+│   ├── virtualized/             # ✨ NEW folder
+│   │   └── VirtualizedCodeViewer.tsx  # Large code viewer
 │   └── feedback/
-│       └── ErrorToast.tsx
+│       ├── ErrorToast.tsx
+│       └── PerformanceMonitor.tsx   # FPS/stats monitor ✨ NEW
 ├── types/
 │   ├── graph.ts            # TypeScript interfaces
 │   └── errors.ts           # Error handling types
 ├── hooks/
 │   ├── useBacktrace.ts     # Backtrace highlighting logic
-│   └── useResizePanel.ts   # Panel resize handling
+│   ├── useResizePanel.ts   # Panel resize handling
+│   └── useViewportOptimization.ts  # Viewport culling ✨ NEW
 └── utils/
     ├── nodeStyles.ts       # Node styling by type
     └── filterBehavior.ts   # Filter helpers
@@ -189,6 +223,7 @@ next@16, react@19, reactflow
 dagre, framer-motion
 lucide-react, react-markdown
 react-syntax-highlighter, tailwindcss
+@tanstack/react-virtual   # ✨ NEW - UI virtualization
 ```
 
 ## 6. Troubleshooting History
@@ -201,7 +236,7 @@ react-syntax-highlighter, tailwindcss
 
 ## 7. Recent Additions (2026-01-30)
 
-### 7.1 Parallel Analyzer ✅ NEW
+### 7.1 Parallel Analyzer
 - **File**: `backend/core/parallel_analyzer.py`
 - **Features**:
   - `ThreadPoolExecutor` 기반 병렬 파일 분석
@@ -210,7 +245,29 @@ react-syntax-highlighter, tailwindcss
   - 분석 통계 수집 및 리포팅
 - **API**: `GET /api/analyze/stats` - 분석 통계 조회
 
-### 7.2 Development Roadmap
+### 7.2 Analysis Caching
+- **File**: `backend/core/analysis_cache.py`
+- **Features**:
+  - SQLite 기반 분석 결과 캐싱
+  - SHA256 파일 해시로 변경 감지
+  - 증분 분석 (변경된 파일만 재파싱)
+- **Performance**: 23x 속도 향상 (95.7% 시간 절약)
+- **API**: `GET /api/cache/stats`, `POST /api/cache/invalidate`, `DELETE /api/cache`
+
+### 7.3 UI Virtualization ✨ NEW
+- **Files**:
+  - `frontend/components/panels/VirtualizedFileTree.tsx` - 가상화된 파일 트리
+  - `frontend/components/virtualized/VirtualizedCodeViewer.tsx` - 대용량 코드 뷰어
+  - `frontend/components/feedback/PerformanceMonitor.tsx` - 성능 모니터
+  - `frontend/hooks/useViewportOptimization.ts` - 뷰포트 최적화
+- **Features**:
+  - @tanstack/react-virtual 기반 가상 스크롤링
+  - 10,000+ 파일 부드러운 렌더링
+  - 점진적 노드 로딩 (UI 프리징 방지)
+  - 실시간 FPS 모니터링
+  - ReactFlow 성능 최적화 (1000+ 노드 시 드래그 비활성화)
+
+### 7.4 Development Roadmap
 - **File**: `ROADMAP.md`
 - Phase 1~3 구현 계획 문서화
 

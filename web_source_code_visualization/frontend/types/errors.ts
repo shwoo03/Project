@@ -2,7 +2,7 @@
 // Error Types
 // ============================================
 
-export type ErrorType = 'connection' | 'api' | 'parse' | 'unknown';
+export type ErrorType = 'connection' | 'api' | 'parse' | 'stream' | 'unknown';
 
 export interface AppError {
     type: ErrorType;

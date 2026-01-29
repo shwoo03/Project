@@ -25,6 +25,7 @@ import { AppError, createError, getErrorMessage, getErrorType } from '@/types/er
 import { useResizePanel } from '@/hooks/useResizePanel';
 import { useBacktrace } from '@/hooks/useBacktrace';
 import { useProgressiveLoading } from '@/hooks/useViewportOptimization';
+import { useStreamingAnalysis } from '@/hooks/useStreamingAnalysis';
 
 // Utils
 import { getNodeStyle, ROOT_STYLE } from '@/utils/nodeStyles';
@@ -35,6 +36,7 @@ import { VirtualizedFileTree } from '@/components/panels/VirtualizedFileTree';
 import { DetailPanel } from '@/components/panels/DetailPanel';
 import { ErrorToast } from '@/components/feedback/ErrorToast';
 import { PerformanceMonitor } from '@/components/feedback/PerformanceMonitor';
+import { StreamingProgress } from '@/components/feedback/StreamingProgress';
 
 const API_BASE = 'http://localhost:8000';
 
@@ -65,10 +67,28 @@ const VisualizerContent = () => {
     const [showTaintFlows, setShowTaintFlows] = useState(true); // Taint flow visualization
     const [showCallGraph, setShowCallGraph] = useState(false); // Call graph mode
     const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
+    
+    // Streaming mode (for large projects)
+    const [useStreaming, setUseStreaming] = useState(false);
 
     // Custom Hooks
     const { panelWidth, isResizing, startResizing } = useResizePanel({ initialWidth: 800 });
     const { highlightBacktrace, resetHighlight } = useBacktrace();
+    
+    // Streaming analysis hook
+    const {
+        startStream,
+        cancelStream,
+        state: streamState,
+        isStreaming
+    } = useStreamingAnalysis({
+        onComplete: (data) => {
+            console.log(`[Streaming] Complete: ${data.elapsed_ms}ms, ${data.summary.endpoints} endpoints`);
+        },
+        onError: (err) => {
+            setError(createError('stream', 'Streaming analysis failed', err));
+        }
+    });
 
     // Performance Stats for virtualization
     const performanceStats = useMemo(() => ({
@@ -265,6 +285,13 @@ const VisualizerContent = () => {
 
     const analyzeProject = async () => {
         if (!projectPath) return;
+        
+        // Use streaming for potentially large projects
+        if (useStreaming) {
+            startStream(projectPath, true, true);
+            return;
+        }
+        
         setLoading(true);
         try {
             const res = await fetch(`${API_BASE}/api/analyze`, {
@@ -306,6 +333,46 @@ const VisualizerContent = () => {
             setLoading(false);
         }
     };
+    
+    // Process streaming results into graph data
+    useEffect(() => {
+        if (streamState.endpoints.length > 0 && !isStreaming) {
+            // Convert streaming endpoints to AnalysisData format
+            const endpoints = streamState.endpoints as unknown as Endpoint[];
+            const taintFlows = streamState.taintFlows as unknown as TaintFlowEdge[];
+            
+            const data: AnalysisData = {
+                root_path: projectPath,
+                language_stats: streamState.stats?.language_stats || {},
+                endpoints,
+                taint_flows: taintFlows
+            };
+            
+            setAnalysisData(data);
+            
+            // Extract files
+            const files = new Set<string>();
+            endpoints.forEach((ep: Endpoint) => {
+                if (ep.file_path) files.add(ep.file_path);
+            });
+            
+            const fileList = Array.from(files).sort();
+            setAllFiles(fileList);
+            
+            // Select default files
+            const defaults = new Set<string>();
+            fileList.forEach(f => {
+                const lower = f.toLowerCase();
+                if (lower.endsWith("app.py") || lower.endsWith("main.py") || lower.endsWith("index.js")) {
+                    defaults.add(f);
+                }
+            });
+            if (defaults.size === 0) {
+                fileList.slice(0, 3).forEach(f => defaults.add(f));
+            }
+            setSelectedFiles(defaults);
+        }
+    }, [streamState.endpoints, streamState.taintFlows, streamState.stats, isStreaming, projectPath]);
 
     // Call Graph data loading and visualization
     const [callGraphData, setCallGraphData] = useState<CallGraphData | null>(null);
@@ -719,13 +786,30 @@ const VisualizerContent = () => {
                 onToggleSinks={() => setShowSinks(!showSinks)}
                 onToggleTaintFlows={() => setShowTaintFlows(!showTaintFlows)}
                 onToggleCallGraph={() => setShowCallGraph(!showCallGraph)}
+                onToggleStreaming={() => setUseStreaming(!useStreaming)}
                 loading={loading}
                 scanning={scanning}
                 showFileTree={showFileTree}
                 showSinks={showSinks}
                 showTaintFlows={showTaintFlows}
                 showCallGraph={showCallGraph}
+                useStreaming={useStreaming}
+                isStreaming={isStreaming}
             />
+
+            {/* Streaming Progress Overlay */}
+            {isStreaming && (
+                <StreamingProgress
+                    isStreaming={isStreaming}
+                    phase={streamState.phase}
+                    progress={streamState.progress}
+                    message={streamState.message}
+                    stats={streamState.stats}
+                    error={streamState.error}
+                    elapsedMs={streamState.elapsedMs}
+                    onCancel={cancelStream}
+                />
+            )}
 
             {/* File Tree Sidebar - Virtualized for large file lists */}
             {showFileTree && (
@@ -739,7 +823,7 @@ const VisualizerContent = () => {
             )}
 
             {/* Loading progress indicator for large graphs */}
-            {nodesLoading && (
+            {nodesLoading && !isStreaming && (
                 <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-50 bg-black/80 backdrop-blur px-4 py-2 rounded-lg border border-white/10">
                     <div className="flex items-center gap-3">
                         <div className="w-4 h-4 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />

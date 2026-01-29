@@ -145,12 +145,15 @@ export interface ControlBarProps {
     onToggleSinks: () => void;
     onToggleTaintFlows: () => void;
     onToggleCallGraph: () => void;
+    onToggleStreaming?: () => void;
     loading: boolean;
     scanning: boolean;
     showFileTree: boolean;
     showSinks: boolean;
     showTaintFlows: boolean;
     showCallGraph: boolean;
+    useStreaming?: boolean;
+    isStreaming?: boolean;
 }
 
 export interface FileTreeSidebarProps {

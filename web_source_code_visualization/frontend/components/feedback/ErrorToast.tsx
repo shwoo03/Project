@@ -2,7 +2,7 @@
 
 import React, { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, AlertCircle, WifiOff, AlertTriangle } from 'lucide-react';
+import { X, AlertCircle, WifiOff, AlertTriangle, Zap } from 'lucide-react';
 import { AppError, ErrorType } from '@/types/errors';
 
 interface ErrorToastProps {
@@ -26,6 +26,11 @@ const errorConfig: Record<ErrorType, { icon: React.ReactNode; bgClass: string; b
         icon: <AlertTriangle size={20} />,
         bgClass: 'bg-yellow-900/90',
         borderClass: 'border-yellow-500'
+    },
+    stream: {
+        icon: <Zap size={20} />,
+        bgClass: 'bg-purple-900/90',
+        borderClass: 'border-purple-500'
     },
     unknown: {
         icon: <AlertCircle size={20} />,

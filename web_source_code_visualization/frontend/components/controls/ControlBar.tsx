@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { Search, Bot, AlertTriangle, GitBranch, Network } from 'lucide-react';
+import { Search, Bot, AlertTriangle, GitBranch, Network, Zap } from 'lucide-react';
 import { ControlBarProps } from '@/types/graph';
 
 /**
@@ -16,12 +16,15 @@ export function ControlBar({
     onToggleSinks,
     onToggleTaintFlows,
     onToggleCallGraph,
+    onToggleStreaming,
     loading,
     scanning,
     showFileTree,
     showSinks,
     showTaintFlows,
-    showCallGraph
+    showCallGraph,
+    useStreaming = false,
+    isStreaming = false
 }: ControlBarProps) {
     return (
         <div className="absolute top-4 left-4 z-50 flex gap-4 bg-black/50 backdrop-blur p-4 rounded-xl border border-white/10">
@@ -37,10 +40,10 @@ export function ControlBar({
             </div>
             <button
                 onClick={onAnalyze}
-                disabled={loading}
+                disabled={loading || isStreaming}
                 className="px-6 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-lg font-bold hover:shadow-[0_0_20px_rgba(6,182,212,0.5)] transition-all disabled:opacity-50"
             >
-                {loading ? '분석 중...' : '▶ 시각화'}
+                {loading || isStreaming ? '분석 중...' : '▶ 시각화'}
             </button>
             <button
                 onClick={onScan}
@@ -49,6 +52,21 @@ export function ControlBar({
             >
                 {scanning ? '스캔 중...' : '🛡️ 보안 스캔'}
             </button>
+            {/* Streaming mode toggle */}
+            {onToggleStreaming && (
+                <button
+                    onClick={onToggleStreaming}
+                    className={`px-4 py-2 rounded-lg border transition-all font-bold flex items-center gap-2 ${
+                        useStreaming 
+                            ? 'bg-green-500/20 text-green-400 border-green-500/50' 
+                            : 'bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10'
+                    }`}
+                    title="스트리밍 모드: 대규모 프로젝트에서 실시간 진행률 표시"
+                >
+                    <Zap size={16} />
+                    Stream
+                </button>
+            )}
             <button
                 onClick={onToggleCallGraph}
                 className={`px-4 py-2 rounded-lg border transition-all font-bold flex items-center gap-2 ${showCallGraph ? 'bg-purple-500/20 text-purple-400 border-purple-500/50' : 'bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10'}`}

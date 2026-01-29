@@ -77,10 +77,33 @@
 - `frontend/components/feedback/PerformanceMonitor.tsx` - 성능 모니터
 - `frontend/hooks/useViewportOptimization.ts` - 뷰포트 최적화 훅
 
-### 1.4 스트리밍 API 응답
-- [ ] FastAPI StreamingResponse 활용
-- [ ] 대용량 결과 청크 단위 전송
-- [ ] 프론트엔드 점진적 렌더링
+### 1.4 스트리밍 API 응답 ✅ DONE
+- [x] FastAPI StreamingResponse 활용
+- [x] SSE(Server-Sent Events) 및 NDJSON 포맷 지원
+- [x] 실시간 진행률 이벤트 전송
+- [x] 대용량 결과 청크 단위 전송
+- [x] 프론트엔드 점진적 렌더링
+- [x] 스트리밍 취소 기능 (AbortController)
+- [x] StreamingProgress UI 컴포넌트
+
+**이벤트 타입**:
+- `init` - 분석 초기화 정보
+- `progress` - 진행률 업데이트 (파일 수, 퍼센트)
+- `symbols` - 심볼 테이블 청크
+- `endpoints` - 엔드포인트 배치 전송
+- `taint` - 오염 흐름 분석 결과
+- `stats` - 최종 통계
+- `complete` - 분석 완료
+- `error` - 에러 정보
+
+**구현 파일**:
+- `backend/core/streaming_analyzer.py` - 스트리밍 분석 엔진
+- `frontend/hooks/useStreamingAnalysis.ts` - 스트리밍 소비 훅
+- `frontend/components/feedback/StreamingProgress.tsx` - 진행률 UI
+
+**API 엔드포인트**:
+- `POST /api/analyze/stream` - 스트리밍 분석 (format: sse/ndjson)
+- `POST /api/analyze/stream/cancel` - 스트리밍 취소
 
 ---
 

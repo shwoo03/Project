@@ -2,6 +2,7 @@ import os
 from typing import List, Optional, Any, Dict
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -12,6 +13,7 @@ from core.taint_analyzer import TaintAnalyzer, TaintSource, TaintSink, detect_si
 from core.call_graph_analyzer import CallGraphAnalyzer
 from core.parallel_analyzer import ParallelAnalyzer
 from core.analysis_cache import analysis_cache
+from core.streaming_analyzer import streaming_analyzer, StreamEvent
 from models import ProjectStructure, EndpointNodes, TaintFlowEdge, CallGraphData
 
 # Load .env from root directory
@@ -264,6 +266,87 @@ def clear_cache():
     """Clear all cached analysis results."""
     analysis_cache.clear()
     return {"message": "Cache cleared successfully"}
+
+
+# ============================================
+# Streaming API
+# ============================================
+
+class StreamAnalyzeRequest(BaseModel):
+    path: str
+    cluster: bool = False
+    use_cache: bool = True
+    format: str = "sse"  # "sse" or "ndjson"
+
+
+async def generate_sse_stream(project_path: str, cluster: bool, use_cache: bool):
+    """Generate Server-Sent Events stream for analysis."""
+    async for event in streaming_analyzer.analyze_stream(project_path, cluster, use_cache):
+        yield event.to_sse()
+
+
+async def generate_ndjson_stream(project_path: str, cluster: bool, use_cache: bool):
+    """Generate Newline-Delimited JSON stream for analysis."""
+    async for event in streaming_analyzer.analyze_stream(project_path, cluster, use_cache):
+        yield event.to_ndjson()
+
+
+@app.post("/api/analyze/stream")
+async def analyze_project_stream(request: StreamAnalyzeRequest):
+    """
+    Stream analysis results as Server-Sent Events (SSE) or NDJSON.
+    
+    This endpoint progressively sends analysis results as they become available,
+    allowing the frontend to display progress and partial results immediately.
+    
+    Events:
+    - init: Analysis started
+    - progress: Progress updates (phase, percent, etc.)
+    - symbols: Symbol scan complete
+    - endpoints: Batch of parsed endpoints
+    - taint: Taint flow edges
+    - stats: Final statistics
+    - complete: Analysis complete
+    - error: Error occurred
+    
+    Usage:
+    ```javascript
+    const eventSource = new EventSource('/api/analyze/stream');
+    eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        console.log(data.type, data.data);
+    };
+    ```
+    """
+    if not os.path.exists(request.path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    if request.format == "ndjson":
+        return StreamingResponse(
+            generate_ndjson_stream(request.path, request.cluster, request.use_cache),
+            media_type="application/x-ndjson",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",  # Disable nginx buffering
+            }
+        )
+    else:
+        return StreamingResponse(
+            generate_sse_stream(request.path, request.cluster, request.use_cache),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            }
+        )
+
+
+@app.post("/api/analyze/stream/cancel")
+async def cancel_streaming_analysis():
+    """Cancel an ongoing streaming analysis."""
+    streaming_analyzer.cancel()
+    return {"message": "Cancellation requested"}
 
 
 class CodeSnippetRequest(BaseModel):

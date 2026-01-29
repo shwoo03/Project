@@ -348,8 +348,6 @@ def save_and_get_results_to_db(results, username, mongo_uri):
         db = client.get_database('webhook')
         
         col_latest = db['Instagram_Latest']   # 최신 상태 저장소
-        col_latest = db['Instagram_Latest']   # 최신 상태 저장소
-        # col_history = db['Instagram_History'] # [삭제] 변동 내역 저장소 사용 안 함
         
         # 1. 비교를 위해 저장된 최신 상태 가져오기
         prev_doc = col_latest.find_one({"_id": username})
@@ -551,4 +549,7 @@ if __name__ == "__main__":
     print("모든 작업 완료!")
 
     # 6. 결과 디스코드로 보내기
-    send_discord_webhook(results, env_vars["DISCORD_WEBHOOK"])
+    if env_vars.get("DISCORD_WEBHOOK"):
+        send_discord_webhook(results, env_vars["DISCORD_WEBHOOK"])
+    else:
+        print(" -> [Info] DISCORD_WEBHOOK이 설정되지 않아 전송을 건너뜁니다.")

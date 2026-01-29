@@ -31,8 +31,8 @@
 ## 4. 구성
 프로젝트 루트 디렉토리에 `.env` 파일을 생성하고 다음 변수를 구성합니다:
 
-1. **USERNAME**: 인스타그램 사용자 이름.
-2. **PASSWORD**: 인스타그램 비밀번호.
+1. **USER_ID**: 인스타그램 사용자 이름.
+2. **USER_PASSWORD**: 인스타그램 비밀번호.
 3. **MONGO_URI**: MongoDB 연결 문자열 (예: mongodb://localhost:27017/).
 4. **DISCORD_WEBHOOK**: 보고서를 받을 디스코드 채널의 Webhook URL.
 

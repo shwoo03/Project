@@ -25,6 +25,23 @@ from core.lsp_client import (
     goto_definition, find_references, get_hover_info, get_completions,
     get_symbols, search_symbols, LANGUAGE_SERVERS
 )
+from core.ml_vulnerability_detector import (
+    MLVulnerabilityDetector, get_ml_detector, analyze_with_ml,
+    PredictionResult, VulnerabilityClass, Severity
+)
+from core.ml_false_positive_filter import (
+    FalsePositiveFilter, get_fp_filter, apply_fp_filter
+)
+from core.llm_security_analyzer import (
+    LLMSecurityAnalyzer, get_llm_security_analyzer,
+    CodeContext as LLMCodeContext, LLMAnalysisResult, AnalysisType
+)
+from core.cfg_builder import CFGBuilder, ControlFlowGraph, build_project_cfgs
+from core.pdg_generator import PDGGenerator, ProgramDependenceGraph, TaintPDGAnalyzer, generate_project_pdgs
+from core.advanced_dataflow_analyzer import (
+    AdvancedDataFlowAnalyzer, AnalysisSensitivity, 
+    analyze_with_advanced_dataflow, get_dataflow_statistics
+)
 from models import ProjectStructure, EndpointNodes, TaintFlowEdge, CallGraphData
 
 # Load .env from root directory
@@ -2103,3 +2120,864 @@ def lsp_get_diagnostics(request: LSPDocumentRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================
+# ML-based Vulnerability Detection API
+# ============================================
+
+class MLAnalyzeRequest(BaseModel):
+    project_path: str
+    filter_false_positives: bool = True
+    min_confidence: float = 0.5
+
+
+class MLFeedbackRequest(BaseModel):
+    feature_id: str
+    is_true_positive: bool
+    code_snippet: Optional[str] = None
+
+
+@app.post("/api/ml/analyze")
+def ml_analyze_vulnerabilities(request: MLAnalyzeRequest):
+    """
+    Analyze project vulnerabilities using ML-based detection.
+    
+    This combines:
+    - Feature extraction (AST, semantic, contextual, pattern)
+    - Ensemble ML classification
+    - False positive filtering
+    - Severity prediction
+    
+    Returns vulnerabilities with confidence scores and recommendations.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        # First, run inter-procedural taint analysis
+        taint_analyzer = InterProceduralTaintAnalyzer()
+        taint_result = taint_analyzer.analyze_project(request.project_path)
+        
+        # Collect code contents for feature extraction
+        code_contents = {}
+        for root, _, files in os.walk(request.project_path):
+            if any(skip in root for skip in ["venv", "node_modules", ".git", "__pycache__"]):
+                continue
+            for file in files:
+                if file.endswith(('.py', '.js', '.ts', '.php', '.java', '.go')):
+                    file_path = os.path.join(root, file)
+                    try:
+                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            code_contents[file_path] = f.read()
+                    except Exception:
+                        pass
+        
+        # Convert taint flows for ML analysis
+        taint_flows = []
+        for flow in taint_result.get("flows", []):
+            taint_flows.append({
+                "file_path": flow.get("source", {}).get("file", ""),
+                "function_name": flow.get("source", {}).get("function", ""),
+                "source_line": flow.get("source", {}).get("line", 0),
+                "sink_line": flow.get("sink", {}).get("line", 0),
+                "vulnerability_type": flow.get("vulnerability_type", "general"),
+                "source_type": flow.get("source", {}).get("type", "unknown"),
+                "sink_type": flow.get("sink", {}).get("type", "unknown"),
+                "call_chain": flow.get("call_chain", []),
+                "sanitized": flow.get("sanitized", False),
+            })
+        
+        # Run ML analysis
+        ml_result = analyze_with_ml(
+            taint_flows,
+            code_contents,
+            filter_false_positives=request.filter_false_positives
+        )
+        
+        # Filter by confidence
+        if request.min_confidence > 0:
+            ml_result["results"] = [
+                r for r in ml_result["results"]
+                if r.get("confidence", 0) >= request.min_confidence
+            ]
+        
+        return {
+            "success": True,
+            "vulnerabilities": ml_result["results"],
+            "statistics": ml_result["statistics"],
+            "filtered_count": ml_result["filtered_count"],
+            "taint_analysis_stats": taint_result.get("statistics", {}),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ml/feedback")
+def ml_submit_feedback(request: MLFeedbackRequest):
+    """
+    Submit feedback on ML predictions to improve accuracy.
+    
+    This enables online learning by recording true/false positive feedback.
+    """
+    try:
+        detector = get_ml_detector()
+        fp_filter = get_fp_filter()
+        
+        # Update ML model weights based on feedback
+        detector.update_weights({request.feature_id: request.is_true_positive})
+        
+        # Record false positive for future filtering
+        if not request.is_true_positive and request.code_snippet:
+            # This would be used by the historical filter
+            pass
+        
+        return {
+            "success": True,
+            "message": f"Feedback recorded for {request.feature_id}",
+            "is_true_positive": request.is_true_positive
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/ml/stats")
+def ml_get_statistics():
+    """
+    Get ML analyzer statistics.
+    
+    Returns:
+    - Total analyzed vulnerabilities
+    - True/false positive rates
+    - Classification distribution
+    """
+    try:
+        detector = get_ml_detector()
+        fp_filter = get_fp_filter()
+        
+        return {
+            "success": True,
+            "detection_stats": detector.get_statistics(),
+            "filter_stats": fp_filter.get_statistics(),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ml/reset-stats")
+def ml_reset_statistics():
+    """Reset ML statistics for fresh tracking."""
+    try:
+        detector = get_ml_detector()
+        detector.reset_statistics()
+        
+        return {
+            "success": True,
+            "message": "Statistics reset successfully"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================
+# LLM-based Security Analysis API (Phase 4.2)
+# ============================================
+
+class LLMAnalyzeRequest(BaseModel):
+    file_path: str
+    code: Optional[str] = None
+    language: Optional[str] = None
+    framework: Optional[str] = None
+    analysis_type: str = "full"  # full, business_logic, authentication, api_security
+    related_files: Optional[Dict[str, str]] = None
+
+
+class LLMRemediationRequest(BaseModel):
+    file_path: str
+    code: str
+    vulnerability: Dict[str, Any]
+    language: Optional[str] = None
+    framework: Optional[str] = None
+
+
+@app.post("/api/llm/analyze")
+def llm_analyze_code(request: LLMAnalyzeRequest):
+    """
+    LLM-based security analysis for advanced vulnerability detection.
+    
+    Supports analysis types:
+    - full: Run all analysis types (business logic, auth, API)
+    - business_logic: Broken Access Control, IDOR, Race Conditions
+    - authentication: JWT, Session, OAuth vulnerabilities
+    - api_security: GraphQL, Rate Limiting, Data Exposure
+    
+    Returns detailed vulnerabilities with context-aware descriptions.
+    """
+    try:
+        analyzer = get_llm_security_analyzer()
+        
+        if not analyzer.is_available():
+            raise HTTPException(
+                status_code=503, 
+                detail="LLM service unavailable. Check GROQ_API_KEY configuration."
+            )
+        
+        # Read code from file if not provided
+        code = request.code
+        if not code and os.path.exists(request.file_path):
+            with open(request.file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                code = f.read()
+        
+        if not code:
+            raise HTTPException(status_code=400, detail="No code provided or file not found")
+        
+        # Detect language if not provided
+        language = request.language
+        if not language:
+            ext = os.path.splitext(request.file_path)[1].lower()
+            lang_map = {
+                '.py': 'python', '.js': 'javascript', '.ts': 'typescript',
+                '.java': 'java', '.php': 'php', '.go': 'go'
+            }
+            language = lang_map.get(ext, 'unknown')
+        
+        # Detect framework if not provided
+        framework = request.framework or analyzer.detect_framework(code, language)
+        
+        # Detect auth mechanisms
+        auth_mechanisms = analyzer.detect_auth_mechanisms(code)
+        
+        # Build context
+        context = LLMCodeContext(
+            file_path=request.file_path,
+            code=code,
+            language=language,
+            framework=framework,
+            auth_mechanisms=auth_mechanisms,
+            related_functions=request.related_files or {}
+        )
+        
+        # Run analysis based on type
+        if request.analysis_type == "full":
+            results = analyzer.full_analysis(context)
+            return {
+                "success": True,
+                "analysis_type": "full",
+                "results": {k: v.to_dict() for k, v in results.items()},
+                "detected_framework": framework,
+                "auth_mechanisms": auth_mechanisms,
+                "statistics": analyzer.get_statistics(),
+            }
+        elif request.analysis_type == "business_logic":
+            result = analyzer.analyze_business_logic(context)
+        elif request.analysis_type == "authentication":
+            result = analyzer.analyze_authentication(context)
+        elif request.analysis_type == "api_security":
+            result = analyzer.analyze_api_security(context)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown analysis type: {request.analysis_type}")
+        
+        return {
+            "success": result.success,
+            "analysis_type": request.analysis_type,
+            "result": result.to_dict(),
+            "detected_framework": framework,
+            "auth_mechanisms": auth_mechanisms,
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/llm/remediation")
+def llm_generate_remediation(request: LLMRemediationRequest):
+    """
+    Generate intelligent fix suggestions for a vulnerability.
+    
+    Features:
+    - Context-aware code fixes
+    - Framework-specific solutions
+    - Test case generation
+    - Security pattern recommendations
+    """
+    try:
+        analyzer = get_llm_security_analyzer()
+        
+        if not analyzer.is_available():
+            raise HTTPException(
+                status_code=503,
+                detail="LLM service unavailable. Check GROQ_API_KEY configuration."
+            )
+        
+        # Detect language if not provided
+        language = request.language
+        if not language:
+            ext = os.path.splitext(request.file_path)[1].lower()
+            lang_map = {
+                '.py': 'python', '.js': 'javascript', '.ts': 'typescript',
+                '.java': 'java', '.php': 'php', '.go': 'go'
+            }
+            language = lang_map.get(ext, 'unknown')
+        
+        # Detect framework if not provided
+        framework = request.framework or analyzer.detect_framework(request.code, language)
+        
+        # Build context
+        context = LLMCodeContext(
+            file_path=request.file_path,
+            code=request.code,
+            language=language,
+            framework=framework,
+        )
+        
+        # Generate remediation
+        result = analyzer.generate_remediation(request.vulnerability, context)
+        
+        return {
+            "success": result.success,
+            "fix_suggestions": result.fix_suggestions,
+            "model_used": result.model_used,
+            "tokens_used": result.tokens_used,
+            "analysis_time_ms": result.analysis_time_ms,
+            "error": result.error,
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/llm/analyze/batch")
+def llm_analyze_project(request: AnalyzeRequest):
+    """
+    Batch LLM analysis for an entire project.
+    
+    Analyzes all source files and aggregates results.
+    Returns vulnerabilities grouped by type and severity.
+    """
+    if not os.path.exists(request.path):
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    try:
+        analyzer = get_llm_security_analyzer()
+        
+        if not analyzer.is_available():
+            raise HTTPException(
+                status_code=503,
+                detail="LLM service unavailable. Check GROQ_API_KEY configuration."
+            )
+        
+        # Collect source files
+        source_files = []
+        for root, _, files in os.walk(request.path):
+            if any(skip in root for skip in ["venv", "node_modules", ".git", "__pycache__"]):
+                continue
+            for file in files:
+                if file.endswith(('.py', '.js', '.ts', '.php', '.java', '.go')):
+                    source_files.append(os.path.join(root, file))
+        
+        # Limit to prevent excessive API calls
+        max_files = 20
+        if len(source_files) > max_files:
+            source_files = source_files[:max_files]
+        
+        all_vulnerabilities = []
+        analysis_results = []
+        
+        for file_path in source_files:
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    code = f.read()
+                
+                if len(code) < 50:  # Skip very small files
+                    continue
+                
+                # Detect language
+                ext = os.path.splitext(file_path)[1].lower()
+                lang_map = {
+                    '.py': 'python', '.js': 'javascript', '.ts': 'typescript',
+                    '.java': 'java', '.php': 'php', '.go': 'go'
+                }
+                language = lang_map.get(ext, 'unknown')
+                
+                # Detect framework and auth
+                framework = analyzer.detect_framework(code, language)
+                auth_mechanisms = analyzer.detect_auth_mechanisms(code)
+                
+                # Skip files without security-relevant patterns
+                if not auth_mechanisms and not any(
+                    kw in code.lower() for kw in 
+                    ['password', 'token', 'session', 'auth', 'api', 'secret', 'key']
+                ):
+                    continue
+                
+                context = LLMCodeContext(
+                    file_path=file_path,
+                    code=code[:8000],  # Limit code size
+                    language=language,
+                    framework=framework,
+                    auth_mechanisms=auth_mechanisms,
+                )
+                
+                # Run full analysis
+                results = analyzer.full_analysis(context)
+                
+                for analysis_type, result in results.items():
+                    if result.success:
+                        for vuln in result.vulnerabilities:
+                            vuln["file_path"] = file_path
+                            vuln["analysis_type"] = analysis_type
+                            all_vulnerabilities.append(vuln)
+                        
+                        analysis_results.append({
+                            "file": file_path,
+                            "type": analysis_type,
+                            "vuln_count": len(result.vulnerabilities),
+                        })
+                
+            except Exception as e:
+                print(f"Error analyzing {file_path}: {e}")
+                continue
+        
+        # Group by severity
+        by_severity = {"critical": [], "high": [], "medium": [], "low": []}
+        for vuln in all_vulnerabilities:
+            severity = vuln.get("severity", "medium").lower()
+            if severity in by_severity:
+                by_severity[severity].append(vuln)
+        
+        return {
+            "success": True,
+            "files_analyzed": len(analysis_results),
+            "total_vulnerabilities": len(all_vulnerabilities),
+            "by_severity": {k: len(v) for k, v in by_severity.items()},
+            "vulnerabilities": all_vulnerabilities,
+            "analysis_details": analysis_results,
+            "statistics": analyzer.get_statistics(),
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/llm/stats")
+def llm_get_statistics():
+    """Get LLM analyzer statistics."""
+    try:
+        analyzer = get_llm_security_analyzer()
+        return {
+            "success": True,
+            "available": analyzer.is_available(),
+            "statistics": analyzer.get_statistics(),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Advanced Data-Flow Analysis Endpoints (Phase 4.3)
+# =============================================================================
+
+# Global instances for advanced analyzers
+_cfg_builder: Optional[CFGBuilder] = None
+_pdg_generator: Optional[PDGGenerator] = None
+_advanced_analyzer: Optional[AdvancedDataFlowAnalyzer] = None
+
+
+def get_cfg_builder() -> CFGBuilder:
+    """Get or create CFG builder instance."""
+    global _cfg_builder
+    if _cfg_builder is None:
+        _cfg_builder = CFGBuilder()
+    return _cfg_builder
+
+
+def get_pdg_generator() -> PDGGenerator:
+    """Get or create PDG generator instance."""
+    global _pdg_generator
+    if _pdg_generator is None:
+        _pdg_generator = PDGGenerator()
+    return _pdg_generator
+
+
+def get_advanced_analyzer(sensitivity: str = "path_sensitive") -> AdvancedDataFlowAnalyzer:
+    """Get or create advanced analyzer instance."""
+    global _advanced_analyzer
+    sens = AnalysisSensitivity(sensitivity)
+    if _advanced_analyzer is None or _advanced_analyzer.sensitivity != sens:
+        _advanced_analyzer = AdvancedDataFlowAnalyzer(sensitivity=sens)
+    return _advanced_analyzer
+
+
+class CFGRequest(BaseModel):
+    """Request for CFG building."""
+    file_path: Optional[str] = None
+    project_path: Optional[str] = None
+    function_name: Optional[str] = None
+
+
+class DataFlowRequest(BaseModel):
+    """Request for advanced data-flow analysis."""
+    project_path: str
+    sensitivity: str = "path_sensitive"  # flow_insensitive, flow_sensitive, path_sensitive, context_sensitive
+    max_depth: int = 10
+    include_infeasible: bool = False
+
+
+class SlicingRequest(BaseModel):
+    """Request for program slicing."""
+    file_path: str
+    function_name: str
+    criterion_line: int
+    criterion_vars: Optional[List[str]] = None
+    direction: str = "backward"  # backward or forward
+
+
+@app.post("/api/dataflow/cfg")
+def build_cfg(request: CFGRequest):
+    """
+    Build Control Flow Graph for a file or function.
+    
+    Returns CFG nodes and edges with control flow information.
+    """
+    try:
+        builder = get_cfg_builder()
+        
+        if request.file_path:
+            cfgs = builder.build_from_file(request.file_path)
+            
+            if request.function_name and request.function_name in cfgs:
+                cfg = cfgs[request.function_name]
+                return {
+                    "success": True,
+                    "function": request.function_name,
+                    "cfg": _serialize_cfg(cfg),
+                }
+            else:
+                return {
+                    "success": True,
+                    "file": request.file_path,
+                    "functions": list(cfgs.keys()),
+                    "cfgs": {name: _serialize_cfg(cfg) for name, cfg in cfgs.items()},
+                }
+        
+        elif request.project_path:
+            cfgs = build_project_cfgs(request.project_path)
+            return {
+                "success": True,
+                "project": request.project_path,
+                "function_count": len(cfgs),
+                "functions": list(cfgs.keys())[:100],  # First 100
+            }
+        
+        else:
+            raise HTTPException(status_code=400, detail="file_path or project_path required")
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/dataflow/pdg")
+def build_pdg(request: CFGRequest):
+    """
+    Build Program Dependence Graph for a file or function.
+    
+    Returns PDG with control and data dependencies.
+    """
+    try:
+        generator = get_pdg_generator()
+        
+        if request.file_path:
+            pdgs = generator.generate_from_file(request.file_path)
+            
+            if request.function_name and request.function_name in pdgs:
+                pdg = pdgs[request.function_name]
+                return {
+                    "success": True,
+                    "function": request.function_name,
+                    "pdg": _serialize_pdg(pdg),
+                }
+            else:
+                return {
+                    "success": True,
+                    "file": request.file_path,
+                    "functions": list(pdgs.keys()),
+                    "pdgs": {name: _serialize_pdg(pdg) for name, pdg in pdgs.items()},
+                }
+        
+        else:
+            raise HTTPException(status_code=400, detail="file_path required")
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/dataflow/analyze")
+def analyze_advanced_dataflow(request: DataFlowRequest):
+    """
+    Perform advanced data-flow analysis on a project.
+    
+    Supports:
+    - Path-sensitive analysis
+    - Context-sensitive analysis
+    - Flow-sensitive analysis
+    - Flow-insensitive analysis
+    """
+    try:
+        findings = analyze_with_advanced_dataflow(
+            request.project_path,
+            sensitivity=request.sensitivity
+        )
+        
+        # Filter infeasible paths if requested
+        if not request.include_infeasible:
+            findings = [f for f in findings if f.get('is_feasible', True)]
+        
+        # Group by vulnerability type
+        by_type = {}
+        for finding in findings:
+            vuln_type = finding.get('vulnerability_type', 'unknown')
+            if vuln_type not in by_type:
+                by_type[vuln_type] = []
+            by_type[vuln_type].append(finding)
+        
+        return {
+            "success": True,
+            "project": request.project_path,
+            "sensitivity": request.sensitivity,
+            "total_findings": len(findings),
+            "by_type": {k: len(v) for k, v in by_type.items()},
+            "findings": findings[:100],  # Limit response size
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/dataflow/slice")
+def compute_slice(request: SlicingRequest):
+    """
+    Compute a program slice.
+    
+    Backward slice: All statements affecting the criterion.
+    Forward slice: All statements affected by the criterion.
+    """
+    try:
+        generator = get_pdg_generator()
+        pdgs = generator.generate_from_file(request.file_path)
+        
+        pdg = pdgs.get(request.function_name)
+        if not pdg:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Function {request.function_name} not found"
+            )
+        
+        # Find criterion node by line
+        criterion_node = None
+        for node_id, node in pdg.nodes.items():
+            if node.cfg_node.line_start == request.criterion_line:
+                criterion_node = node_id
+                break
+        
+        if not criterion_node:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No node found at line {request.criterion_line}"
+            )
+        
+        # Compute slice
+        criterion_vars = set(request.criterion_vars) if request.criterion_vars else None
+        
+        if request.direction == "backward":
+            slice_nodes = pdg.get_backward_slice(criterion_node, criterion_vars)
+        else:
+            slice_nodes = pdg.get_forward_slice(criterion_node, criterion_vars)
+        
+        # Build slice info
+        slice_info = []
+        for node_id in slice_nodes:
+            node = pdg.nodes.get(node_id)
+            if node:
+                slice_info.append({
+                    "node_id": node_id,
+                    "line": node.cfg_node.line_start,
+                    "code": node.cfg_node.code,
+                    "type": node.cfg_node.node_type.value,
+                })
+        
+        # Sort by line
+        slice_info.sort(key=lambda x: x['line'])
+        
+        return {
+            "success": True,
+            "function": request.function_name,
+            "direction": request.direction,
+            "criterion_line": request.criterion_line,
+            "criterion_vars": list(criterion_vars) if criterion_vars else None,
+            "slice_size": len(slice_nodes),
+            "slice": slice_info,
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/dataflow/taint-pdg")
+def analyze_taint_with_pdg(request: CFGRequest):
+    """
+    Perform taint analysis using PDG for precise tracking.
+    """
+    try:
+        analyzer = TaintPDGAnalyzer()
+        generator = get_pdg_generator()
+        
+        if request.file_path:
+            pdgs = generator.generate_from_file(request.file_path)
+            
+            all_findings = []
+            for name, pdg in pdgs.items():
+                findings = analyzer.analyze_pdg(pdg)
+                all_findings.extend(findings)
+            
+            return {
+                "success": True,
+                "file": request.file_path,
+                "functions_analyzed": len(pdgs),
+                "findings": all_findings,
+            }
+        
+        elif request.project_path:
+            pdgs = generate_project_pdgs(request.project_path)
+            
+            all_findings = []
+            for name, pdg in pdgs.items():
+                findings = analyzer.analyze_pdg(pdg)
+                for f in findings:
+                    f['function'] = name
+                all_findings.extend(findings)
+            
+            return {
+                "success": True,
+                "project": request.project_path,
+                "functions_analyzed": len(pdgs),
+                "findings": all_findings[:100],
+            }
+        
+        else:
+            raise HTTPException(status_code=400, detail="file_path or project_path required")
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/dataflow/stats")
+def get_dataflow_stats():
+    """Get data-flow analysis statistics."""
+    try:
+        analyzer = _advanced_analyzer
+        if analyzer:
+            return {
+                "success": True,
+                "available": True,
+                "statistics": analyzer.statistics,
+                "cfg_cache_size": len(analyzer._cfg_cache),
+                "pdg_cache_size": len(analyzer._pdg_cache),
+            }
+        else:
+            return {
+                "success": True,
+                "available": False,
+                "message": "No analysis has been performed yet",
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _serialize_cfg(cfg: ControlFlowGraph) -> dict:
+    """Serialize a CFG to JSON-serializable dict."""
+    nodes = []
+    for node_id, node in cfg.nodes.items():
+        nodes.append({
+            "id": node_id,
+            "type": node.node_type.value,
+            "line_start": node.line_start,
+            "line_end": node.line_end,
+            "code": node.code[:100],
+            "condition": node.condition,
+            "defined_vars": list(node.defined_vars),
+            "used_vars": list(node.used_vars),
+            "is_entry": node.node_type.value == "entry",
+            "is_exit": node.node_type.value == "exit",
+        })
+    
+    edges = []
+    for edge in cfg.edges:
+        edges.append({
+            "source": edge.source_id,
+            "target": edge.target_id,
+            "type": edge.edge_type.value,
+            "condition": edge.condition,
+        })
+    
+    return {
+        "function_name": cfg.function_name,
+        "qualified_name": cfg.qualified_name,
+        "node_count": len(nodes),
+        "edge_count": len(edges),
+        "nodes": nodes,
+        "edges": edges,
+        "loops": [list(loop) for loop in cfg.loops],
+        "back_edges": cfg.back_edges,
+    }
+
+
+def _serialize_pdg(pdg: ProgramDependenceGraph) -> dict:
+    """Serialize a PDG to JSON-serializable dict."""
+    nodes = []
+    for node_id, node in pdg.nodes.items():
+        nodes.append({
+            "id": node_id,
+            "line": node.cfg_node.line_start,
+            "code": node.cfg_node.code[:100],
+            "type": node.cfg_node.node_type.value,
+            "defined_vars": list(node.defined_vars),
+            "used_vars": list(node.used_vars),
+            "control_deps": list(node.control_dependencies),
+            "data_deps": {k: list(v) for k, v in node.data_dependencies.items()},
+        })
+    
+    control_edges = []
+    data_edges = []
+    for edge in pdg.edges:
+        e = {
+            "source": edge.source_id,
+            "target": edge.target_id,
+            "type": edge.dependence_type.value,
+            "variable": edge.variable,
+            "label": edge.label,
+        }
+        if edge.dependence_type.value == "control":
+            control_edges.append(e)
+        else:
+            data_edges.append(e)
+    
+    return {
+        "function_name": pdg.function_name,
+        "qualified_name": pdg.qualified_name,
+        "node_count": len(nodes),
+        "control_edge_count": len(control_edges),
+        "data_edge_count": len(data_edges),
+        "nodes": nodes,
+        "control_edges": control_edges,
+        "data_edges": data_edges,
+        "def_use_chains": {
+            var: [{"def_node": d.def_node_id, "uses": d.use_nodes} 
+                  for d in chains]
+            for var, chains in pdg.def_use_chains.items()
+        },
+    }

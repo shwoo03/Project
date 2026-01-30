@@ -66,24 +66,29 @@ smart web fuzzer/
 │   │   ├── extractor.go        # 값 추출기
 │   │   └── pool.go             # Dynamic Pool
 │   │
-│   ├── scenario/               # 시나리오 엔진
-│   │   ├── scenario.go         # 시나리오 실행
+│   ├── scenario/               # 시나리오 엔진 ✅
+│   │   ├── scenario.go         # 시나리오 타입 정의
 │   │   ├── parser.go           # YAML 파서
-│   │   └── flow.go             # 실행 흐름 제어
+│   │   ├── flow.go             # 실행 흐름 제어
+│   │   └── scenario_test.go    # 단위 테스트
 │   │
 │   ├── config/                 # 설정 관리
 │   │   ├── config.go           # 설정 구조체
 │   │   └── loader.go           # 설정 로더
 │   │
-│   ├── ui/                     # TUI 인터페이스
+│   ├── ui/                     # TUI 인터페이스 ✅
 │   │   ├── dashboard.go        # 대시보드 메인
 │   │   ├── stats.go            # 통계 위젯
-│   │   └── progress.go         # 진행률 위젯
+│   │   ├── progress.go         # 진행률 위젯
+│   │   ├── styles.go           # 사이버펑크 스타일
+│   │   └── dashboard_test.go   # 단위 테스트
 │   │
-│   └── report/                 # 리포트 생성
+│   └── report/                 # 리포트 생성 ✅
 │       ├── report.go           # 리포트 생성기
 │       ├── json.go             # JSON 출력
-│       └── html.go             # HTML 출력
+│       ├── html.go             # HTML 출력
+│       ├── markdown.go         # Markdown 출력
+│       └── report_test.go      # 단위 테스트
 │
 ├── pkg/                        # 공개 패키지 (외부 import 가능)
 │   ├── types/
@@ -102,11 +107,16 @@ smart web fuzzer/
 ├── scenarios/                  # 시나리오 예제
 │   └── api_flow.yaml
 │
-├── tests/                      # 테스트
-│   ├── integration/
-│   └── benchmark/
+├── tests/                      # 테스트 ✅
+│   ├── integration/            # 통합 테스트
+│   │   └── integration_test.go
+│   └── benchmark/              # 성능 회귀 테스트
+│       └── performance_test.go
 │
-└── docs/                       # 추가 문서
+└── docs/                       # 추가 문서 ✅
+    ├── API.md                  # API 레퍼런스
+    ├── EXAMPLES.md             # 사용 예제
+    └── TUTORIAL.md             # 튜토리얼
 ```
 
 ## 3. 코딩 컨벤션

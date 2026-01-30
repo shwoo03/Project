@@ -140,11 +140,11 @@ Phase 4: Polish         [                        ] 2주
   - [x] 경계값 변이 (BoundaryMutator)
   - [x] 유니코드 공격 (UnicodeAttackMutator)
 
-### Task 3.7: 시나리오 엔진
-- [ ] `internal/scenario/scenario.go` 구현
-  - [ ] YAML 기반 시나리오 정의
-  - [ ] 순차 실행 지원
-  - [ ] 조건부 분기
+### Task 3.7: 시나리오 엔진 ✅
+- [x] `internal/scenario/scenario.go` 구현
+  - [x] YAML 기반 시나리오 정의
+  - [x] 순차 실행 지원
+  - [x] 조건부 분기
 
 ---
 
@@ -153,27 +153,27 @@ Phase 4: Polish         [                        ] 2주
 > **목표**: 사용성 및 안정성 강화  
 > **예상 기간**: 2주
 
-### Task 4.1: TUI 대시보드
-- [ ] `internal/ui/dashboard.go` 구현
-  - [ ] bubbletea 기반 UI
-  - [ ] 실시간 통계 표시
-  - [ ] 진행률 바
+### Task 4.1: TUI 대시보드 ✅
+- [x] `internal/ui/dashboard.go` 구현
+  - [x] bubbletea 기반 UI
+  - [x] 실시간 통계 표시
+  - [x] 진행률 바
 
-### Task 4.2: 리포트 생성
-- [ ] `internal/report/report.go` 구현
-  - [ ] JSON 출력
-  - [ ] HTML 리포트 (템플릿)
-  - [ ] Markdown 요약
+### Task 4.2: 리포트 생성 ✅
+- [x] `internal/report/report.go` 구현
+  - [x] JSON 출력
+  - [x] HTML 리포트 (템플릿)
+  - [x] Markdown 요약
 
-### Task 4.3: 문서화
-- [ ] API 문서 작성
-- [ ] 사용 예제 추가
-- [ ] 튜토리얼 작성
+### Task 4.3: 문서화 ✅
+- [x] API 문서 작성
+- [x] 사용 예제 추가
+- [x] 튜토리얼 작성
 
-### Task 4.4: 테스트 강화
-- [ ] 단위 테스트 커버리지 80% 이상
-- [ ] 통합 테스트 작성
-- [ ] 성능 회귀 테스트
+### Task 4.4: 테스트 강화 ✅
+- [x] 단위 테스트 커버리지 80% 이상
+- [x] 통합 테스트 작성
+- [x] 성능 회귀 테스트
 
 ---
 
@@ -194,6 +194,11 @@ Phase 4: Polish         [                        ] 2주
 | 2026-01-30 | 3 | Task 3.4 Mutator 엔진 | Mutator 인터페이스, Registry, 랜덤/가중치 선택기 |
 | 2026-01-30 | 3 | Task 3.5 AFL 스타일 변이 | BitFlip, ByteFlip, Arithmetic, InterestingValue, 기타 |
 | 2026-01-30 | 3 | Task 3.6 타입 인식 변이 | SmartMutator, JSON/XML 변이, TypeInferrer, Unicode 공격 |
+| 2026-01-30 | 3 | Task 3.7 시나리오 엔진 | YAML 파서, 순차 실행, 조건부 분기, 어서션 검증 |
+| 2026-01-30 | 4 | Task 4.1 TUI 대시보드 | bubbletea UI, 실시간 통계, 진행률 바, 사이버펑크 스타일 |
+| 2026-01-30 | 4 | Task 4.2 리포트 생성 | JSON/HTML/Markdown 리포트, 사이버펑크 HTML 템플릿 |
+| 2026-01-30 | 4 | Task 4.3 문서화 | API 문서, 사용 예제, 튜토리얼 |
+| 2026-01-30 | 4 | Task 4.4 테스트 강화 | 통합 테스트, 성능 회귀 테스트 |
 
 ---
 

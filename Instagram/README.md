@@ -10,45 +10,59 @@
 4. **데이터베이스 통합**: 과거 데이터와 최신 상태를 MongoDB에 저장합니다.
 5. **알림**: 클릭 가능한 프로필 링크가 포함된 형식화된 보고서를 디스코드에 전송합니다.
 
-## 3. 설치 및 설정
+## 3. 프로젝트 구조
 
-### 3.1 필수 조건
+```
+📁 instagram_tracker/
+├── main.py          # 진입점 (오케스트레이션)
+├── config.py        # 환경 변수 로드
+├── auth.py          # 로그인 및 쿠키 관리
+├── api.py           # 인스타그램 API 호출
+├── database.py      # MongoDB 연동
+├── notification.py  # Discord Webhook 알림
+├── requirements.txt # 의존성 목록
+├── .env             # 환경 변수 (비공개)
+└── .agent/skills/   # Agent 스킬
+```
+
+## 4. 설치 및 설정
+
+### 4.1 필수 조건
 1. Python 3.10 이상
 2. MongoDB (로컬 또는 Atlas)
 3. Google Chrome 또는 Chromium 브라우저
 
-### 3.2 설치 단계
-1. 저장소를 복제하거나 소스 코드를 다운로드합니다.
-2. requirements 파일을 사용하여 필요한 Python 패키지를 설치합니다.
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Playwright 브라우저를 설치합니다.
-   ```bash
-   playwright install chromium
-   ```
+### 4.2 설치 단계
+```bash
+# 1. 의존성 설치
+pip install -r requirements.txt
 
-## 4. 구성
+# 2. Playwright 브라우저 설치
+playwright install chromium
+```
+
+## 5. 구성
 프로젝트 루트 디렉토리에 `.env` 파일을 생성하고 다음 변수를 구성합니다:
 
-1. **USER_ID**: 인스타그램 사용자 이름.
-2. **USER_PASSWORD**: 인스타그램 비밀번호.
-3. **MONGO_URI**: MongoDB 연결 문자열 (예: mongodb://localhost:27017/).
-4. **DISCORD_WEBHOOK**: 보고서를 받을 디스코드 채널의 Webhook URL.
+| 변수명 | 설명 | 예시 |
+|--------|------|------|
+| `USER_ID` | 인스타그램 사용자 이름 | `your_username` |
+| `USER_PASSWORD` | 인스타그램 비밀번호 | `your_password` |
+| `MONGO_URI` | MongoDB 연결 문자열 | `mongodb://localhost:27017/` |
+| `DISCORD_WEBHOOK` | Discord Webhook URL | `https://discord.com/api/webhooks/...` |
 
-## 5. 사용법
-Python을 사용하여 메인 스크립트를 실행합니다:
+## 6. 사용법
 ```bash
 python main.py
 ```
 
-## 6. 출력 상세
-1. **콘솔 출력**: 데이터 수집 및 로그인 상태의 실시간 진행 상황을 표시합니다.
+## 7. 출력 상세
+1. **콘솔 & 로그 파일**: 실시간 진행 상황 및 `instagram_tracker.log` 파일에 기록
 2. **데이터베이스**:
-   - `Instagram_Latest`: 팔로워 및 팔로잉의 최신 스냅샷을 저장합니다.
-   - `Instagram_History`: 변경 로그(새로 팔로우한/언팔로우한 사용자)를 저장합니다.
-3. **디스코드 Webhook**: 다음을 포함하는 메시지를 전송합니다:
-   - 팔로워 및 팔로잉 총 수.
-   - 나를 맞팔로우하지 않는 사용자 목록.
-   - 내가 맞팔로우하지 않는 사용자 목록.
-   - 사용자 프로필로 바로 가는 링크.
+   - `Instagram_Latest`: 팔로워 및 팔로잉의 최신 스냅샷
+3. **디스코드 Webhook**: 팔로워/팔로잉 현황 및 맞팔 분석 리포트
+
+## 8. 로깅
+- 로그 파일: `instagram_tracker.log`
+- 로그 형식: `%(asctime)s - %(levelname)s - %(message)s`
+- 콘솔과 파일에 동시 출력

@@ -4,7 +4,12 @@
 # Cookies and session data
 cookies.json
 
+# Log files
+*.log
+instagram_tracker.log
+
 # Debug screenshots
+
 *.png
 
 # Python

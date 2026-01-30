@@ -58,6 +58,9 @@ class AIAnalyzer:
         if referenced_files:
             ref_context = "\n\n**[참고 파일 및 함수 정의]**:\n"
             for fpath, fcontent in referenced_files.items():
+                # 참조 파일도 길이 제한 (각 파일당 1000자)
+                if len(fcontent) > 1000:
+                    fcontent = fcontent[:1000] + "\n... (truncated)"
                 ref_context += f"--- {fpath} ---\n{fcontent}\n\n"
 
         user_prompt = f"Code to analyze:\n```\n{code}\n```\n\nContext:\n{context}\n{ref_context}"
@@ -66,8 +69,12 @@ class AIAnalyzer:
         total_chars = len(system_prompt) + len(user_prompt)
         print(f"[AI] Total prompt length: {total_chars} chars (~{total_chars // 4} tokens)")
         
-        if total_chars > 30000:  # 약 7500 토큰 이상이면 경고
-            print(f"[AI] Warning: Prompt is very long, may hit token limits")
+        # 프롬프트가 너무 길면 참조 파일 제거
+        if total_chars > 25000:  # 약 6250 토큰
+            print(f"[AI] Warning: Prompt too long, removing reference context")
+            user_prompt = f"Code to analyze:\n```\n{code}\n```\n\nContext:\n{context}"
+            total_chars = len(system_prompt) + len(user_prompt)
+            print(f"[AI] Reduced prompt length: {total_chars} chars")
 
         errors_log = []
         for model in self.models:
@@ -85,7 +92,16 @@ class AIAnalyzer:
                 )
                 
                 analysis = chat_completion.choices[0].message.content
+                
+                # 빈 응답 체크
+                if not analysis or not analysis.strip():
+                    error_msg = f"Empty response from {model}"
+                    print(f"[AI] {error_msg}")
+                    errors_log.append(error_msg)
+                    continue
+                
                 print(f"[AI] Success with model: {model}")
+                print(f"[AI] Response length: {len(analysis)} chars")
                 return {
                     "model": model,
                     "analysis": analysis,

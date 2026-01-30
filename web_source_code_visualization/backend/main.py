@@ -432,40 +432,117 @@ class AIAnalyzeRequest(BaseModel):
 
 @app.post("/api/analyze/ai")
 def analyze_code_with_ai(request: AIAnalyzeRequest):
-    # Gather context from related files (Graph Traversal Results)
-    referenced_files = {}
-    
-    # 1. Read 'related_paths' content
-    # Limit to top 5 files to avoid token overflow? Or maybe 10 small ones.
-    # For now, read all but truncate large files.
-    MAX_FILE_SIZE = 2000 # chars
-    
-    for path in request.related_paths:
-        clean_path = path.replace("file:///", "").replace("file://", "")
-        # Windows path fix
-        if ":" in clean_path and clean_path.startswith("/"):
-             clean_path = clean_path[1:]
-             
-        if not os.path.exists(clean_path):
-            continue
-            
-        try:
-            with open(clean_path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-                if len(content) > MAX_FILE_SIZE:
-                    content = content[:MAX_FILE_SIZE] + "\n... (truncated)"
-                referenced_files[path] = content
-        except Exception:
-            pass
+    print("=" * 80)
+    print("[API] /api/analyze/ai endpoint called")
+    print("=" * 80)
+    try:
+        # Gather context from related files (Graph Traversal Results)
+        referenced_files = {}
+        
+        # 1. Read 'related_paths' content
+        # Limit to top 5 files to avoid token overflow? Or maybe 10 small ones.
+        # For now, read all but truncate large files.
+        MAX_FILE_SIZE = 2000 # chars
+        
+        print(f"[API] Request received:")
+        print(f"  - Code length: {len(request.code)}")
+        print(f"  - Context: {request.context[:100]}...")
+        print(f"  - Project path: {request.project_path}")
+        print(f"  - Related paths count: {len(request.related_paths)}")
+        
+        for path in request.related_paths:
+            clean_path = path.replace("file:///", "").replace("file://", "")
+            # Windows path fix
+            if ":" in clean_path and clean_path.startswith("/"):
+                clean_path = clean_path[1:]
+                
+            if not os.path.exists(clean_path):
+                print(f"[API] Warning: Path not found: {clean_path}")
+                continue
+                
+            try:
+                with open(clean_path, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                    if len(content) > MAX_FILE_SIZE:
+                        content = content[:MAX_FILE_SIZE] + "\n... (truncated)"
+                    referenced_files[path] = content
+                    print(f"[API] Read reference file: {path} ({len(content)} chars)")
+            except Exception as e:
+                print(f"[API] Failed to read {clean_path}: {e}")
+                pass
 
-    # 2. Call AI Analyzer with referenced files
-    result = ai_analyzer.analyze_code(
-        code=request.code,
-        context=request.context,
-        referenced_files=referenced_files
-    )
-    
-    return result
+        # 2. Call AI Analyzer with referenced files
+        print(f"\n[API] Calling AI analyzer...")
+        print(f"  - Code length: {len(request.code)}")
+        print(f"  - Context length: {len(request.context)}")
+        print(f"  - Referenced files loaded: {len(referenced_files)}")
+        
+        result = ai_analyzer.analyze_code(
+            code=request.code,
+            context=request.context,
+            referenced_files=referenced_files
+        )
+        
+        print(f"\n[API] AI analyzer returned:")
+        print(f"  - Result keys: {list(result.keys())}")
+        print(f"  - Success: {result.get('success')}")
+        print(f"  - Model: {result.get('model')}")
+        print(f"  - Error: {result.get('error')}")
+        print(f"  - Analysis length: {len(result.get('analysis', ''))}")
+        
+        if not result.get('analysis'):
+            print(f"[API] ❌ WARNING: Empty analysis!")
+        elif not result.get('analysis').strip():
+            print(f"[API] ❌ WARNING: Analysis is whitespace only!")
+        else:
+            print(f"[API] ✅ Analysis received ({len(result.get('analysis', ''))} chars)")
+            print(f"[API] First 100 chars: {result.get('analysis', '')[:100]}...")
+        
+        # 응답 검증 및 정규화
+        print(f"\n[API] Validating response...")
+        
+        if not isinstance(result, dict):
+            print("[API] ❌ Result is not a dict!")
+            return {
+                "success": False,
+                "error": "Invalid response from AI analyzer",
+                "analysis": "분석 중 내부 오류가 발생했습니다."
+            }
+        
+        # 빈 analysis 체크
+        if 'analysis' in result and not result['analysis'].strip():
+            print("[API] ❌ Empty analysis detected, marking as error")
+            response = {
+                "success": False,
+                "error": "AI returned empty response",
+                "analysis": "AI 모델이 빈 응답을 반환했습니다. 다른 모델을 시도해주세요."
+            }
+            print(f"[API] Returning error response: {response}")
+            print("=" * 80)
+            return response
+        
+        # success 필드가 없으면 추가
+        if 'success' not in result:
+            result['success'] = 'analysis' in result and bool(result.get('analysis', '').strip())
+        
+        print(f"[API] ✅ Returning successful response")
+        print(f"[API] Response keys: {list(result.keys())}")
+        print(f"[API] Response success: {result.get('success')}")
+        print("=" * 80)
+        
+        return result
+        
+    except Exception as e:
+        print("=" * 80)
+        print(f"[API] ❌ EXCEPTION in analyze_code_with_ai: {e}")
+        import traceback
+        traceback.print_exc()
+        print("=" * 80)
+        return {
+            "success": False,
+            "error": str(e),
+            "analysis": f"API 오류: {str(e)}"
+        }
 
 from core.analyzer.semgrep_analyzer import semgrep_analyzer
 

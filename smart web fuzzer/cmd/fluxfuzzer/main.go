@@ -4,29 +4,33 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/fluxfuzzer/fluxfuzzer/internal/owasp"
 	"github.com/fluxfuzzer/fluxfuzzer/internal/web"
 	"github.com/spf13/cobra"
 )
 
 var (
 	version = "0.1.0-dev"
-	
+
 	// CLI flags
-	targetURL   string
-	wordlist    string
-	threads     int
-	rps         int
-	timeout     int
-	configFile  string
-	outputFile  string
-	verbose     bool
-	webMode     bool
-	webPort     string
+	targetURL  string
+	wordlist   string
+	threads    int
+	rps        int
+	timeout    int
+	configFile string
+	outputFile string
+	verbose    bool
+	webMode    bool
+	webPort    string
 )
 
 func main() {
@@ -128,15 +132,71 @@ func runFuzzer(cmd *cobra.Command, args []string) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// TODO: Initialize and run the fuzzing engine
-	fmt.Println("  [*] Initializing fuzzing engine...")
-	fmt.Println("  [!] CLI fuzzing engine in development")
-	fmt.Println()
-	fmt.Println("  [*] Try web dashboard mode: fluxfuzzer web")
+	// Initialize fuzzing engine
+	fmt.Println("  [*] Initializing scanning engine...")
 
-	// Wait for signal
-	<-sigChan
-	fmt.Println("\n  [*] Shutting down gracefully...")
+	detector := owasp.NewDetector(nil)
+
+	fmt.Printf("  [*] Scanning target: %s\n", targetURL)
+
+	// Parse URL to extract parameters
+	u, err := url.Parse(targetURL)
+	if err != nil {
+		fmt.Printf("  [!] Invalid URL: %v\n", err)
+		return
+	}
+
+	params := make(map[string]string)
+	query := u.Query()
+	for k, v := range query {
+		if len(v) > 0 {
+			params[k] = v[0]
+		}
+	}
+
+	// Also add some default params for testing if none exist
+	if len(params) == 0 {
+		params["id"] = "1"
+		params["search"] = "test"
+	}
+
+	target := &owasp.Target{
+		URL:        targetURL,
+		Method:     "GET",
+		Parameters: params,
+	}
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+	defer cancel()
+
+	// Run scan in goroutine to allow cancellation
+	done := make(chan struct{})
+
+	go func() {
+		findings, err := detector.Scan(ctx, target)
+		if err != nil {
+			fmt.Printf("\n  [!] Scan error: %v\n", err)
+		} else {
+			fmt.Printf("\n  [*] Scan complete. Found %d issues.\n", len(findings))
+			for _, f := range findings {
+				fmt.Printf("  [+] [%s] %s: %s\n", f.Severity, f.Type, f.Description)
+				if f.Payload != "" {
+					fmt.Printf("      Payload: %s\n", f.Payload)
+				}
+			}
+		}
+		close(done)
+	}()
+
+	// Wait for completion or signal
+	select {
+	case <-done:
+		// Completed
+	case <-sigChan:
+		fmt.Println("\n  [*] Shutting down gracefully...")
+		cancel()
+	}
 }
 
 func runWebDashboard(cmd *cobra.Command, args []string) {
@@ -155,7 +215,7 @@ func runWebDashboard(cmd *cobra.Command, args []string) {
 
 	// Start web server
 	server := web.NewServer()
-	
+
 	go func() {
 		if err := server.Start(webPort); err != nil {
 			fmt.Printf("  [!] Server error: %v\n", err)

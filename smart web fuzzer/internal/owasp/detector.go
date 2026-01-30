@@ -181,6 +181,7 @@ func (d *Detector) registerDefaultCheckers() {
 	d.RegisterChecker(NewMisconfigChecker())
 	d.RegisterChecker(NewCryptoChecker())
 	d.RegisterChecker(NewDeserializationChecker())
+	d.RegisterChecker(NewPrivilegeEscalationChecker())
 }
 
 // RegisterChecker registers a vulnerability checker

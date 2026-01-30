@@ -3,5 +3,5 @@ services:
   cookie-challenge:
     build: .
     ports:
-      - "8000:8000"
+      - "10001:8000"
     container_name: cookie-challenge

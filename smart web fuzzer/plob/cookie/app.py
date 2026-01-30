@@ -1,10 +1,12 @@
 #!/usr/bin/python3
 from flask import Flask, request, render_template, make_response, redirect, url_for
 
+import sys
+
 app = Flask(__name__)
 
 try:
-    FLAG = open('./flag.txt', 'r').read()
+    FLAG = open('./flag.txt', 'r').read().strip()
 except:
     FLAG = '[**FLAG**]'
 
@@ -21,6 +23,10 @@ def index():
     username = request.cookies.get('username', None)
     # username이 있으면 Hello {username}을 출력
     if username:
+        # Debugging
+        print(f"DEBUG: Cookie username={username!r}", file=sys.stderr)
+        print(f"DEBUG: FLAG={FLAG!r}", file=sys.stderr)
+        
         # admin일 경우 flag를 출력
         return render_template('index.html', text=f'Hello {username}, {"flag is " + FLAG if username == "admin" else "you are not admin"}')
     return render_template('index.html')

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useMemo, useState } from 'react';
+import React, { useRef, useMemo, useState, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
 interface VirtualizedFileTreeProps {
@@ -25,6 +25,12 @@ export function VirtualizedFileTree({
 }: VirtualizedFileTreeProps) {
     const parentRef = useRef<HTMLDivElement>(null);
     const [isCollapsed, setIsCollapsed] = useState(false);
+    const [mounted, setMounted] = useState(false);
+
+    // Hydration 에러 방지: 클라이언트에서만 렌더링
+    useEffect(() => {
+        setMounted(true);
+    }, []);
 
     // Memoize file data to prevent unnecessary re-renders
     const fileItems = useMemo(() => 
@@ -42,6 +48,20 @@ export function VirtualizedFileTree({
 
     // 파일 수가 적으면 일반 렌더링 사용 (성능 충분)
     const useVirtualization = totalCount > 50;
+
+    // SSR 시에는 간단한 placeholder 반환
+    if (!mounted) {
+        return (
+            <div className="absolute top-24 left-4 z-40 w-72 bg-black/95 backdrop-blur-lg rounded-xl border border-white/20 flex flex-col overflow-hidden shadow-2xl"
+                 style={{ maxHeight: 'calc(100vh - 150px)' }}>
+                <div className="p-3 border-b border-white/10 bg-gradient-to-r from-cyan-900/30 to-blue-900/30">
+                    <div className="flex justify-between items-center">
+                        <span className="font-bold text-sm text-zinc-200">파일 목록 로딩 중...</span>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="absolute top-24 left-4 z-40 w-72 bg-black/95 backdrop-blur-lg rounded-xl border border-white/20 flex flex-col overflow-hidden shadow-2xl"

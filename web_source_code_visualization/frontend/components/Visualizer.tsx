@@ -218,6 +218,10 @@ const VisualizerContent = () => {
 
         const relatedPaths = getConnectedFiles(selectedNode.id);
 
+        console.log('[AI] Starting analysis...');
+        console.log('[AI] Code length:', currentCode.length);
+        console.log('[AI] Related paths:', relatedPaths);
+
         try {
             const res = await fetch(`${API_BASE}/api/analyze/ai`, {
                 method: 'POST',
@@ -229,14 +233,59 @@ const VisualizerContent = () => {
                     related_paths: relatedPaths
                 })
             });
-            const data = await res.json();
-            if (data.success) {
-                setAiAnalysis({ loading: false, result: data.analysis, model: data.model });
-            } else {
-                setAiAnalysis({ loading: false, result: `Analysis Failed: ${data.error}` });
+            
+            console.log('[AI] Response status:', res.status);
+            
+            if (!res.ok) {
+                setAiAnalysis({ loading: false, result: `HTTP Error: ${res.status} ${res.statusText}` });
+                return;
             }
-        } catch (e) {
-            setAiAnalysis({ loading: false, result: "Network error occurred." });
+            
+            const data = await res.json();
+            console.log('[AI] Response data keys:', Object.keys(data));
+            console.log('[AI] Success field:', data.success);
+            console.log('[AI] Has analysis:', !!data.analysis);
+            console.log('[AI] Analysis length:', data.analysis?.length || 0);
+            console.log('[AI] Has error:', !!data.error);
+            console.log('[AI] Model:', data.model);
+            
+            // success 필드를 먼저 체크
+            if (data.success === true && data.analysis && data.analysis.trim()) {
+                // 성공적인 분석 결과
+                console.log('[AI] ✅ Success! Displaying analysis');
+                setAiAnalysis({ 
+                    loading: false, 
+                    result: data.analysis, 
+                    model: data.model || 'unknown'
+                });
+            } else if (data.success === false) {
+                // 명시적 실패 - error 메시지 또는 analysis의 에러 메시지 표시
+                const errorMsg = data.error || data.analysis || '분석에 실패했습니다.';
+                console.log('[AI] ❌ Failed:', errorMsg);
+                setAiAnalysis({ 
+                    loading: false, 
+                    result: `분석 실패:\n${errorMsg}` 
+                });
+            } else if (!data.analysis || !data.analysis.trim()) {
+                // analysis가 없거나 비어있음
+                const errorMsg = data.error || '모델이 응답을 반환하지 않았습니다.';
+                console.log('[AI] ❌ No analysis:', errorMsg);
+                setAiAnalysis({ 
+                    loading: false, 
+                    result: `분석 실패:\n${errorMsg}` 
+                });
+            } else {
+                // success 필드가 없지만 analysis가 있음 (구버전 호환)
+                console.log('[AI] ⚠️ No success field, but has analysis - displaying it');
+                setAiAnalysis({ 
+                    loading: false, 
+                    result: data.analysis, 
+                    model: data.model || 'unknown'
+                });
+            }
+        } catch (e: any) {
+            console.error('[AI] Exception:', e);
+            setAiAnalysis({ loading: false, result: `네트워크 오류: ${e.message || e}` });
         }
     };
 

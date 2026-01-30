@@ -10,7 +10,7 @@ docker-compose up -d
 ```
 
 ## 접속 정보
-- URL: http://localhost:8000
+- URL: http://localhost:10001
 - Guest 계정: guest / guest
 
 ## 목표

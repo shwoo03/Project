@@ -2,14 +2,19 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"log"
+	"net/url"
 	"sync"
 	"time"
 
+	"github.com/fluxfuzzer/fluxfuzzer/internal/owasp"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/websocket/v2"
+	"golang.org/x/time/rate"
 )
 
 // Server represents the web dashboard server
@@ -61,6 +66,9 @@ type AnomalyLog struct {
 	Distance    int       `json:"distance"`
 	TimeSkew    float64   `json:"timeSkew"`
 	StatusCode  int       `json:"statusCode"`
+	Type        string    `json:"type"`
+	Description string    `json:"description"`
+	Remediation string    `json:"remediation"`
 }
 
 // NewServer creates a new web dashboard server
@@ -89,15 +97,15 @@ func (s *Server) setupRoutes() {
 
 	// API routes
 	api := s.app.Group("/api")
-	
+
 	// Stats endpoint
 	api.Get("/stats", s.handleStats)
-	
+
 	// Control endpoints
 	api.Post("/start", s.handleStart)
 	api.Post("/stop", s.handleStop)
 	api.Post("/config", s.handleConfig)
-	
+
 	// Logs endpoint
 	api.Get("/logs", s.handleLogs)
 	api.Get("/anomalies", s.handleAnomalies)
@@ -132,12 +140,16 @@ func (s *Server) handleStart(c *fiber.Ctx) error {
 		Workers   int    `json:"workers"`
 		RPS       int    `json:"rps"`
 	}
-	
+
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	s.mu.Lock()
+	if s.stats.IsRunning {
+		s.mu.Unlock()
+		return c.Status(400).JSON(fiber.Map{"error": "Fuzzing is already running"})
+	}
 	s.stats.IsRunning = true
 	s.stats.TargetURL = req.TargetURL
 	s.stats.StartTime = time.Now()
@@ -147,9 +159,78 @@ func (s *Server) handleStart(c *fiber.Ctx) error {
 	s.stats.FailedRequests = 0
 	s.stats.AnomaliesFound = 0
 	s.mu.Unlock()
+	s.BroadcastStats()
 
-	// TODO: Actually start the fuzzing engine here
-	
+	// Start fuzzing engine in goroutine
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			s.stats.IsRunning = false
+			s.mu.Unlock()
+			s.BroadcastStats()
+		}()
+
+		detector := owasp.NewDetector(nil)
+
+		// Parse URL
+		u, err := url.Parse(req.TargetURL)
+		params := make(map[string]string)
+		if err == nil {
+			for k, v := range u.Query() {
+				if len(v) > 0 {
+					params[k] = v[0]
+				}
+			}
+		}
+
+		target := &owasp.Target{
+			URL:        req.TargetURL,
+			Method:     "GET",
+			Parameters: params,
+		}
+
+		// 10 minutes timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 600*time.Second)
+
+		// Rate Limiter Setup
+		if req.RPS > 0 {
+			limiter := rate.NewLimiter(rate.Limit(req.RPS), 1)
+			ctx = owasp.WithRateLimiter(ctx, limiter)
+		}
+
+		defer cancel()
+
+		findings, err := detector.Scan(ctx, target)
+
+		s.mu.Lock()
+		s.stats.AnomaliesFound = int64(len(findings))
+		stats := detector.GetStats()
+		s.stats.TotalRequests = stats.TotalChecks
+		s.mu.Unlock()
+		s.BroadcastStats()
+
+		if err != nil {
+			log.Printf("Scan error: %v", err)
+		}
+
+		// Broadcast findings
+		for _, f := range findings {
+			anomaly := &AnomalyLog{
+				ID:          fmt.Sprintf("%d", time.Now().UnixNano()),
+				Timestamp:   f.Timestamp,
+				URL:         f.URL,
+				Payload:     f.Payload,
+				Reason:      fmt.Sprintf("[%s] %s", f.Type, f.Description),
+				Type:        string(f.Type),
+				Description: f.Description,
+				Remediation: f.Remediation,
+				Severity:    string(f.Severity),
+				StatusCode:  200,
+			}
+			s.BroadcastAnomaly(anomaly)
+		}
+	}()
+
 	return c.JSON(fiber.Map{"status": "started"})
 }
 
@@ -160,7 +241,7 @@ func (s *Server) handleStop(c *fiber.Ctx) error {
 	s.mu.Unlock()
 
 	// TODO: Actually stop the fuzzing engine here
-	
+
 	return c.JSON(fiber.Map{"status": "stopped"})
 }
 

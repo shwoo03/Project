@@ -819,7 +819,67 @@ body::before {
     .form-row {
         grid-template-columns: 1fr;
     }
-}`
+}
+
+/* Anomaly Details Styles */
+.anomaly-title-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.anomaly-type {
+    font-weight: 700;
+    color: var(--text-primary);
+    font-size: 14px;
+}
+.anomaly-body {
+    margin-top: 12px;
+}
+.anomaly-description {
+    color: var(--text-primary);
+    font-size: 14px;
+    margin-bottom: 12px;
+    line-height: 1.5;
+}
+.anomaly-meta {
+    background: rgba(0, 0, 0, 0.2);
+    padding: 12px;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    font-size: 13px;
+}
+.meta-row {
+    display: flex;
+    margin-bottom: 4px;
+    font-family: var(--font-mono);
+}
+.meta-row:last-child { margin-bottom: 0; }
+.meta-label {
+    width: 80px;
+    color: var(--text-muted);
+}
+.meta-value {
+    color: var(--accent-primary);
+    word-break: break-all;
+}
+.anomaly-remediation {
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    border-radius: 6px;
+    padding: 12px;
+}
+.remediation-title {
+    color: var(--accent-success);
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 4px;
+}
+.remediation-content {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+}
+`
 
 const dashboardJS = `// FluxFuzzer Dashboard JavaScript
 
@@ -984,14 +1044,34 @@ class FluxFuzzerDashboard {
         
         container.innerHTML = this.anomalies.map(a => {
             const severityClass = 'severity-' + a.severity.toLowerCase();
-            return '<div class="anomaly-item">' +
+            let html = '<div class="anomaly-item">' +
                 '<div class="anomaly-header">' +
-                    '<span class="anomaly-time">' + new Date(a.timestamp).toLocaleString() + '</span>' +
-                    '<span class="anomaly-severity ' + severityClass + '">' + a.severity + '</span>' +
+                    '<div class="anomaly-title-wrapper">' +
+                        '<span class="anomaly-severity ' + severityClass + '">' + a.severity + '</span>' +
+                        '<span class="anomaly-type">' + (a.type || 'Unknown Type') + '</span>' +
+                    '</div>' +
+                    '<span class="anomaly-time">' + new Date(a.timestamp).toLocaleTimeString() + '</span>' +
                 '</div>' +
-                '<div class="anomaly-url">' + a.url + '</div>' +
-                '<div class="anomaly-reason">Reason: ' + a.reason + '</div>' +
-            '</div>';
+                '<div class="anomaly-body">' +
+                    '<div class="anomaly-description">' + (a.description || a.reason) + '</div>' +
+                    '<div class="anomaly-meta">' +
+                        '<div class="meta-row"><span class="meta-label">URL:</span> <span class="meta-value">' + a.url + '</span></div>';
+            
+            if (a.payload) {
+                html += '<div class="meta-row"><span class="meta-label">Payload:</span> <span class="meta-value">' + a.payload + '</span></div>';
+            }
+            
+            html += '</div>';
+
+            if (a.remediation) {
+                html += '<div class="anomaly-remediation">' +
+                        '<div class="remediation-title">🛡️ 대응 방안 (Remediation)</div>' +
+                        '<div class="remediation-content">' + a.remediation + '</div>' +
+                    '</div>';
+            }
+            
+            html += '</div></div>';
+            return html;
         }).join('');
     }
 

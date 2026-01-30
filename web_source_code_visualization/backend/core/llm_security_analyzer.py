@@ -131,10 +131,10 @@ class LLMClient:
     """Wrapper for LLM API calls with fallback support."""
     
     MODELS = [
-        "openai/gpt-oss-120b",
-        "llama-3.3-70b-versatile",
-        "qwen/qwen3-32b",
-        "llama-3.1-8b-instant"
+        "openai/gpt-oss-120b",        # 1. 우선 사용
+        "llama-3.3-70b-versatile",    # 2. Fallback
+        "llama-3.1-8b-instant",       # 3. 빠른 fallback
+        "qwen/qwen3-32b",             # 4. 마지막 대안
     ]
     
     def __init__(self):
@@ -162,6 +162,7 @@ class LLMClient:
         
         for model in self.MODELS:
             try:
+                print(f"[LLM] Attempting with model: {model}")
                 response = self.client.chat.completions.create(
                     messages=[
                         {"role": "system", "content": system_prompt},
@@ -175,16 +176,25 @@ class LLMClient:
                 content = response.choices[0].message.content
                 tokens = response.usage.total_tokens if response.usage else 0
                 
+                # 빈 응답 체크
+                if not content or not content.strip():
+                    print(f"[LLM] Empty response from {model}, trying next model")
+                    continue
+                
+                print(f"[LLM] Success with {model}, {len(content)} chars, {tokens} tokens")
                 return content, model, tokens
                 
-            except groq.RateLimitError:
+            except groq.RateLimitError as e:
+                print(f"[LLM] Rate limit for {model}: {str(e)[:100]}")
                 continue
-            except groq.NotFoundError:
+            except groq.NotFoundError as e:
+                print(f"[LLM] Model {model} not found: {str(e)[:100]}")
                 continue
             except Exception as e:
-                print(f"LLM error with {model}: {e}")
+                print(f"[LLM] Error with {model}: {e}")
                 continue
         
+        print(f"[LLM] ❌ All models failed")
         raise RuntimeError("All LLM models failed")
 
 

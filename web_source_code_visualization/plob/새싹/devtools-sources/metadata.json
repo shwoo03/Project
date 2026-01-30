@@ -1,0 +1,20 @@
+{
+    "id": "devtools-sources",
+    "name": "Devtools Sources",
+    "level": "beginner",
+    "source": "dreamhack",
+    "description": "HTML comment contains sensitive information (flag)",
+    "vulnerabilities": [
+        {
+            "type": "sensitive-data-in-html-comment",
+            "line": 3,
+            "severity": "WARNING",
+            "description": "Flag exposed in HTML comment"
+        }
+    ],
+    "expected_findings": 1,
+    "cwe": ["CWE-615"],
+    "owasp": ["A01:2021"],
+    "tags": ["information-disclosure", "html-comment", "devtools"],
+    "solution": "Remove sensitive information from HTML comments before deployment"
+}

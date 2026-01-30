@@ -293,7 +293,11 @@ class InputExtractor:
         return inputs
     
     def _detect_call_source(self, text: str) -> Optional[str]:
-        """Detect source type from function call text."""
+        """Detect source type from function call text.
+        
+        Fixed: Exact match at end of text to prevent false positives
+        from chained method calls like request.form.get('x').encode('utf-8')
+        """
         patterns = {
             "request.args.get": "GET",
             "request.form.get": "POST",
@@ -306,8 +310,12 @@ class InputExtractor:
             "request.get_data": "BODY_RAW",
         }
         for pattern, source in patterns.items():
-            if pattern in text:
-                return source
+            # Must end with the pattern (not be part of a chain)
+            if text == pattern or text.endswith('.' + pattern.split('.')[-1]):
+                # Additional check: text should match pattern exactly 
+                # or start with known request prefixes
+                if text == pattern:
+                    return source
         return None
     
     def _detect_subscript_source(self, value_text: str) -> Optional[str]:

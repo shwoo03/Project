@@ -1,6 +1,7 @@
 
 import os
 import groq
+import traceback
 from typing import Dict, Any
 from dotenv import load_dotenv
 
@@ -16,14 +17,14 @@ class AIAnalyzer:
             print(f"Warning: GROQ_API_KEY is not set. Tried loading from: {root_env}")
             self.client = None
         else:
+            print(f"[AI] GROQ_API_KEY loaded successfully from {root_env}")
             self.client = groq.Groq(api_key=self.api_key)
 
-        # Priority List (User Defined)
+        # Priority List - 안정적인 모델 우선
         self.models = [
-            "openai/gpt-oss-120b",        # 1. 1st Priority
-            "llama-3.3-70b-versatile",    # 2. 2nd Priority
-            "qwen/qwen3-32b",             # 3. 3rd Priority
-            "llama-3.1-8b-instant"        # 4. Ultimate Fallback (added for safety)
+            "llama-3.3-70b-versatile",    # 1. 가장 안정적
+            "llama-3.1-8b-instant",       # 2. 빠른 fallback
+            "qwen/qwen3-32b",             # 3. 대안
         ]
 
     def analyze_code(self, code: str, context: str = "", referenced_files: Dict[str, str] = None) -> Dict[str, Any]:
@@ -60,10 +61,18 @@ class AIAnalyzer:
                 ref_context += f"--- {fpath} ---\n{fcontent}\n\n"
 
         user_prompt = f"Code to analyze:\n```\n{code}\n```\n\nContext:\n{context}\n{ref_context}"
+        
+        # 프롬프트 길이 체크 (토큰 제한 방지)
+        total_chars = len(system_prompt) + len(user_prompt)
+        print(f"[AI] Total prompt length: {total_chars} chars (~{total_chars // 4} tokens)")
+        
+        if total_chars > 30000:  # 약 7500 토큰 이상이면 경고
+            print(f"[AI] Warning: Prompt is very long, may hit token limits")
 
+        errors_log = []
         for model in self.models:
             try:
-                print(f"Attempting analysis with model: {model}")
+                print(f"[AI] Attempting analysis with model: {model}")
                 chat_completion = self.client.chat.completions.create(
                     messages=[
                         {"role": "system", "content": system_prompt},
@@ -72,9 +81,11 @@ class AIAnalyzer:
                     model=model,
                     temperature=0.1,
                     max_tokens=2048,
+                    timeout=60,  # 60초 타임아웃
                 )
                 
                 analysis = chat_completion.choices[0].message.content
+                print(f"[AI] Success with model: {model}")
                 return {
                     "model": model,
                     "analysis": analysis,
@@ -82,19 +93,34 @@ class AIAnalyzer:
                 }
 
             except groq.RateLimitError as e:
-                print(f"Rate limit exceeded for {model}. Falling back...")
+                error_msg = f"Rate limit for {model}: {str(e)[:100]}"
+                print(f"[AI] {error_msg}")
+                errors_log.append(error_msg)
                 continue
             except groq.NotFoundError as e:
-                print(f"Model {model} not found or deprecated. Falling back...")
+                error_msg = f"Model {model} not found: {str(e)[:100]}"
+                print(f"[AI] {error_msg}")
+                errors_log.append(error_msg)
+                continue
+            except groq.APIConnectionError as e:
+                error_msg = f"Connection error for {model}: {str(e)[:100]}"
+                print(f"[AI] {error_msg}")
+                errors_log.append(error_msg)
+                continue
+            except groq.APITimeoutError as e:
+                error_msg = f"Timeout for {model}: {str(e)[:100]}"
+                print(f"[AI] {error_msg}")
+                errors_log.append(error_msg)
                 continue
             except Exception as e:
-                print(f"Error with model {model}: {e}")
-                # For other errors, we might want to try next model or fail?
-                # Let's try next model just in case it's a specific model outage
+                error_msg = f"Error with {model}: {type(e).__name__}: {str(e)[:150]}"
+                print(f"[AI] {error_msg}")
+                print(f"[AI] Traceback: {traceback.format_exc()}")
+                errors_log.append(error_msg)
                 continue
 
         return {
             "error": "All AI models failed or rate limited.",
-            "analysis": "Could not complete analysis due to high traffic.",
+            "analysis": f"분석 실패. 상세 오류:\n" + "\n".join(errors_log) if errors_log else "알 수 없는 오류",
             "success": False
         }

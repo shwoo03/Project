@@ -6,6 +6,9 @@ import tempfile
 import sys
 from typing import List, Dict, Any, Optional
 import logging
+from pathlib import Path
+from io import StringIO
+from contextlib import redirect_stdout, redirect_stderr
 
 logger = logging.getLogger(__name__)
 
@@ -13,42 +16,17 @@ class SemgrepAnalyzer:
     """
     Semgrep 보안 스캐너 래퍼 클래스.
     
+    Semgrep 1.38.0+ 에서 `python -m semgrep`이 deprecated되어
+    semgrep.cli 모듈을 직접 호출하는 방식으로 변경.
+    
     한글 경로 문제 해결:
     1. 임시 디렉토리로 복사 후 스캔
-    2. --quiet 플래그로 stderr 경고 무시
-    3. 직접 실행 파일 찾기 (semgrep.exe vs python -m semgrep)
+    2. 규칙 파일도 임시 디렉토리로 복사 (인코딩 문제 방지)
     """
     
     def __init__(self):
         self.python_path = sys.executable
-        self._semgrep_cmd = self._detect_semgrep_command()
         
-    def _detect_semgrep_command(self) -> List[str]:
-        """
-        사용 가능한 Semgrep 실행 방법을 감지합니다.
-        우선순위:
-        1. 시스템 PATH의 semgrep (ASCII 경로에서만)
-        2. python -m semgrep (deprecated 경고 있지만 작동)
-        """
-        # 현재 Python 경로가 ASCII인지 확인
-        try:
-            self.python_path.encode('ascii')
-            python_is_ascii = True
-        except UnicodeEncodeError:
-            python_is_ascii = False
-            
-        # semgrep 실행 파일 검색
-        semgrep_exe = shutil.which("semgrep")
-        
-        if semgrep_exe and python_is_ascii:
-            # 직접 semgrep 실행 가능
-            logger.info(f"Using direct semgrep: {semgrep_exe}")
-            return [semgrep_exe]
-        else:
-            # python -m semgrep 사용 (fallback)
-            logger.info("Using python -m semgrep (fallback mode)")
-            return [self.python_path, "-m", "semgrep"]
-
     def _has_non_ascii(self, path: str) -> bool:
         """Check if path contains non-ASCII characters (e.g., Korean)."""
         try:
@@ -72,6 +50,89 @@ class SemgrepAnalyzer:
         
         return custom_rules_path
 
+    def _run_semgrep_cli(self, config_path: str, target_path: str, timeout: int = 300) -> Dict[str, Any]:
+        """
+        Semgrep CLI를 subprocess로 실행.
+        
+        semgrep.cli.cli()를 직접 호출하는 방식으로 deprecated 경고 회피.
+        """
+        # Windows 경로를 forward slash로 변환 (Python 문자열 이스케이프 문제 방지)
+        config_path_safe = config_path.replace('\\', '/')
+        target_path_safe = target_path.replace('\\', '/')
+        
+        # Python 코드로 semgrep CLI 직접 호출
+        code = f'''
+import sys
+import os
+import json
+
+# UTF-8 모드 강제
+os.environ['PYTHONUTF8'] = '1'
+
+# sys.argv 설정
+sys.argv = ['semgrep', 'scan', '--config={config_path_safe}', '--json', '--quiet', '{target_path_safe}']
+
+# stdout을 캡처하기 위해 redirect
+from io import StringIO
+from contextlib import redirect_stdout, redirect_stderr
+
+stdout_capture = StringIO()
+stderr_capture = StringIO()
+
+try:
+    from semgrep.cli import cli
+    with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+        cli(standalone_mode=False)
+except SystemExit:
+    pass
+except Exception as e:
+    print(json.dumps({{"error": str(e)}}))
+
+# JSON 출력만 추출
+output = stdout_capture.getvalue()
+# JSON 부분만 추출 (첫 번째 {{ 부터)
+if '{{' in output:
+    json_start = output.find('{{')
+    print(output[json_start:])
+'''
+        
+        try:
+            env = os.environ.copy()
+            env['PYTHONUTF8'] = '1'
+            env['PYTHONIOENCODING'] = 'utf-8'
+            
+            result = subprocess.run(
+                [self.python_path, '-X', 'utf8', '-c', code],
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                env=env,
+                timeout=timeout,
+                cwd=os.path.dirname(target_path) if os.path.isdir(target_path) else os.path.dirname(os.path.dirname(target_path))
+            )
+            
+            # stdout에서 JSON 추출
+            stdout = result.stdout.strip()
+            if stdout and '{' in stdout:
+                # JSON 시작 위치 찾기
+                json_start = stdout.find('{')
+                json_str = stdout[json_start:]
+                return json.loads(json_str)
+            
+            # JSON이 없으면 빈 결과
+            return {"results": [], "errors": []}
+            
+        except subprocess.TimeoutExpired:
+            logger.error(f"Semgrep scan timed out after {timeout} seconds")
+            return {"error": f"Scan timed out after {timeout} seconds"}
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse Semgrep JSON output: {e}")
+            return {"error": f"JSON parse error: {e}"}
+        except Exception as e:
+            logger.error(f"Semgrep execution failed: {e}")
+            return {"error": str(e)}
+
     def scan_project(self, project_path: str, timeout: int = 300) -> List[Dict[str, Any]]:
         """
         프로젝트 스캔 실행.
@@ -89,89 +150,56 @@ class SemgrepAnalyzer:
         findings = []
         temp_dir = None
         scan_path = project_path
+        rules_path = self._get_rules_path()
+        temp_rules_path = rules_path
         
         try:
-            # Handle non-ASCII paths by copying to temp directory
-            if self._has_non_ascii(project_path):
-                logger.info(f"Detected non-ASCII path, copying to temp directory...")
-                temp_dir = tempfile.mkdtemp(prefix="semgrep_scan_")
-                scan_path = os.path.join(temp_dir, "project")
-                shutil.copytree(project_path, scan_path, 
-                              ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '.git', 'node_modules'))
-                logger.info(f"Copied to: {scan_path}")
+            # 임시 디렉토리 생성 (한글 경로 문제 해결)
+            temp_dir = tempfile.mkdtemp(prefix="semgrep_scan_")
             
-            custom_rules_path = self._get_rules_path()
-
-            # Build command with --quiet to suppress deprecation warnings
-            cmd = self._semgrep_cmd + [
-                "scan",
-                "--json",
-                "--quiet",  # Suppress stderr warnings
-                f"--config={custom_rules_path}",
-                scan_path
-            ]
+            # 규칙 파일 복사 (인코딩 문제 방지)
+            temp_rules_path = os.path.join(temp_dir, "rules.yaml")
+            with open(rules_path, 'r', encoding='utf-8') as f:
+                rules_content = f.read()
+            with open(temp_rules_path, 'w', encoding='utf-8') as f:
+                f.write(rules_content)
             
-            logger.info(f"Running Semgrep: {' '.join(cmd)}")
+            # 프로젝트 복사 (한글 경로 또는 항상)
+            scan_path = os.path.join(temp_dir, "project")
+            shutil.copytree(project_path, scan_path, 
+                          ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '.git', 'node_modules', 'venv', '.venv'))
+            logger.info(f"Copied project to: {scan_path}")
             
-            # Run command with proper encoding
-            env = os.environ.copy()
-            env["PYTHONUTF8"] = "1"
-            env["PYTHONIOENCODING"] = "utf-8"
+            # Semgrep 실행
+            data = self._run_semgrep_cli(temp_rules_path, scan_path, timeout)
             
-            result = subprocess.run(
-                cmd, 
-                capture_output=True, 
-                text=True, 
-                encoding='utf-8', 
-                errors='replace',  # Replace undecodable chars instead of ignoring
-                env=env,
-                timeout=timeout
-            )
+            if "error" in data:
+                return [{"error": data["error"]}]
             
-            # Handle errors - only log actual errors, ignore deprecation warnings
-            if result.returncode != 0:
-                stderr = result.stderr or ""
-                # Filter out known non-critical warnings
-                critical_errors = [
-                    line for line in stderr.split('\n') 
-                    if line.strip() and 
-                    not any(w in line.lower() for w in ['deprecat', 'warning', 'info:'])
-                ]
-                if critical_errors:
-                    logger.error(f"Semgrep errors: {critical_errors}")
+            results = data.get("results", [])
             
-            if result.stdout:
-                try:
-                    data = json.loads(result.stdout)
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse Semgrep output: {e}")
-                    return [{"error": f"JSON parse error: {e}"}]
-                    
-                results = data.get("results", [])
+            for r in results:
+                # 원래 경로로 복원
+                file_path = r.get("path", "")
+                if file_path.startswith(scan_path):
+                    relative_path = os.path.relpath(file_path, scan_path)
+                    file_path = os.path.join(project_path, relative_path)
                 
-                for r in results:
-                    # Get path and restore original path if we used temp dir
-                    file_path = r.get("path", "")
-                    if temp_dir and file_path.startswith(scan_path):
-                        # Replace temp path with original path
-                        relative_path = os.path.relpath(file_path, scan_path)
-                        file_path = os.path.join(project_path, relative_path)
+                findings.append({
+                    "check_id": r.get("check_id"),
+                    "path": file_path,
+                    "line": r.get("start", {}).get("line"),
+                    "col": r.get("start", {}).get("col"),
+                    "message": r.get("extra", {}).get("message"),
+                    "severity": r.get("extra", {}).get("severity"),
+                    "lines": r.get("extra", {}).get("lines"),
+                    "metadata": r.get("extra", {}).get("metadata", {})
+                })
                     
-                    findings.append({
-                        "check_id": r.get("check_id"),
-                        "path": file_path,
-                        "line": r.get("start", {}).get("line"),
-                        "col": r.get("start", {}).get("col"),
-                        "message": r.get("extra", {}).get("message"),
-                        "severity": r.get("extra", {}).get("severity"),
-                        "lines": r.get("extra", {}).get("lines")
-                    })
-                    
-        except subprocess.TimeoutExpired:
-            logger.error(f"Semgrep scan timed out after {timeout} seconds")
-            return [{"error": f"Scan timed out after {timeout} seconds"}]
         except Exception as e:
             logger.error(f"Semgrep execution failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return [{"error": str(e)}]
         finally:
             # Clean up temp directory
@@ -202,25 +230,44 @@ class SemgrepAnalyzer:
         scan_path = project_path
         
         try:
-            if self._has_non_ascii(project_path):
-                temp_dir = tempfile.mkdtemp(prefix="semgrep_scan_")
-                scan_path = os.path.join(temp_dir, "project")
-                shutil.copytree(project_path, scan_path,
-                              ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '.git', 'node_modules'))
+            # 임시 디렉토리로 복사
+            temp_dir = tempfile.mkdtemp(prefix="semgrep_scan_")
+            scan_path = os.path.join(temp_dir, "project")
+            shutil.copytree(project_path, scan_path,
+                          ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '.git', 'node_modules', 'venv', '.venv'))
             
-            cmd = self._semgrep_cmd + [
-                "scan",
-                "--json",
-                "--quiet",
-                f"--config={registry_rules}",
-                scan_path
-            ]
+            # Windows 경로를 forward slash로 변환
+            scan_path_safe = scan_path.replace('\\', '/')
             
+            # Registry 규칙으로 스캔 (subprocess 사용)
+            code = f'''
+import sys
+import os
+import json
+os.environ['PYTHONUTF8'] = '1'
+sys.argv = ['semgrep', 'scan', '--config={registry_rules}', '--json', '--quiet', '{scan_path_safe}']
+from io import StringIO
+from contextlib import redirect_stdout, redirect_stderr
+stdout_capture = StringIO()
+stderr_capture = StringIO()
+try:
+    from semgrep.cli import cli
+    with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+        cli(standalone_mode=False)
+except SystemExit:
+    pass
+except Exception as e:
+    print(json.dumps({{"error": str(e)}}))
+output = stdout_capture.getvalue()
+if '{{' in output:
+    json_start = output.find('{{')
+    print(output[json_start:])
+'''
             env = os.environ.copy()
-            env["PYTHONUTF8"] = "1"
+            env['PYTHONUTF8'] = '1'
             
             result = subprocess.run(
-                cmd,
+                [self.python_path, '-X', 'utf8', '-c', code],
                 capture_output=True,
                 text=True,
                 encoding='utf-8',
@@ -229,11 +276,14 @@ class SemgrepAnalyzer:
                 timeout=timeout
             )
             
-            if result.stdout:
-                data = json.loads(result.stdout)
+            stdout = result.stdout.strip()
+            if stdout and '{' in stdout:
+                json_start = stdout.find('{')
+                data = json.loads(stdout[json_start:])
+                
                 for r in data.get("results", []):
                     file_path = r.get("path", "")
-                    if temp_dir and file_path.startswith(scan_path):
+                    if file_path.startswith(scan_path):
                         relative_path = os.path.relpath(file_path, scan_path)
                         file_path = os.path.join(project_path, relative_path)
                     
@@ -244,7 +294,8 @@ class SemgrepAnalyzer:
                         "col": r.get("start", {}).get("col"),
                         "message": r.get("extra", {}).get("message"),
                         "severity": r.get("extra", {}).get("severity"),
-                        "lines": r.get("extra", {}).get("lines")
+                        "lines": r.get("extra", {}).get("lines"),
+                        "metadata": r.get("extra", {}).get("metadata", {})
                     })
                     
         except Exception as e:

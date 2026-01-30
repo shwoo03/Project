@@ -407,7 +407,14 @@ const VisualizerContent = () => {
 
     const processCallGraphNodes = (data: CallGraphData) => {
         const g = new dagre.graphlib.Graph();
-        g.setGraph({ rankdir: 'TB', nodesep: 80, ranksep: 100 });
+        // 가독성 개선: LR(좌→우) 방향, 넓은 간격
+        g.setGraph({ 
+            rankdir: 'LR',  // 좌→우 방향이 Call Graph에 더 적합
+            nodesep: 60,    // 같은 레벨 노드 간격
+            ranksep: 200,   // 레벨 간 간격 (넓게)
+            marginx: 50,
+            marginy: 50,
+        });
         g.setDefaultEdgeLabel(() => ({}));
 
         const newNodes: Node[] = [];
@@ -415,63 +422,90 @@ const VisualizerContent = () => {
 
         // Create nodes for each function
         data.nodes.forEach((cgNode: CallGraphNode) => {
-            // Determine node style based on type
+            // Determine node style based on type - 가독성 개선
             let nodeStyle: React.CSSProperties = {
-                padding: '12px 20px',
-                borderRadius: 10,
-                border: '2px solid rgba(100,100,100,0.5)',
-                background: 'linear-gradient(135deg, #1e1e2e 0%, #2d2d3d 100%)',
-                color: '#e0e0e0',
-                fontSize: '12px',
+                padding: '16px 24px',
+                borderRadius: 12,
+                border: '2px solid rgba(120,120,120,0.6)',
+                background: 'linear-gradient(135deg, #1a1a2e 0%, #252540 100%)',
+                color: '#f0f0f0',
+                fontSize: '14px',
                 fontWeight: 600,
+                minWidth: '180px',
+                textAlign: 'center' as const,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
             };
 
-            // Entry points (route handlers)
+            // Entry points (route handlers) - 진입점 강조
             if (cgNode.is_entry_point) {
                 nodeStyle = {
                     ...nodeStyle,
-                    border: '2px solid #22d3ee',
-                    background: 'linear-gradient(135deg, #0e3a4a 0%, #1e5a6a 100%)',
+                    border: '3px solid #22d3ee',
+                    background: 'linear-gradient(135deg, #0e4a5a 0%, #1e6a7a 100%)',
                     color: '#22d3ee',
-                    boxShadow: '0 0 15px rgba(34,211,238,0.3)',
+                    boxShadow: '0 0 25px rgba(34,211,238,0.5), inset 0 0 20px rgba(34,211,238,0.1)',
+                    fontSize: '15px',
                 };
             }
 
-            // Sinks (dangerous functions)
+            // Sinks (dangerous functions) - 위험 함수 강조
             if (cgNode.is_sink) {
                 nodeStyle = {
                     ...nodeStyle,
-                    border: '2px solid #ef4444',
-                    background: 'linear-gradient(135deg, #4a1e1e 0%, #6a2d2d 100%)',
-                    color: '#ef4444',
-                    boxShadow: '0 0 15px rgba(239,68,68,0.3)',
+                    border: '3px solid #ef4444',
+                    background: 'linear-gradient(135deg, #5a1e1e 0%, #7a2d2d 100%)',
+                    color: '#ff6b6b',
+                    boxShadow: '0 0 30px rgba(239,68,68,0.6), inset 0 0 20px rgba(239,68,68,0.1)',
+                    fontSize: '15px',
+                    fontWeight: 700,
                 };
             }
 
-            // Classes
+            // Classes - 클래스 노드
             if (cgNode.node_type === 'class') {
                 nodeStyle = {
                     ...nodeStyle,
-                    border: '2px solid #a855f7',
-                    background: 'linear-gradient(135deg, #3a1e4a 0%, #4a2d5a 100%)',
-                    color: '#a855f7',
+                    border: '3px solid #a855f7',
+                    background: 'linear-gradient(135deg, #4a2060 0%, #5a3070 100%)',
+                    color: '#c084fc',
+                    boxShadow: '0 0 20px rgba(168,85,247,0.4)',
                 };
             }
 
-            // Determine label
+            // Determine label - 가독성 개선
             let label = cgNode.name;
+            let displayLabel = label;
+            
+            // 아이콘 추가로 시각적 구분
+            if (cgNode.is_entry_point) {
+                displayLabel = `🚀 ${label}`;
+            } else if (cgNode.is_sink) {
+                displayLabel = `⚠️ ${label}`;
+            } else if (cgNode.node_type === 'class') {
+                displayLabel = `📦 ${label}`;
+            } else if (cgNode.node_type === 'method') {
+                displayLabel = `⚙️ ${label}`;
+            } else if (cgNode.node_type === 'function') {
+                displayLabel = `ƒ ${label}`;
+            }
+            
             if (cgNode.node_type === 'method' && cgNode.qualified_name.includes('.')) {
                 const parts = cgNode.qualified_name.split('.');
                 if (parts.length >= 2) {
-                    label = `${parts[parts.length - 2]}.${parts[parts.length - 1]}`;
+                    const shortName = `${parts[parts.length - 2]}.${parts[parts.length - 1]}`;
+                    displayLabel = displayLabel.replace(label, shortName);
                 }
             }
+
+            // 노드 크기 계산 (레이블 길이에 따라)
+            const nodeWidth = Math.max(200, displayLabel.length * 10 + 60);
+            const nodeHeight = 60;
 
             const node: Node = {
                 id: cgNode.id,
                 position: { x: 0, y: 0 },
                 data: {
-                    label: label,
+                    label: displayLabel,
                     file_path: cgNode.file_path,
                     line_number: cgNode.line_number,
                     end_line_number: cgNode.end_line,
@@ -482,25 +516,33 @@ const VisualizerContent = () => {
                     callees: cgNode.callees,
                     initialStyle: nodeStyle,
                 },
-                style: nodeStyle,
+                style: { ...nodeStyle, width: nodeWidth },
             };
 
             newNodes.push(node);
-            g.setNode(cgNode.id, { label, width: 180, height: 50 });
+            g.setNode(cgNode.id, { label: displayLabel, width: nodeWidth, height: nodeHeight });
         });
 
-        // Create edges for call relationships
+        // Create edges for call relationships - 엣지 가독성 개선
         data.edges.forEach((cgEdge: CallGraphEdge) => {
-            const edgeStyle = {
+            const targetNode = data.nodes.find(n => n.id === cgEdge.target_id);
+            const sourceNode = data.nodes.find(n => n.id === cgEdge.source_id);
+            
+            let edgeStyle: React.CSSProperties = {
                 stroke: '#6b7280',
-                strokeWidth: 1.5,
+                strokeWidth: 2,
             };
 
-            // Highlight edges to sinks
-            const targetNode = data.nodes.find(n => n.id === cgEdge.target_id);
+            // 시작점에서 나가는 엣지 강조
+            if (sourceNode?.is_entry_point) {
+                edgeStyle.stroke = '#22d3ee';
+                edgeStyle.strokeWidth = 2.5;
+            }
+
+            // Sink로 들어가는 엣지는 빨간색으로 강조
             if (targetNode?.is_sink) {
                 edgeStyle.stroke = '#ef4444';
-                edgeStyle.strokeWidth = 2;
+                edgeStyle.strokeWidth = 3;
             }
 
             const edge: Edge = {
@@ -508,10 +550,17 @@ const VisualizerContent = () => {
                 source: cgEdge.source_id,
                 target: cgEdge.target_id,
                 type: 'smoothstep',
-                animated: targetNode?.is_sink,
+                animated: targetNode?.is_sink || sourceNode?.is_entry_point,
                 style: edgeStyle,
                 label: cgEdge.call_type !== 'direct' ? cgEdge.call_type : undefined,
-                labelStyle: { fill: '#9ca3af', fontSize: 10 },
+                labelStyle: { fill: '#d1d5db', fontSize: 11, fontWeight: 500 },
+                labelBgStyle: { fill: '#1a1a2e', fillOpacity: 0.9 },
+                markerEnd: {
+                    type: 'arrowclosed' as any,
+                    color: edgeStyle.stroke as string,
+                    width: 20,
+                    height: 20,
+                },
             };
 
             newEdges.push(edge);
@@ -521,13 +570,13 @@ const VisualizerContent = () => {
         // Apply dagre layout
         dagre.layout(g);
 
-        // Update positions
+        // Update positions - 중앙 정렬 개선
         newNodes.forEach(node => {
             const nodeWithPosition = g.node(node.id);
             if (nodeWithPosition) {
                 node.position = {
-                    x: nodeWithPosition.x - 90,
-                    y: nodeWithPosition.y - 25,
+                    x: nodeWithPosition.x - (nodeWithPosition.width || 200) / 2,
+                    y: nodeWithPosition.y - (nodeWithPosition.height || 60) / 2,
                 };
             }
         });
@@ -538,7 +587,14 @@ const VisualizerContent = () => {
 
     const processNodes = (endpoints: Endpoint[]) => {
         const g = new dagre.graphlib.Graph();
-        g.setGraph({ rankdir: 'TB', nodesep: 100, ranksep: 80 });
+        // 일반 시각화도 가독성 개선
+        g.setGraph({ 
+            rankdir: 'TB', 
+            nodesep: 120,   // 같은 레벨 노드 간격 증가
+            ranksep: 100,   // 레벨 간 간격 증가
+            marginx: 40,
+            marginy: 40,
+        });
         g.setDefaultEdgeLabel(() => ({}));
 
         const newNodes: Node[] = [];
@@ -849,19 +905,31 @@ const VisualizerContent = () => {
                     onNodeClick={onNodeClick}
                     onPaneClick={onPaneClick}
                     fitView
+                    fitViewOptions={{
+                        padding: 0.2,
+                        minZoom: 0.3,
+                        maxZoom: 1.5,
+                    }}
                     className="bg-black/50"
                     // Performance optimizations for large graphs
-                    minZoom={0.1}
-                    maxZoom={2}
+                    minZoom={0.05}
+                    maxZoom={3}
+                    defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
                     nodesDraggable={nodes.length < 1000}
                     nodesConnectable={nodes.length < 500}
                     elementsSelectable={true}
                 >
-                    <Background color="#333" gap={20} />
+                    <Background color="#444" gap={25} />
                     <Controls className="bg-zinc-800 border-zinc-700 fill-white" />
                     <MiniMap 
-                        className="bg-zinc-900 border-zinc-700" 
-                        nodeColor="#00f0ff"
+                        className="bg-zinc-900 border-zinc-700"
+                        nodeStrokeWidth={3}
+                        nodeColor={(node) => {
+                            if (node.data?.is_sink) return '#ef4444';
+                            if (node.data?.is_entry_point) return '#22d3ee';
+                            if (node.data?.vulnerabilityCount > 0) return '#f59e0b';
+                            return '#00f0ff';
+                        }}
                         maskColor="rgba(0, 0, 0, 0.8)"
                         pannable
                         zoomable

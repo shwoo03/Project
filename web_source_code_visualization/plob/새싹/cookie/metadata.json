@@ -1,0 +1,26 @@
+{
+    "id": "cookie",
+    "name": "Cookie Manipulation",
+    "level": "beginner",
+    "source": "dreamhack",
+    "description": "Authentication bypass via cookie manipulation",
+    "vulnerabilities": [
+        {
+            "type": "auth-cookie-based-authorization",
+            "line": 19,
+            "severity": "ERROR",
+            "description": "Cookie username used directly for authorization check"
+        },
+        {
+            "type": "auth-sensitive-data-in-cookie",
+            "line": 36,
+            "severity": "WARNING",
+            "description": "Username stored directly in cookie via set_cookie()"
+        }
+    ],
+    "expected_findings": 2,
+    "cwe": ["CWE-565"],
+    "owasp": ["A01:2021"],
+    "tags": ["cookie", "authentication", "access-control"],
+    "solution": "Use Flask session object or JWT token-based authentication"
+}

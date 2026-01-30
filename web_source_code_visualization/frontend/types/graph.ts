@@ -26,11 +26,16 @@ export interface TemplateUsage {
 }
 
 export interface SecurityFinding {
+    id?: string;
     check_id: string;
+    rule_id?: string;
     path: string;
     line: number;
-    severity: 'HIGH' | 'MEDIUM' | 'LOW' | 'WARNING' | 'ERROR';
+    col?: number;
+    start?: { line: number; col?: number };
+    severity: 'HIGH' | 'MEDIUM' | 'LOW' | 'WARNING' | 'ERROR' | 'INFO' | string;
     message: string;
+    extra?: { message?: string; severity?: string };
 }
 
 export interface Endpoint {

@@ -1,0 +1,16 @@
+{
+    "id": "simple_sqli",
+    "name": "Simple SQL Injection",
+    "level": "LEVEL 1",
+    "source": "dreamhack",
+    "description": "SQL 쿼리 생성 시 사용자 입력을 직접 문자열 포맷팅(f-string)으로 삽입하여 발생하는 SQL Injection 취약점입니다.",
+    "vulnerabilities": [
+        {
+            "type": "sqli-taint-flask",
+            "line": 45,
+            "severity": "CRITICAL",
+            "description": "f-string을 사용하여 SQL 쿼리를 동적으로 생성하고 있어 인젝션이 가능합니다."
+        }
+    ],
+    "expected_findings": 1
+}

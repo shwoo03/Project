@@ -1,0 +1,16 @@
+{
+    "id": "command-injection-1",
+    "name": "Command Injection 1",
+    "level": "새싹",
+    "source": "dreamhack",
+    "description": "사용자의 입력을 검증 없이 subprocess.check_output의 인자로 사용하여 발생하는 Command Injection 취약점입니다.",
+    "vulnerabilities": [
+        {
+            "type": "cmdi-taint-flask",
+            "line": 9,
+            "severity": "ERROR",
+            "description": "사용자 입력(host)이 검증 없이 명령어(cmd)에 포함되어 실행됩니다."
+        }
+    ],
+    "expected_findings": 1
+}

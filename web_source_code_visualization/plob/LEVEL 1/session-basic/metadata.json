@@ -1,0 +1,16 @@
+{
+    "id": "session-basic",
+    "name": "Session Basic",
+    "level": "LEVEL 1",
+    "source": "dreamhack",
+    "description": "세션 관리 미흡과 접근 제어 누락(Broken Access Control) 취약점을 다룹니다.",
+    "vulnerabilities": [
+        {
+            "type": "broken-access-control",
+            "line": 56,
+            "severity": "CRITICAL",
+            "description": "/admin 엔드포인트에 인증 검사 로직이 주석 처리되어 있어 누구나 접근 가능합니다."
+        }
+    ],
+    "expected_findings": 1
+}

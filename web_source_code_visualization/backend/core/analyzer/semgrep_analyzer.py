@@ -193,8 +193,28 @@ if '{{' in output:
                     "message": r.get("extra", {}).get("message"),
                     "severity": r.get("extra", {}).get("severity"),
                     "lines": r.get("extra", {}).get("lines"),
+                    "lines": r.get("extra", {}).get("lines"),
                     "metadata": r.get("extra", {}).get("metadata", {})
                 })
+            
+            # Deduplicate findings
+            unique_findings = []
+            seen_findings = set()
+            
+            for f in findings:
+                # Create a unique key for each finding
+                # Key: (check_id, path, line)
+                key = (
+                    f.get("check_id"),
+                    f.get("path"),
+                    f.get("line")
+                )
+                
+                if key not in seen_findings:
+                    seen_findings.add(key)
+                    unique_findings.append(f)
+            
+            findings = unique_findings
                     
         except Exception as e:
             logger.error(f"Semgrep execution failed: {e}")
@@ -297,6 +317,23 @@ if '{{' in output:
                         "lines": r.get("extra", {}).get("lines"),
                         "metadata": r.get("extra", {}).get("metadata", {})
                     })
+            
+            # Deduplicate findings
+            unique_findings = []
+            seen_findings = set()
+            
+            for f in findings:
+                key = (
+                    f.get("check_id"),
+                    f.get("path"),
+                    f.get("line")
+                )
+                
+                if key not in seen_findings:
+                    seen_findings.add(key)
+                    unique_findings.append(f)
+            
+            findings = unique_findings
                     
         except Exception as e:
             logger.error(f"Registry scan failed: {e}")

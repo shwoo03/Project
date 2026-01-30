@@ -25,7 +25,10 @@ rules:
           - pattern-either:
               - pattern: session.get(...)
               - pattern: verify_token($VAR)
+              - pattern: verify_token($VAR)
               - pattern: jwt.decode($VAR, ...)
+              - pattern: $STORAGE.get($KEY)
+              - pattern: $STORAGE[$KEY]
     metadata:
       cwe: ["CWE-565"]
       owasp: ["A01:2021"]
@@ -78,6 +81,8 @@ rules:
               - pattern: $CURSOR.executemany($QUERY, ...)
               - pattern: $DB.execute($QUERY)
               - pattern: $DB.raw($QUERY)
+              - pattern: get_db().execute($QUERY)
+              - pattern: query_db($QUERY)
               - pattern: text($QUERY)
     pattern-sanitizers:
       - patterns:
@@ -112,6 +117,8 @@ rules:
               - pattern: subprocess.call($CMD, shell=True, ...)
               - pattern: subprocess.run($CMD, shell=True, ...)
               - pattern: subprocess.Popen($CMD, shell=True, ...)
+              - pattern: subprocess.check_output($CMD, ...)
+              - pattern: subprocess.check_output([..., $CMD, ...], ...)
               - pattern: eval($CMD)
               - pattern: exec($CMD)
     pattern-sanitizers:
@@ -194,12 +201,19 @@ rules:
       - patterns:
           - pattern-either:
               - pattern: make_response($RESP)
+              - pattern: return $RESP
     pattern-sanitizers:
       - patterns:
           - pattern-either:
               - pattern: escape($VAR)
               - pattern: html.escape($VAR)
               - pattern: markupsafe.escape($VAR)
+              - pattern: render_template(...)
+              - pattern: redirect(...)
+              - pattern: render_template(...)
+              - pattern: redirect(...)
+              - pattern: jsonify(...)
+              - pattern: query_db(...)
     metadata:
       cwe: ["CWE-79"]
       owasp: ["A03:2021"]
@@ -272,3 +286,51 @@ rules:
       cwe: ["CWE-615"]
       owasp: ["A01:2021"]
       level: beginner
+
+  # [AUTH-003] Commented Out Auth Logic
+  - id: commented-out-auth-logic
+    languages: [python]
+    severity: WARNING
+    message: "[AUTH-003] 주석 처리된 인증 로직 발견 - 접근 제어 취약점 의심"
+    patterns:
+      - pattern-regex: '#\s*if\s+\w+\s*(!=|==)\s*[\''"]admin[\''"]'
+    metadata:
+      cwe: ["CWE-284"]
+      owasp: ["A01:2021"]
+      level: LEVEL 1
+
+  # [RANDOM-001] Weak Randomness / Insufficient Entropy
+  - id: random-weak-entropy
+    languages: [python]
+    severity: WARNING
+    message: "[RANDOM-001] 취약한 난수 사용 또는 낮은 엔트로피 - 세션 예측 취약점 의심"
+    patterns:
+      - pattern-either:
+          - pattern: os.urandom(1)
+          - pattern: os.urandom(2)
+          - pattern: os.urandom(3)
+          - pattern: random.randint(...)
+          - pattern: random.random(...)
+    metadata:
+      cwe: ["CWE-330"]
+      owasp: ["A02:2021"]
+      level: beginner
+
+  # [PHP-001] Loose Comparison / Type Juggling
+  - id: php-loose-comparison
+    languages: [php]
+    severity: WARNING
+    message: "[PHP-001] 느슨한 비교 연산자 사용 - 타입 저글링 취약점 의심 (가능하면 ===, !== 사용 권장)"
+    patterns:
+      - pattern-either:
+          - pattern: $X == $Y
+          - pattern: $X != $Y
+          - pattern: $X < $Y
+          - pattern: $X > $Y
+          - pattern: $X <= $Y
+          - pattern: $X >= $Y
+    metadata:
+      cwe: ["CWE-480"]
+      owasp: ["A01:2021"]
+      level: beginner
+

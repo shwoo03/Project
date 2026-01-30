@@ -309,6 +309,10 @@ class InputExtractor:
             "request.get_json": "BODY_JSON",
             "request.get_data": "BODY_RAW",
         }
+        # Explicitly ignore common string methods that might be chained
+        if text.endswith('.encode') or text.endswith('.decode'):
+            return None
+
         for pattern, source in patterns.items():
             # Must end with the pattern (not be part of a chain)
             if text == pattern or text.endswith('.' + pattern.split('.')[-1]):

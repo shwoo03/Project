@@ -1,0 +1,28 @@
+{
+    "id": "php7cmp4re",
+    "name": "PHP7 Comparison",
+    "level": "새싹",
+    "source": "dreamhack",
+    "description": "PHP의 느슨한 비교(Loose Comparison)와 Type Juggling 취약점을 이용한 문제입니다.",
+    "vulnerabilities": [
+        {
+            "type": "php-loose-comparison",
+            "line": 34,
+            "severity": "WARNING",
+            "description": "PHP의 느슨한 비교(==, !=, <, >)는 타입 변환으로 인해 예상치 못한 결과를 초래할 수 있습니다."
+        },
+        {
+            "type": "php-loose-comparison",
+            "line": 42,
+            "severity": "WARNING",
+            "description": "숫자와 문자열 비교 시 PHP의 타입 변환 규칙이 적용됩니다."
+        },
+        {
+            "type": "php-loose-comparison",
+            "line": 46,
+            "severity": "WARNING",
+            "description": "문자열과 숫자 비교 시 PHP 7.x 버전의 비교 특성이 악용될 수 있습니다."
+        }
+    ],
+    "expected_findings": 3
+}

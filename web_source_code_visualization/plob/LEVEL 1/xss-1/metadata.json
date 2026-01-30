@@ -1,0 +1,16 @@
+{
+    "id": "xss-1",
+    "name": "XSS-1",
+    "level": "LEVEL 1",
+    "source": "dreamhack",
+    "description": "사용자 입력을 충분한 검증이나 인코딩 없이 그대로 응답 본문에 반환하여 발생하는 Reflected XSS 취약점입니다.",
+    "vulnerabilities": [
+        {
+            "type": "xss-reflected-flask",
+            "line": 24,
+            "severity": "WARNING",
+            "description": "사용자 입력 'param'이 검증 없이 반환되어 스크립트 실행이 가능합니다."
+        }
+    ],
+    "expected_findings": 1
+}

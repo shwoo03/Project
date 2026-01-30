@@ -1,0 +1,16 @@
+{
+    "id": "session-entropy",
+    "name": "Session Entropy",
+    "level": "새싹",
+    "source": "dreamhack",
+    "description": "세션 ID 생성 시 엔트로피가 부족하여(1바이트) 무차별 대입 공격(Brute Force)이 가능한 취약점입니다.",
+    "vulnerabilities": [
+        {
+            "type": "random-weak-entropy",
+            "line": 18,
+            "severity": "WARNING",
+            "description": "os.urandom(1)은 예측 가능한 수준의 낮은 엔트로피(256가지)를 가집니다."
+        }
+    ],
+    "expected_findings": 1
+}

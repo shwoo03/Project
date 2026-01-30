@@ -2,9 +2,9 @@
 
 This document summarizes the current state of the project to assist future AI sessions in picking up the work immediately.
 
-**Last Updated**: 2026-02-01  
-**Version**: 0.12.0  
-**Roadmap**: See [ROADMAP2.md](ROADMAP2.md) for future development plans
+**Last Updated**: 2026-01-30  
+**Version**: 0.15.0  
+**Roadmap**: See [ROADMAP3.md](ROADMAP3.md) for future development plans
 
 ## 1. Project Overview
 A comprehensive security analysis tool that visualizes the call graph, data flow, and security vulnerabilities of web applications across multiple languages and frameworks.
@@ -382,6 +382,149 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
   - `backend/core/llm_security_analyzer.py` - LLM security analyzer (~750 LOC)
   - `backend/test_llm_analyzer.py` - Test suite (20+ tests)
 
+### 2.22 Advanced Data-Flow Analysis ✨ NEW
+- **Control Flow Graph (CFG)**: 소스 코드에서 제어 흐름 그래프 생성
+- **Program Dependence Graph (PDG)**: 제어/데이터 의존성 그래프 생성
+- **Path-Sensitive Analysis**: 실행 경로별 독립적인 분석
+- **Context-Sensitive Analysis**: 호출 컨텍스트를 고려한 정밀 분석
+- **Symbolic Execution**: 심볼릭 값과 경로 조건 추적
+- **Multi-Language Support**: Python, JavaScript, TypeScript
+- **Key Features**:
+  - **CFG Builder** (~900 LOC):
+    - Python CFG: if/for/while/try/with 구문 지원
+    - JavaScript CFG: if/for/while/switch/do-while 구문 지원
+    - TypeScript CFG: JavaScript + 타입 구문 지원
+    - Dominator Computation: 지배자 트리 계산
+    - Loop Detection: 자연 루프 탐지
+    - Path Enumeration: 실행 경로 열거
+  - **PDG Generator** (~700 LOC):
+    - Control Dependencies: 제어 의존성 분석
+    - Data Dependencies: 데이터 의존성 (def-use 체인)
+    - Reaching Definitions: 도달 정의 분석
+    - Backward Slicing: 역방향 프로그램 슬라이싱
+    - Forward Slicing: 순방향 프로그램 슬라이싱
+    - Taint PDG Analyzer: PDG 기반 정밀 테인트 분석
+  - **Advanced Data-Flow Analyzer** (~800 LOC):
+    - Flow-Insensitive Analysis: 빠르지만 정밀도 낮음
+    - Flow-Sensitive Analysis: 문장 순서 고려
+    - Path-Sensitive Analysis: 경로 조건 기반 분석
+    - Context-Sensitive Analysis: k-CFA 스타일 호출 컨텍스트
+    - Symbolic State Tracking: 심볼릭 값 추적
+    - Path Condition Management: 경로 조건 관리
+    - Feasibility Checking: 불가능한 경로 필터링
+    - Points-to Analysis: 별칭(Alias) 탐지
+- **Analysis Sensitivity Levels**:
+  - FLOW_INSENSITIVE: 가장 빠름, 정밀도 낮음
+  - FLOW_SENSITIVE: 문장 순서 인식
+  - PATH_SENSITIVE: 경로별 독립 분석 (권장)
+  - CONTEXT_SENSITIVE: 호출 컨텍스트 고려 (가장 정밀)
+- **Academic Foundation**:
+  - IFDS/IDE Framework: Interprocedural 분석
+  - CFL-Reachability: 문맥 자유 언어 도달성
+  - Demand-Driven Analysis: 필요 기반 분석
+  - Incremental Analysis: 증분 분석 지원
+- **API Endpoints**:
+  - `POST /api/dataflow/cfg` - CFG 생성 (파일/프로젝트)
+  - `POST /api/dataflow/pdg` - PDG 생성 (의존성 그래프)
+  - `POST /api/dataflow/analyze` - 고급 데이터 흐름 분석
+  - `POST /api/dataflow/slice` - 프로그램 슬라이싱 (backward/forward)
+  - `POST /api/dataflow/taint-pdg` - PDG 기반 정밀 테인트 분석
+  - `GET /api/dataflow/stats` - 분석 통계
+- **Files**:
+  - `backend/core/cfg_builder.py` - Control Flow Graph 빌더 (~900 LOC)
+  - `backend/core/pdg_generator.py` - Program Dependence Graph 생성기 (~700 LOC)
+  - `backend/core/advanced_dataflow_analyzer.py` - 고급 데이터 흐름 분석기 (~800 LOC)
+  - `backend/test_dataflow_analyzer.py` - 테스트 스위트 (30+ tests)
+
+### 2.23 Distributed Analysis Architecture ✨ NEW
+- **대규모 프로젝트 분석**: 10,000+ 파일 분석 지원
+- **분산 캐싱**: Redis 기반 분산 캐싱 시스템
+- **워크로드 밸런싱**: 복잡도 기반 최적 분배
+- **클러스터 오케스트레이션**: 워커 관리 및 헬스 체크
+- **Multi-Language Support**: Python, JavaScript, TypeScript, PHP, Java, Go
+- **Key Features**:
+  - **DistributedAnalyzer** (~500 LOC):
+    - 자동 파일 탐색 (50,000+ 파일)
+    - ThreadPool/ProcessPool 기반 병렬 처리
+    - 심볼 테이블 통합 및 결과 병합
+    - 실시간 진행 콜백
+    - Fault Tolerance (파티션별 에러 격리)
+  - **RedisCache** (~250 LOC):
+    - Async/Sync Redis 연결
+    - SHA256 해시 기반 파일 캐싱
+    - 24시간 기본 TTL
+    - 프로젝트 단위 캐시 무효화
+    - 캐시 통계 (히트율, 메모리)
+  - **WorkloadBalancer** (~200 LOC):
+    - 파일 복잡도 추정 (언어, 크기 기반)
+    - Simple/Balanced/Size 파티셔닝 전략
+    - 워커 선택 알고리즘
+  - **ClusterOrchestrator** (~150 LOC):
+    - 워커 등록/해제
+    - 하트비트 기반 헬스 체크
+    - 클러스터 통계
+    - 태스크 라우팅
+- **Analysis Pipeline**:
+  - DISCOVERY → PARTITIONING → PARSING → SYMBOL_RESOLUTION
+  - → TAINT_ANALYSIS → AGGREGATION → FINALIZATION
+- **Partitioning Strategies**:
+  - Simple: 단순 파일 수 기반
+  - Balanced: 복잡도 기반 균형 분배 (권장)
+  - Size: 파일 크기 기반
+- **API Endpoints**:
+  - `POST /api/distributed/large-scale-analyze` - 대규모 분석
+  - `POST /api/distributed/large-scale-analyze/full` - 전체 결과
+  - `POST /api/distributed/cache` - 캐시 작업
+  - `GET /api/distributed/cache/stats` - 캐시 통계
+  - `POST /api/distributed/cluster` - 클러스터 정보
+  - `GET /api/distributed/partitioning/preview` - 파티셔닝 미리보기
+- **Files**:
+  - `backend/core/distributed_analyzer.py` - 분산 분석 엔진 (~1100 LOC)
+  - `backend/test_distributed_analyzer.py` - 테스트 스위트 (25+ tests)
+
+### 2.24 Frontend Performance Optimization ✨ NEW
+- **React Query 데이터 페칭**: @tanstack/react-query 기반 데이터 관리
+- **무한 스크롤**: 가상화된 취약점 목록 (@tanstack/react-virtual)
+- **Web Worker 그래프 레이아웃**: 백그라운드 스레드에서 레이아웃 계산
+- **Service Worker 캐싱**: API 응답 및 정적 자산 캐싱
+- **Key Features**:
+  - **React Query Integration** (~340 LOC):
+    - QueryClient 설정 (staleTime: 5분, gcTime: 30분)
+    - 분석/보안스캔/콜그래프 전용 훅
+    - 무한 쿼리 지원 (useInfiniteVulnerabilities)
+    - 프리페치 및 캐시 무효화 유틸리티
+  - **Infinite Scroll VulnerabilityList** (~230 LOC):
+    - @tanstack/react-virtual 기반 가상화
+    - 자동 페이지 로드 (스크롤 감지)
+    - 심각도별 필터링
+    - 선택 상태 관리
+  - **Web Worker Graph Layout** (~500 LOC):
+    - Dagre 레이아웃 알고리즘 (토폴로지 정렬)
+    - 점진적 레이아웃 (대규모 그래프용)
+    - 진행 상황 보고
+    - 타임아웃 및 취소 지원
+  - **Service Worker Caching** (~350 LOC):
+    - API 응답 캐싱 (stale-while-revalidate)
+    - 정적 자산 프리캐싱
+    - 오프라인 지원
+    - 업데이트 알림 배너
+- **Caching Strategies**:
+  - 분석 결과: 10분 (stale-while-revalidate)
+  - 보안 스캔: 5분 (stale-while-revalidate)
+  - 콜그래프: 10분 (stale-while-revalidate)
+  - 코드 스니펫: 30분 (cache-first)
+- **Files**:
+  - `frontend/lib/queryClient.ts` - React Query 클라이언트 설정
+  - `frontend/components/providers/QueryProvider.tsx` - Query Provider
+  - `frontend/hooks/useAnalysisQuery.ts` - 분석 쿼리 훅
+  - `frontend/components/virtualized/InfiniteVulnerabilityList.tsx` - 무한 스크롤 목록
+  - `frontend/public/workers/graphLayoutWorker.js` - 그래프 레이아웃 워커
+  - `frontend/hooks/useGraphLayoutWorker.ts` - 워커 훅
+  - `frontend/public/sw.js` - Service Worker
+  - `frontend/lib/serviceWorker.ts` - SW 관리 유틸리티
+  - `frontend/hooks/useServiceWorker.ts` - SW 훅
+  - `frontend/components/providers/ServiceWorkerProvider.tsx` - SW Provider
+
 ## 3. Key Architecture & Files
 
 ### Backend (`backend/`)
@@ -419,6 +562,12 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
   - `POST /api/distributed/task/result` - Task result query ✨ NEW
   - `POST /api/distributed/task/cancel` - Cancel task ✨ NEW
   - `GET /api/distributed/workers` - Worker info ✨ NEW
+  - `POST /api/distributed/large-scale-analyze` - Large-scale analysis ✨ NEW
+  - `POST /api/distributed/large-scale-analyze/full` - Full large-scale results ✨ NEW
+  - `POST /api/distributed/cache` - Cache operations ✨ NEW
+  - `GET /api/distributed/cache/stats` - Cache statistics ✨ NEW
+  - `POST /api/distributed/cluster` - Cluster info ✨ NEW
+  - `GET /api/distributed/partitioning/preview` - Partitioning preview ✨ NEW
   - `POST /api/ml/analyze` - ML-based vulnerability analysis ✨ NEW
   - `POST /api/ml/feedback` - Submit ML prediction feedback ✨ NEW
   - `GET /api/ml/stats` - Get ML analyzer statistics ✨ NEW
@@ -453,6 +602,12 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
   - `POST /api/lsp/symbols` - Document symbols ✨ NEW
   - `POST /api/lsp/workspace-symbols` - Workspace symbol search ✨ NEW
   - `POST /api/lsp/diagnostics` - Get diagnostics ✨ NEW
+  - `POST /api/dataflow/cfg` - Build CFG ✨ NEW
+  - `POST /api/dataflow/pdg` - Build PDG ✨ NEW
+  - `POST /api/dataflow/analyze` - Advanced data-flow analysis ✨ NEW
+  - `POST /api/dataflow/slice` - Program slicing ✨ NEW
+  - `POST /api/dataflow/taint-pdg` - PDG-based taint analysis ✨ NEW
+  - `GET /api/dataflow/stats` - Data-flow statistics ✨ NEW
   - `POST /api/callgraph` - Call graph analysis
   - `POST /api/callgraph/paths` - Find paths to sinks
   - `POST /api/callgraph/metrics` - Function metrics
@@ -495,6 +650,10 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
 - **`microservice_analyzer.py`**: Microservice API tracking
 - **`monorepo_analyzer.py`**: Monorepo structure analyzer ✨ NEW
 - **`lsp_client.py`**: Language Server Protocol client ✨ NEW
+- **`cfg_builder.py`**: Control Flow Graph builder ✨ NEW
+- **`pdg_generator.py`**: Program Dependence Graph generator ✨ NEW
+- **`advanced_dataflow_analyzer.py`**: Advanced data-flow analyzer ✨ NEW
+- **`distributed_analyzer.py`**: Distributed analysis architecture ✨ NEW
 - **`call_graph_analyzer.py`**: Call graph builder
 - **`streaming_analyzer.py`**: Streaming analysis engine
 - **`ai_analyzer.py`**: Groq LLM integration

@@ -1,0 +1,16 @@
+{
+    "id": "xss-2",
+    "name": "XSS-2 (DOM Based)",
+    "level": "LEVEL 1",
+    "source": "dreamhack",
+    "description": "클라이언트 측 자바스크립트에서 innerHTML을 사용하여 사용자 입력을 DOM에 직접 삽입함으로써 발생하는 DOM-Based XSS 취약점입니다.",
+    "vulnerabilities": [
+        {
+            "type": "dom-xss-unsafe-innerhtml",
+            "line": 12,
+            "severity": "WARNING",
+            "description": "사용자 입력(URL 파라미터)이 innerHTML을 통해 안전하지 않게 DOM에 삽입됩니다."
+        }
+    ],
+    "expected_findings": 1
+}

@@ -332,5 +332,25 @@ rules:
     metadata:
       cwe: ["CWE-480"]
       owasp: ["A01:2021"]
-      level: beginner
+
+
+  # [XSS-002] DOM-Based XSS
+  - id: dom-xss-unsafe-innerhtml
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "[XSS-002] 안전하지 않은 InnerHTML 사용 - DOM XSS 취약점 의심 (textContent 권장)"
+    patterns:
+      - pattern-either:
+          - pattern: $E.innerHTML = ...
+          - pattern: $E.outerHTML = ...
+          - pattern: document.write(...)
+          - pattern: document.writeln(...)
+          - pattern-regex: \.innerHTML\s*=
+          - pattern-regex: \.outerHTML\s*=
+      - pattern-not: $E.innerHTML = "..."
+      - pattern-not: $E.outerHTML = "..."
+    metadata:
+      cwe: ["CWE-79"]
+      owasp: ["A03:2021"]
+      level: LEVEL 1
 

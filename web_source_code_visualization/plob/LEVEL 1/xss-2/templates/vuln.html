@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Vuln Page</title>
+</head>
+
+<body>
+    <h1>Vulnerable Page</h1>
+    <div id="vuln"></div>
+    <script>
+        var x = new URLSearchParams(location.search);
+        var param = x.get('param');
+        if (param) {
+            document.getElementById('vuln').innerHTML = param;
+        }
+    </script>
+</body>
+
+</html>

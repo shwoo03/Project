@@ -3,7 +3,7 @@
 This document summarizes the current state of the project to assist future AI sessions in picking up the work immediately.
 
 **Last Updated**: 2026-01-30  
-**Version**: 0.15.0  
+**Version**: 0.16.0  
 **Roadmap**: See [ROADMAP3.md](ROADMAP3.md) for future development plans
 
 ## 1. Project Overview
@@ -525,6 +525,52 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
   - `frontend/hooks/useServiceWorker.ts` - SW 훅
   - `frontend/components/providers/ServiceWorkerProvider.tsx` - SW Provider
 
+### 2.25 Enhanced Security Analyzer ✨ NEW
+- **Dynamic Code 분석**: 15+ 동적 코드 실행 패턴 탐지
+- **정밀 Taint Analysis**: Sources → Propagators → Sinks 추적
+- **Semantic Analysis**: 경로 조건 기반 의미론적 분석
+- **Multi-Language Support**: Python, JavaScript, PHP, Java
+- **Key Features**:
+  - **DynamicCodeAnalyzer** (~300 LOC):
+    - Python: eval, exec, compile, __import__, importlib, getattr/setattr/delattr
+    - Python Deserialization: pickle, yaml, marshal, shelve
+    - JavaScript: eval, setTimeout, setInterval, Function constructor
+    - PHP: eval, create_function, preg_replace with /e
+    - Java: Class.forName, Method.invoke (Reflection)
+    - CWE ID 매핑 및 완화 방안 제공
+  - **PrecisionTaintAnalyzer** (~350 LOC):
+    - Sources: Flask, FastAPI, Django, Express, DOM, PHP superglobals, Java Servlet
+    - Sinks: Code execution, Command execution, SQL, File ops, XSS, SSRF, Deserialization
+    - Sanitizers: html.escape, shlex.quote, parameterized queries, os.path.basename
+    - Propagators: String operations, array methods, object manipulation
+    - Taint state tracking with vulnerability detection
+  - **SemanticAnalyzer** (~350 LOC):
+    - Path conditions extraction (if/else/while/for)
+    - Reachability analysis with condition evaluation
+    - Context-sensitive vulnerability detection
+    - Pattern-based code analysis with semantic context
+  - **EnhancedSecurityAnalyzer** (~200 LOC):
+    - Integrated file/project analyzer
+    - All three analyzers combined
+    - Severity-based result categorization
+- **API Endpoints**:
+  - `POST /api/semantic/analyze` - 코드 의미론적 분석
+  - `POST /api/semantic/check-dynamic` - 동적 코드 패턴 확인
+  - `GET /api/semantic/taint-rules` - 테인트 분석 규칙 조회
+  - `POST /api/semantic/analyze-project` - 프로젝트 전체 의미론적 분석
+  - `GET /api/semantic/dynamic-patterns` - 동적 코드 패턴 목록 조회
+- **Test Coverage**: 40 tests (7 test classes)
+  - TestDynamicCodeAnalyzer: 12 tests
+  - TestPrecisionTaintAnalyzer: 7 tests
+  - TestSemanticAnalyzer: 6 tests
+  - TestEnhancedSecurityAnalyzer: 3 tests
+  - TestAPIFunctions: 4 tests
+  - TestPatternCoverage: 4 tests
+  - TestEdgeCases: 4 tests
+- **Files**:
+  - `backend/core/enhanced_security_analyzer.py` - 통합 보안 분석기 (~1200 LOC)
+  - `backend/test_enhanced_security.py` - 테스트 스위트 (~500 LOC)
+
 ## 3. Key Architecture & Files
 
 ### Backend (`backend/`)
@@ -608,6 +654,11 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
   - `POST /api/dataflow/slice` - Program slicing ✨ NEW
   - `POST /api/dataflow/taint-pdg` - PDG-based taint analysis ✨ NEW
   - `GET /api/dataflow/stats` - Data-flow statistics ✨ NEW
+  - `POST /api/semantic/analyze` - 코드 의미론적 분석 ✨ NEW
+  - `POST /api/semantic/check-dynamic` - 동적 코드 패턴 확인 ✨ NEW
+  - `GET /api/semantic/taint-rules` - 테인트 분석 규칙 조회 ✨ NEW
+  - `POST /api/semantic/analyze-project` - 프로젝트 전체 의미론적 분석 ✨ NEW
+  - `GET /api/semantic/dynamic-patterns` - 동적 코드 패턴 목록 조회 ✨ NEW
   - `POST /api/callgraph` - Call graph analysis
   - `POST /api/callgraph/paths` - Find paths to sinks
   - `POST /api/callgraph/metrics` - Function metrics
@@ -654,6 +705,7 @@ A comprehensive security analysis tool that visualizes the call graph, data flow
 - **`pdg_generator.py`**: Program Dependence Graph generator ✨ NEW
 - **`advanced_dataflow_analyzer.py`**: Advanced data-flow analyzer ✨ NEW
 - **`distributed_analyzer.py`**: Distributed analysis architecture ✨ NEW
+- **`enhanced_security_analyzer.py`**: Enhanced security analyzer (Dynamic Code + Taint + Semantic) ✨ NEW
 - **`call_graph_analyzer.py`**: Call graph builder
 - **`streaming_analyzer.py`**: Streaming analysis engine
 - **`ai_analyzer.py`**: Groq LLM integration

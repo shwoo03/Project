@@ -3313,3 +3313,218 @@ def preview_file_partitioning(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# Enhanced Security Analysis Endpoints
+# ============================================
+
+class SemanticAnalysisRequest(BaseModel):
+    """의미론적 분석 요청"""
+    code: str
+    file_path: str = "unknown.py"
+    language: str = "python"
+
+
+class DynamicCodeCheckRequest(BaseModel):
+    """동적 코드 확인 요청"""
+    func_name: str
+    args: List[str]
+
+
+class ProjectSemanticAnalysisRequest(BaseModel):
+    """프로젝트 의미론적 분석 요청"""
+    project_path: str
+    extensions: Optional[List[str]] = None
+
+
+@app.post("/api/semantic/analyze")
+def semantic_analyze_code(request: SemanticAnalysisRequest):
+    """
+    코드를 의미론적으로 분석합니다.
+    
+    동적 코드 분석, 정밀 테인트 분석, 의미론적 분석을 통합하여
+    깊은 취약점 탐지를 수행합니다.
+    
+    - **Dynamic Code Analysis**: eval, exec, getattr, importlib 등 탐지
+    - **Precision Taint Analysis**: Sources → Propagators → Sinks 추적
+    - **Semantic Analysis**: 경로 조건, 도달 가능성 분석
+    """
+    try:
+        from core.enhanced_security_analyzer import analyze_code_semantically
+        
+        result = analyze_code_semantically(
+            code=request.code,
+            file_path=request.file_path,
+            language=request.language
+        )
+        
+        return {
+            "success": True,
+            **result
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/semantic/check-dynamic")
+def check_dynamic_code_execution(request: DynamicCodeCheckRequest):
+    """
+    함수 호출이 동적 코드 실행인지 확인합니다.
+    
+    - eval, exec, compile
+    - __import__, importlib.import_module
+    - getattr, setattr, delattr
+    - pickle.loads, yaml.load
+    - Java/PHP 리플렉션 등
+    """
+    try:
+        from core.enhanced_security_analyzer import check_dynamic_code
+        
+        result = check_dynamic_code(request.func_name, request.args)
+        
+        if result:
+            return {
+                "success": True,
+                **result
+            }
+        else:
+            return {
+                "success": True,
+                "is_dynamic": False,
+                "message": "Not a dynamic code execution pattern"
+            }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/semantic/taint-rules")
+def get_taint_analysis_rules():
+    """
+    테인트 분석 규칙 목록을 반환합니다.
+    
+    - **sources**: 사용자 입력이 들어오는 지점
+    - **sinks**: 위험한 함수
+    - **sanitizers**: 입력을 무해화하는 함수
+    - **propagators**: 테인트를 전파하는 함수
+    """
+    try:
+        from core.enhanced_security_analyzer import get_taint_rules
+        
+        rules = get_taint_rules()
+        
+        return {
+            "success": True,
+            "rules": rules,
+            "statistics": {
+                "sources": len(rules["sources"]),
+                "sinks": len(rules["sinks"]),
+                "sanitizers": len(rules["sanitizers"]),
+                "propagators": len(rules["propagators"]),
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/semantic/analyze-project")
+def semantic_analyze_project(request: ProjectSemanticAnalysisRequest):
+    """
+    프로젝트 전체를 의미론적으로 분석합니다.
+    
+    모든 소스 파일을 분석하여 통합된 보안 취약점 보고서를 생성합니다.
+    """
+    if not os.path.exists(request.project_path):
+        raise HTTPException(status_code=404, detail="Project path not found")
+    
+    try:
+        from core.enhanced_security_analyzer import EnhancedSecurityAnalyzer
+        
+        analyzer = EnhancedSecurityAnalyzer()
+        result = analyzer.analyze_project(
+            project_path=request.project_path,
+            extensions=request.extensions
+        )
+        
+        # 결과 직렬화
+        serialized_findings = []
+        for finding in result.get("findings", []):
+            serialized_findings.append({
+                "type": finding.vulnerability_type,
+                "severity": finding.severity,
+                "file": finding.file_path,
+                "line": finding.line,
+                "column": finding.column,
+                "message": finding.message,
+                "code": finding.code_snippet,
+                "data_flow": finding.data_flow,
+                "path_conditions": finding.path_conditions,
+                "is_reachable": finding.is_reachable,
+                "confidence": finding.confidence,
+                "cwe": finding.cwe_id,
+                "remediation": finding.remediation,
+            })
+        
+        return {
+            "success": True,
+            "project_path": request.project_path,
+            "files_analyzed": result.get("files_analyzed", 0),
+            "total_findings": result.get("total_findings", 0),
+            "by_severity": result.get("by_severity", {}),
+            "by_type": result.get("by_type", {}),
+            "by_file": result.get("by_file", {}),
+            "findings": serialized_findings,
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/semantic/dynamic-patterns")
+def get_dynamic_code_patterns():
+    """
+    동적 코드 실행 패턴 목록을 반환합니다.
+    
+    각 패턴에 대해:
+    - 함수 이름들
+    - 심각도
+    - CWE ID
+    - 설명 및 수정 방법
+    """
+    try:
+        from core.enhanced_security_analyzer import DYNAMIC_CODE_PATTERNS
+        
+        patterns = []
+        for p in DYNAMIC_CODE_PATTERNS:
+            patterns.append({
+                "name": p.name,
+                "type": p.pattern_type.value,
+                "function_names": p.function_names,
+                "severity": p.severity,
+                "description": p.description,
+                "cwe_id": p.cwe_id,
+                "mitigation": p.mitigation,
+            })
+        
+        # 심각도별 그룹화
+        by_severity = {
+            "CRITICAL": [p for p in patterns if p["severity"] == "CRITICAL"],
+            "HIGH": [p for p in patterns if p["severity"] == "HIGH"],
+            "MEDIUM": [p for p in patterns if p["severity"] == "MEDIUM"],
+            "LOW": [p for p in patterns if p["severity"] == "LOW"],
+        }
+        
+        return {
+            "success": True,
+            "total_patterns": len(patterns),
+            "patterns": patterns,
+            "by_severity": {
+                k: len(v) for k, v in by_severity.items()
+            },
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

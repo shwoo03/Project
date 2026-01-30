@@ -103,19 +103,17 @@
 
 ## 🛡️ Phase 8: 취약점 탐지 확장
 
-### Task 8.1: OWASP Top 10 완전 지원
-| 취약점 | 현재 상태 | 목표 |
-|--------|----------|------|
-| A01: Broken Access Control | 부분 | ✅ 완전 |
-| A02: Cryptographic Failures | ❌ | ✅ |
-| A03: Injection (SQL, NoSQL, LDAP) | ✅ | ✅ 강화 |
-| A04: Insecure Design | ❌ | ✅ |
-| A05: Security Misconfiguration | ❌ | ✅ |
-| A06: Vulnerable Components | ❌ | ✅ |
-| A07: Authentication Failures | 부분 | ✅ 완전 |
-| A08: Data Integrity Failures | ❌ | ✅ |
-| A09: Logging Failures | ❌ | ✅ |
-| A10: SSRF | ✅ | ✅ 강화 |
+### Task 8.1: OWASP Top 10 완전 지원 ✅
+- [x] A01: Broken Access Control (IDOR, Path Traversal)
+- [x] A02: Cryptographic Failures (Weak Crypto, Data Exposure)
+- [x] A03: Injection (SQLi, XSS, Command Injection)
+- [x] A04: Insecure Design (Rate Limiting, Business Logic)
+- [x] A05: Security Misconfiguration (XXE, Default Credentials)
+- [x] A06: Vulnerable Components (Library Detection)
+- [x] A07: Authentication Failures (Brute Force, Session)
+- [x] A08: Data Integrity Failures (Deserialization)
+- [x] A09: Logging Failures (Detection)
+- [x] A10: SSRF (Internal Network Access)
 
 ### Task 8.2: 고급 취약점 탐지
 - [ ] 비즈니스 로직 결함 (IDOR, Mass Assignment)

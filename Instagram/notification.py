@@ -93,3 +93,67 @@ def send_discord_webhook(data, webhook_url):
         logger.error("디스코드 전송 타임아웃")
     except requests.RequestException as e:
         logger.error(f"전송 중 예외 발생: {e}")
+
+
+def send_change_notification(new_followers, lost_followers, webhook_url):
+    """팔로워 변동 즉시 알림"""
+    if not webhook_url or webhook_url.lower() in ["none", ""]:
+        return
+    
+    if not new_followers and not lost_followers:
+        return
+    
+    logger.info("[Discord] 변동 알림 전송 중...")
+    
+    fields = []
+    
+    if new_followers:
+        new_list = "\n".join([f"[{u['username']}](https://www.instagram.com/{u['username']}/)" for u in new_followers[:10]])
+        if len(new_followers) > 10:
+            new_list += f"\n...외 {len(new_followers) - 10}명"
+        fields.append({
+            "name": f"🎉 새 팔로워 (+{len(new_followers)}명)",
+            "value": new_list,
+            "inline": False
+        })
+    
+    if lost_followers:
+        lost_list = "\n".join([f"[{u['username']}](https://www.instagram.com/{u['username']}/)" for u in lost_followers[:10]])
+        if len(lost_followers) > 10:
+            lost_list += f"\n...외 {len(lost_followers) - 10}명"
+        fields.append({
+            "name": f"😢 언팔로우 (-{len(lost_followers)}명)",
+            "value": lost_list,
+            "inline": False
+        })
+    
+    payload = {
+        "username": "Insta Alert",
+        "avatar_url": "https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png",
+        "embeds": [
+            {
+                "title": "🔔 팔로워 변동 알림",
+                "description": f"**{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}** 기준",
+                "color": 16744576 if lost_followers else 5763719,  # 주황색 or 녹색
+                "fields": fields,
+                "footer": {
+                    "text": "Instagram Tracker"
+                }
+            }
+        ]
+    }
+    
+    try:
+        response = requests.post(
+            webhook_url, 
+            data=json.dumps(payload), 
+            headers={"Content-Type": "application/json"},
+            timeout=30
+        )
+        if response.status_code == 204:
+            logger.info("변동 알림 전송 완료")
+        else:
+            logger.error(f"변동 알림 에러: {response.status_code}")
+    except requests.RequestException as e:
+        logger.error(f"변동 알림 전송 실패: {e}")
+

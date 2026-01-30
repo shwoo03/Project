@@ -1,0 +1,40 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info
+.eggs
+dist
+build
+*.egg
+
+# Virtual environment
+venv
+.venv
+env
+.env.local
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Logs (optional - you may want to include)
+# *.log
+
+# Debug screenshots
+*.png
+
+# Agent skills (not needed in container)
+.agent
+
+# Documentation
+*.md
+!README.md

@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  instagram-tracker:
+    build: .
+    container_name: instagram-tracker
+    ports:
+      - "8000:8000"
+    environment:
+      - USER_ID=${USER_ID}
+      - USER_PASSWORD=${USER_PASSWORD}
+      - MONGO_URI=${MONGO_URI:-mongodb://mongo:27017/}
+      - DISCORD_WEBHOOK=${DISCORD_WEBHOOK:-}
+    volumes:
+      - ./cookies.json:/app/cookies.json
+      - ./instagram_tracker.log:/app/instagram_tracker.log
+      - ./.env:/app/.env
+    depends_on:
+      - mongo
+    restart: unless-stopped
+    networks:
+      - instagram-net
+
+  mongo:
+    image: mongo:7
+    container_name: instagram-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - instagram-net
+    restart: unless-stopped
+
+volumes:
+  mongo-data:
+
+
+networks:
+  instagram-net:
+    driver: bridge

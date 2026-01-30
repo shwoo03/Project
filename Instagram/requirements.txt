@@ -3,3 +3,8 @@ playwright-stealth
 python-dotenv
 pymongo
 requests
+httpx
+tenacity
+fastapi
+uvicorn[standard]
+apscheduler

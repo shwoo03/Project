@@ -91,6 +91,8 @@ def save_and_get_results_to_db(results, username, mongo_uri):
         prev_doc = col_latest.find_one({"_id": username})
         
         current_data = results 
+        new_users = []
+        lost_users = []
         
         if prev_doc:
             prev_ids = {u['id'] for u in prev_doc['followers']}
@@ -120,5 +122,113 @@ def save_and_get_results_to_db(results, username, mongo_uri):
         )
         logger.info("[Latest] 최신 상태 업데이트 완료")
         
+        return {"new_followers": new_users, "lost_followers": lost_users}
+        
     except pymongo.errors.PyMongoError as e:
         logger.error(f"DB 저장 중 오류 발생: {e}")
+        return {"new_followers": [], "lost_followers": []}
+
+
+
+def save_history(results, username, mongo_uri):
+    """일별 히스토리 저장"""
+    if not mongo_uri:
+        return
+    
+    try:
+        client = get_mongo_client(mongo_uri)
+        if not client:
+            return
+        
+        db = client.get_database('webhook')
+        col_history = db['Instagram_History']
+        
+        today = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        followers_count = len(results.get('followers', []))
+        following_count = len(results.get('following', []))
+        
+        # 오늘 이미 기록이 있으면 업데이트, 없으면 삽입
+        col_history.update_one(
+            {"username": username, "date": today},
+            {"$set": {
+                "followers_count": followers_count,
+                "following_count": following_count,
+                "timestamp": datetime.datetime.now()
+            }},
+            upsert=True
+        )
+        logger.info(f"[History] 히스토리 저장: {today.strftime('%Y-%m-%d')}")
+        
+    except pymongo.errors.PyMongoError as e:
+        logger.error(f"히스토리 저장 오류: {e}")
+
+
+def get_history(username, mongo_uri, days=30):
+    """최근 N일간 히스토리 조회"""
+    if not mongo_uri:
+        return []
+    
+    try:
+        client = get_mongo_client(mongo_uri)
+        if not client:
+            return []
+        
+        db = client.get_database('webhook')
+        col_history = db['Instagram_History']
+        
+        start_date = datetime.datetime.now() - datetime.timedelta(days=days)
+        
+        cursor = col_history.find(
+            {"username": username, "date": {"$gte": start_date}},
+            {"_id": 0, "date": 1, "followers_count": 1, "following_count": 1}
+        ).sort("date", 1)
+        
+        return list(cursor)
+        
+    except pymongo.errors.PyMongoError as e:
+        logger.error(f"히스토리 조회 오류: {e}")
+        return []
+
+
+def get_change_summary(username, mongo_uri):
+    """최근 변동 사항 요약 (어제 vs 오늘)"""
+    if not mongo_uri:
+        return None
+    
+    try:
+        client = get_mongo_client(mongo_uri)
+        if not client:
+            return None
+        
+        db = client.get_database('webhook')
+        col_history = db['Instagram_History']
+        
+        # 최근 2일 데이터 가져오기
+        cursor = col_history.find(
+            {"username": username}
+        ).sort("date", -1).limit(2)
+        
+        records = list(cursor)
+        
+        if len(records) < 2:
+            return {"has_change": False, "message": "비교할 데이터 없음"}
+        
+        today = records[0]
+        yesterday = records[1]
+        
+        followers_diff = today['followers_count'] - yesterday['followers_count']
+        following_diff = today['following_count'] - yesterday['following_count']
+        
+        return {
+            "has_change": followers_diff != 0 or following_diff != 0,
+            "followers_diff": followers_diff,
+            "following_diff": following_diff,
+            "today_followers": today['followers_count'],
+            "yesterday_followers": yesterday['followers_count']
+        }
+        
+    except pymongo.errors.PyMongoError as e:
+        logger.error(f"변동 요약 조회 오류: {e}")
+        return None
+

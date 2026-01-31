@@ -8,3 +8,4 @@ tenacity
 fastapi
 uvicorn[standard]
 apscheduler
+jinja2

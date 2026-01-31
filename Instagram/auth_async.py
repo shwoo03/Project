@@ -52,7 +52,6 @@ async def login_async(username, password):
             # 1. 브라우저 실행
             browser = await p.chromium.launch(
                 headless=True,
-                channel="chrome",
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",

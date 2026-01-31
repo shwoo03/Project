@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="ko" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instagram Insight</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        background: '#09090b',
+                        foreground: '#fafafa',
+                        card: 'rgba(24, 24, 27, 0.6)',
+                        'card-hover': 'rgba(39, 39, 42, 0.8)',
+                        border: 'rgba(255, 255, 255, 0.1)',
+                        primary: '#3b82f6',
+                        muted: '#a1a1aa',
+                    },
+                    animation: {
+                        'gradient-x': 'gradient-x 15s ease infinite',
+                        'slide-up': 'slide-up 0.6s ease-out forwards',
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                    },
+                    keyframes: {
+                        'gradient-x': {
+                            '0%, 100%': {
+                                'background-size': '200% 200%',
+                                'background-position': 'left center'
+                            },
+                            '50%': {
+                                'background-size': '200% 200%',
+                                'background-position': 'right center'
+                            },
+                        },
+                        'slide-up': {
+                            '0%': { transform: 'translateY(20px)', opacity: '0' },
+                            '100%': { transform: 'translateY(0)', opacity: '1' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #09090b;
+            color: #fafafa;
+            font-family: 'Inter', sans-serif;
+        }
+        .glass {
+            background: rgba(24, 24, 27, 0.4);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .glass-card {
+            background: rgba(24, 24, 27, 0.4);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transition: all 0.3s ease;
+        }
+        .glass-card:hover {
+            background: rgba(39, 39, 42, 0.6);
+            border-color: rgba(255, 255, 255, 0.15);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+        }
+        .text-gradient {
+            background: linear-gradient(to right, #3b82f6, #a855f7, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-size: 200% auto;
+            animation: gradient-x 5s linear infinite;
+        }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #09090b; }
+        ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+        .user-list { list-style: none; padding: 0; margin: 0; }
+        .user-list li a {
+            display: block;
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            color: #d1d5db;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+        .user-list li a:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: #fff;
+        }
+        .user-list .more {
+            text-align: center;
+            padding: 0.5rem;
+            color: #71717a;
+            font-size: 0.875rem;
+        }
+        .empty {
+            text-align: center;
+            padding: 2rem;
+            color: #71717a;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="min-h-screen flex flex-col antialiased selection:bg-blue-500/30">
+    
+    <!-- Navbar -->
+    <header class="sticky top-0 z-50 w-full border-b border-white/10 glass">
+        <div class="container mx-auto px-4 h-16 flex items-center justify-between max-w-6xl">
+            <div class="flex items-center gap-2">
+                <span class="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">Instagram Insight</span>
+            </div>
+            <div class="text-sm font-medium text-muted">
+                마지막 업데이트: <span class="text-foreground">{{ last_updated }}</span>
+                <span id="wsStatus" class="ml-4 px-2 py-1 rounded text-xs bg-red-500/20 text-red-400">WS Disconnected</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-1 w-full max-w-6xl mx-auto px-4 py-12 md:py-20">
+        
+        <!-- Hero Section -->
+        <div class="flex flex-col md:flex-row gap-12 mb-20 animate-slide-up">
+            <div class="flex-1 space-y-6">
+                <div class="inline-flex items-center rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-400">
+                    <span class="relative flex h-2 w-2 mr-2">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                    </span>
+                    Tracker Active
+                </div>
+                <h1 class="text-5xl md:text-7xl font-extrabold tracking-tight leading-tight">
+                    Analyze Your<br>
+                    <span class="text-gradient">Social Growth</span>
+                </h1>
+                <p class="text-lg text-muted max-w-xl leading-relaxed">
+                    인스타그램 데이터를 심층 분석하고 팔로워 변동을 실시간으로 추적하세요.<br>
+                    맞팔 관리와 성장을 위한 인사이트를 제공합니다.
+                </p>
+                <div class="flex gap-4 pt-2">
+                    <button id="runBtn" onclick="runTracker()" class="group relative inline-flex items-center justify-center rounded-full bg-white px-8 py-3 text-sm font-bold text-black transition-all hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span class="mr-2">🚀</span> 추적 실행하기
+                    </button>
+                </div>
+                <!-- Progress & Alerts -->
+                <div class="mt-8 space-y-4 max-w-md hidden" id="progressContainer">
+                    <div class="h-2 w-full bg-white/10 rounded-full overflow-hidden">
+                        <div class="h-full bg-gradient-to-r from-blue-500 to-purple-500 w-0 transition-all duration-300" id="progressFill"></div>
+                    </div>
+                    <div class="flex justify-between text-xs text-muted">
+                        <span id="progressStatus">준비 중...</span>
+                        <span>Running...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats Grid -->
+            <div class="grid grid-cols-2 gap-4 md:w-[400px]">
+                <div class="glass-card rounded-2xl p-6 flex flex-col justify-between aspect-square group">
+                    <div class="p-3 bg-blue-500/10 w-fit rounded-xl text-blue-400 group-hover:scale-110 transition-transform">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><polyline points="17 11 19 13 23 9"></polyline></svg>
+                    </div>
+                    <div>
+                        <div class="text-4xl font-bold tracking-tight text-white mb-1">{{ followers_count }}</div>
+                        <div class="text-sm text-muted font-medium">Followers</div>
+                    </div>
+                </div>
+                <div class="glass-card rounded-2xl p-6 flex flex-col justify-between aspect-square group">
+                    <div class="p-3 bg-purple-500/10 w-fit rounded-xl text-purple-400 group-hover:scale-110 transition-transform">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="18" y1="8" x2="23" y2="13"></line><line x1="23" y1="8" x2="18" y2="13"></line></svg>
+                    </div>
+                    <div>
+                        <div class="text-4xl font-bold tracking-tight text-white mb-1">{{ following_count }}</div>
+                        <div class="text-sm text-muted font-medium">Following</div>
+                    </div>
+                </div>
+                <div class="glass-card rounded-2xl p-6 col-span-2 flex items-center justify-between group">
+                    <div>
+                        <div class="text-sm text-muted font-medium mb-1">맞팔하지 않음</div>
+                        <div class="text-3xl font-bold text-white">{{ not_following_back_count }}</div>
+                    </div>
+                    <div class="p-3 bg-red-500/10 rounded-xl text-red-400 group-hover:rotate-12 transition-transform">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Content Grid -->
+        <div class="grid lg:grid-cols-3 gap-8 mb-20">
+            <!-- Chart Section -->
+            <div class="lg:col-span-2 glass-card rounded-2xl p-8 border-t-4 border-t-blue-500/50">
+                <div class="flex items-center justify-between mb-8">
+                    <h2 class="text-xl font-bold flex items-center gap-2">
+                        <span class="text-blue-400">📈</span> Growth Trend
+                    </h2>
+                </div>
+                <div class="w-full h-[300px]">
+                    <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Schedule Section -->
+            <div class="glass-card rounded-2xl p-8 border-t-4 border-t-purple-500/50">
+                <h2 class="text-xl font-bold mb-6 flex items-center gap-2">
+                    <span class="text-purple-400">⏰</span> Scheduler
+                </h2>
+                <div class="space-y-6">
+                    <div class="flex flex-col gap-2">
+                        <label class="text-sm font-medium text-muted">Daily Run Time</label>
+                        <div class="flex items-center gap-2 bg-black/20 p-2 rounded-lg border border-white/5">
+                            <input type="number" id="scheduleHour" min="0" max="23" value="9" class="bg-transparent text-center w-12 text-lg font-bold outline-none font-mono">
+                            <span class="text-muted">:</span>
+                            <input type="number" id="scheduleMinute" min="0" max="59" value="0" class="bg-transparent text-center w-12 text-lg font-bold outline-none font-mono">
+                            <span class="text-sm text-muted ml-auto">KST</span>
+                        </div>
+                    </div>
+                    
+                    <div class="flex gap-2">
+                        <button onclick="setSchedule()" class="flex-1 py-2 rounded-lg bg-blue-500/10 text-blue-400 font-medium hover:bg-blue-500/20 transition-colors">
+                            Save
+                        </button>
+                        <button onclick="removeSchedule()" class="px-4 py-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors">
+                            Off
+                        </button>
+                    </div>
+                    <div id="scheduleStatus" class="text-xs text-center p-2 rounded bg-white/5 text-muted">
+                        Loading...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Lists Section -->
+        <div class="grid md:grid-cols-2 gap-8">
+            <!-- Not Following Back -->
+            <div class="glass-card rounded-2xl p-8 h-[600px] flex flex-col">
+                <div class="flex items-center justify-between mb-6">
+                    <div>
+                        <h3 class="text-lg font-bold text-white">나를 맞팔하지 않는 사람</h3>
+                        <p class="text-sm text-muted">{{ not_following_back_count }} Users</p>
+                    </div>
+                    <div class="p-2 bg-red-500/10 rounded-lg text-red-400">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+                    </div>
+                </div>
+                <input type="text" class="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500/50 mb-4 transition-colors placeholder:text-muted/50" placeholder="Search users..." onkeyup="filterList(this, 'notFollowingList')">
+                <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar" id="notFollowingList">
+                    {{ not_following_back_html | safe }}
+                </div>
+            </div>
+
+            <!-- I'm Not Following -->
+            <div class="glass-card rounded-2xl p-8 h-[600px] flex flex-col">
+                <div class="flex items-center justify-between mb-6">
+                    <div>
+                        <h3 class="text-lg font-bold text-white">내가 맞팔하지 않는 사람</h3>
+                        <p class="text-sm text-muted">{{ im_not_following_count }} Users</p>
+                    </div>
+                    <div class="p-2 bg-green-500/10 rounded-lg text-green-400">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><polyline points="17 11 19 13 23 9"></polyline></svg>
+                    </div>
+                </div>
+                <input type="text" class="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-green-500/50 mb-4 transition-colors placeholder:text-muted/50" placeholder="Search users..." onkeyup="filterList(this, 'imNotFollowingList')">
+                <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar" id="imNotFollowingList">
+                    {{ im_not_following_html | safe }}
+                </div>
+            </div>
+        </div>
+
+        <!-- Logger Overlay (Terminal Style) -->
+        <div class="mt-8 border-t border-white/10 pt-8" id="logSection" style="display:none">
+            <h3 class="text-sm font-mono text-muted mb-2">> System Logs</h3>
+            <div class="bg-black/80 rounded-xl border border-white/5 p-4 font-mono text-xs h-40 overflow-y-auto text-green-400" id="logContainer">
+            </div>
+        </div>
+
+    </main>
+
+    <footer class="border-t border-white/5 py-8 mt-12 bg-black/20">
+        <div class="container mx-auto px-4 text-center text-sm text-muted">
+            &copy; 2026 Instagram Insight. All rights reserved.
+        </div>
+    </footer>
+
+    <!-- Toast Notification -->
+    <div id="toast-container" class="fixed top-4 right-4 z-[100] flex flex-col gap-2"></div>
+
+    <script>
+        // Improved User List Styling
+        const styleUserLists = () => {
+            document.querySelectorAll('.user-list').forEach(ul => {
+                ul.className = 'space-y-1';
+                Array.from(ul.children).forEach(li => {
+                    if (li.classList.contains('more')) {
+                        li.className = 'text-xs text-muted text-center py-2';
+                        return;
+                    }
+                    li.className = '';
+                    const a = li.querySelector('a');
+                    if (a) {
+                        a.className = 'block px-4 py-3 rounded-lg hover:bg-white/5 text-sm transition-colors text-gray-300 hover:text-white flex items-center gap-2';
+                        a.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-50"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg> ${a.innerText}`;
+                    }
+                });
+            });
+        };
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            styleUserLists();
+            connectWebSocket();
+            loadSchedule();
+            loadTrendChart();
+        });
+
+        let ws = null;
+        
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            
+            const colors = type === 'success' 
+                ? 'bg-green-500/10 border-green-500/20 text-green-400' 
+                : 'bg-red-500/10 border-red-500/20 text-red-400';
+            
+            toast.className = `px-4 py-3 rounded-lg border backdrop-blur-md shadow-lg transform transition-all duration-300 translate-x-full opacity-0 ${colors} border font-medium text-sm flex items-center gap-2`;
+            toast.innerHTML = type === 'success' 
+                ? `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> ${message}`
+                : `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg> ${message}`;
+            
+            container.appendChild(toast);
+            
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-x-full', 'opacity-0');
+            });
+            
+            setTimeout(() => {
+                toast.classList.add('translate-x-full', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(protocol + '//' + window.location.host + '/ws');
+            const statusEl = document.getElementById('wsStatus');
+
+            ws.onopen = function() {
+                if(statusEl) {
+                    statusEl.innerText = 'WS Connected';
+                    statusEl.className = 'ml-4 px-2 py-1 rounded text-xs bg-green-500/20 text-green-400';
+                }
+                console.log('WebSocket Connected');
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === 'log') {
+                    addLog(data.message);
+                } else if (data.type === 'progress') {
+                    updateProgress(data.progress, data.status);
+                }
+            };
+            
+            ws.onclose = function() {
+                if(statusEl) {
+                    statusEl.innerText = 'WS Disconnected';
+                    statusEl.className = 'ml-4 px-2 py-1 rounded text-xs bg-red-500/20 text-red-400';
+                }
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onerror = function(err) {
+                console.error('WebSocket Error:', err);
+                showToast('WebSocket Connection Error', 'error');
+            };
+        }
+        
+        function addLog(message) {
+            const section = document.getElementById('logSection');
+            section.style.display = 'block';
+            
+            const container = document.getElementById('logContainer');
+            const line = document.createElement('div');
+            line.className = 'py-0.5 border-b border-white/5 hover:bg-white/5 px-2';
+            line.innerHTML = `<span class="opacity-50 mr-2">[${new Date().toLocaleTimeString()}]</span> ${message}`;
+            container.appendChild(line);
+            container.scrollTop = container.scrollHeight;
+            
+            if (message.includes('모든 작업이 완료')) {
+                showToast('✅ Follower Check Completed!');
+            }
+            if (message.includes('오류 발생')) {
+                showToast(message, 'error');
+            }
+        }
+        
+        function updateProgress(progress, status) {
+            const progressContainer = document.getElementById('progressContainer');
+            const progressFill = document.getElementById('progressFill');
+            const progressStatus = document.getElementById('progressStatus');
+            const runBtn = document.getElementById('runBtn');
+            
+            progressContainer.classList.remove('hidden');
+            progressFill.style.width = progress + '%';
+            progressStatus.textContent = status + ' (' + progress + '%)';
+            
+            if (progress === 100) {
+                runBtn.disabled = false;
+                runBtn.innerHTML = '<span class="mr-2">✨</span> Completed!';
+                runBtn.classList.add('bg-green-500', 'hover:bg-green-600', 'text-white');
+                runBtn.classList.remove('bg-white', 'text-black');
+                
+                setTimeout(() => location.reload(), 2000);
+            } else if (progress === 0 && status === '오류') {
+                runBtn.disabled = false;
+                runBtn.innerHTML = 'Retry';
+            }
+        }
+        
+        async function runTracker() {
+            const btn = document.getElementById('runBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="animate-spin mr-2">💫</span> Processing...';
+            
+            const progressContainer = document.getElementById('progressContainer');
+            const logSection = document.getElementById('logSection');
+            
+            progressContainer.classList.remove('hidden');
+            logSection.style.display = 'block';
+            
+            document.getElementById('logContainer').innerHTML = '';
+            
+            try {
+                const response = await fetch('/api/run', { method: 'POST' });
+                const result = await response.json();
+                addLog(result.message);
+            } catch (error) {
+                addLog('❌ Request Failed: ' + error.message);
+                btn.disabled = false;
+                btn.innerHTML = '🚀 Tracker 실행하기';
+            }
+        }
+
+        // Chart Configuration
+        Chart.defaults.color = '#71717a';
+        Chart.defaults.borderColor = 'rgba(255, 255, 255, 0.05)';
+        
+        async function loadTrendChart() {
+            try {
+                const response = await fetch('/api/history?days=14');
+                const data = await response.json();
+                
+                if (!data.history || data.history.length === 0) {
+                    return;
+                }
+                
+                const labels = data.history.map(h => h.date).map(d => d.substring(5));
+                const followersData = data.history.map(h => h.followers);
+                const followingData = data.history.map(h => h.following);
+                
+                const ctx = document.getElementById('trendChart').getContext('2d');
+                
+                const gradientBlue = ctx.createLinearGradient(0, 0, 0, 300);
+                gradientBlue.addColorStop(0, 'rgba(59, 130, 246, 0.5)');
+                gradientBlue.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+                
+                const gradientPurple = ctx.createLinearGradient(0, 0, 0, 300);
+                gradientPurple.addColorStop(0, 'rgba(168, 85, 247, 0.5)');
+                gradientPurple.addColorStop(1, 'rgba(168, 85, 247, 0.0)');
+
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Followers',
+                                data: followersData,
+                                borderColor: '#3b82f6',
+                                backgroundColor: gradientBlue,
+                                tension: 0.4,
+                                fill: true,
+                                borderWidth: 2,
+                                pointBackgroundColor: '#09090b',
+                                pointBorderColor: '#3b82f6',
+                                pointBorderWidth: 2
+                            },
+                            {
+                                label: 'Following',
+                                data: followingData,
+                                borderColor: '#a855f7',
+                                backgroundColor: gradientPurple,
+                                tension: 0.4,
+                                fill: true,
+                                borderWidth: 2,
+                                pointBackgroundColor: '#09090b',
+                                pointBorderColor: '#a855f7',
+                                pointBorderWidth: 2
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false,
+                                backgroundColor: 'rgba(9, 9, 11, 0.9)',
+                                titleColor: '#fff',
+                                bodyColor: '#a1a1aa',
+                                borderColor: 'rgba(255,255,255,0.1)',
+                                borderWidth: 1,
+                                padding: 10,
+                                cornerRadius: 8
+                            }
+                        },
+                        interaction: {
+                            mode: 'nearest',
+                            axis: 'x',
+                            intersect: false
+                        },
+                        scales: {
+                            x: {
+                                grid: { display: false }
+                            },
+                            y: {
+                                grid: { 
+                                    color: 'rgba(255, 255, 255, 0.05)',
+                                    borderDash: [5, 5]
+                                }
+                            }
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error('Chart Load Error:', error);
+            }
+        }
+        
+        // Search Filtering
+        window.filterList = function(input, listId) {
+            const filter = input.value.toLowerCase();
+            const list = document.getElementById(listId);
+            const li = list.getElementsByTagName('li');
+            
+            for (let i = 0; i < li.length; i++) {
+                const txtValue = li[i].textContent || li[i].innerText;
+                if (txtValue.toLowerCase().indexOf(filter) > -1) {
+                    li[i].style.display = "";
+                } else {
+                    li[i].style.display = "none";
+                }
+            }
+        }
+        
+        // Schedule Functions 
+        async function loadSchedule() {
+            try {
+                const response = await fetch('/api/schedule');
+                const data = await response.json();
+                
+                document.getElementById('scheduleHour').value = data.hour || 9;
+                document.getElementById('scheduleMinute').value = data.minute || 0;
+                
+                const statusEl = document.getElementById('scheduleStatus');
+                if (data.enabled) {
+                    statusEl.innerHTML = `<span class="text-green-400">● Active</span> Next: ${data.next_run || 'Calculating...'}`;
+                } else {
+                    statusEl.innerHTML = `<span class="text-red-400">● Inactive</span>`;
+                }
+            } catch (error) {
+                console.error('Schedule Load Failed:', error);
+            }
+        }
+        
+        async function setSchedule() {
+            const hour = parseInt(document.getElementById('scheduleHour').value);
+            const minute = parseInt(document.getElementById('scheduleMinute').value);
+            
+            try {
+                const response = await fetch(`/api/schedule?hour=${hour}&minute=${minute}`, { method: 'POST' });
+                const data = await response.json();
+                showToast(data.message);
+                loadSchedule();
+            } catch (error) {
+                showToast('Failed to save schedule', 'error');
+            }
+        }
+        
+        async function removeSchedule() {
+            try {
+                const response = await fetch('/api/schedule', { method: 'DELETE' });
+                const data = await response.json();
+                showToast(data.message);
+                loadSchedule();
+            } catch (error) {
+                showToast('Failed to remove schedule', 'error');
+            }
+        }
+    </script>
+</body>
+</html>

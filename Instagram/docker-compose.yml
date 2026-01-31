@@ -5,7 +5,7 @@ services:
     build: .
     container_name: instagram-tracker
     ports:
-      - "8000:8000"
+      - "10000:10000"
     environment:
       - TZ=Asia/Seoul
       - USER_ID=${USER_ID}

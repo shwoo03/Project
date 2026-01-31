@@ -38,7 +38,7 @@ import { ErrorToast } from '@/components/feedback/ErrorToast';
 import { PerformanceMonitor } from '@/components/feedback/PerformanceMonitor';
 import { StreamingProgress } from '@/components/feedback/StreamingProgress';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'http://localhost:10005';
 
 // Threshold for enabling virtualization
 const VIRTUALIZATION_THRESHOLD = 100;
@@ -67,14 +67,14 @@ const VisualizerContent = () => {
     const [showTaintFlows, setShowTaintFlows] = useState(true); // Taint flow visualization
     const [showCallGraph, setShowCallGraph] = useState(false); // Call graph mode
     const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
-    
+
     // Streaming mode (for large projects)
     const [useStreaming, setUseStreaming] = useState(false);
 
     // Custom Hooks
     const { panelWidth, isResizing, startResizing } = useResizePanel({ initialWidth: 800 });
     const { highlightBacktrace, resetHighlight } = useBacktrace();
-    
+
     // Streaming analysis hook
     const {
         startStream,
@@ -100,13 +100,13 @@ const VisualizerContent = () => {
     }), [nodes.length, edges.length]);
 
     // Check if virtualization should be enabled
-    const isVirtualized = useMemo(() => 
+    const isVirtualized = useMemo(() =>
         allFiles.length >= VIRTUALIZATION_THRESHOLD || nodes.length >= VIRTUALIZATION_THRESHOLD,
         [allFiles.length, nodes.length]
     );
 
     // Progressive loading for large node sets
-    const { loadedItems: progressiveNodes, isLoading: nodesLoading, progress: loadProgress } = 
+    const { loadedItems: progressiveNodes, isLoading: nodesLoading, progress: loadProgress } =
         useProgressiveLoading(nodes, 200, 30);
 
     // Process nodes when filters change
@@ -233,14 +233,14 @@ const VisualizerContent = () => {
                     related_paths: relatedPaths
                 })
             });
-            
+
             console.log('[AI] Response status:', res.status);
-            
+
             if (!res.ok) {
                 setAiAnalysis({ loading: false, result: `HTTP Error: ${res.status} ${res.statusText}` });
                 return;
             }
-            
+
             const data = await res.json();
             console.log('[AI] Response data keys:', Object.keys(data));
             console.log('[AI] Success field:', data.success);
@@ -248,38 +248,38 @@ const VisualizerContent = () => {
             console.log('[AI] Analysis length:', data.analysis?.length || 0);
             console.log('[AI] Has error:', !!data.error);
             console.log('[AI] Model:', data.model);
-            
+
             // success 필드를 먼저 체크
             if (data.success === true && data.analysis && data.analysis.trim()) {
                 // 성공적인 분석 결과
                 console.log('[AI] ✅ Success! Displaying analysis');
-                setAiAnalysis({ 
-                    loading: false, 
-                    result: data.analysis, 
+                setAiAnalysis({
+                    loading: false,
+                    result: data.analysis,
                     model: data.model || 'unknown'
                 });
             } else if (data.success === false) {
                 // 명시적 실패 - error 메시지 또는 analysis의 에러 메시지 표시
                 const errorMsg = data.error || data.analysis || '분석에 실패했습니다.';
                 console.log('[AI] ❌ Failed:', errorMsg);
-                setAiAnalysis({ 
-                    loading: false, 
-                    result: `분석 실패:\n${errorMsg}` 
+                setAiAnalysis({
+                    loading: false,
+                    result: `분석 실패:\n${errorMsg}`
                 });
             } else if (!data.analysis || !data.analysis.trim()) {
                 // analysis가 없거나 비어있음
                 const errorMsg = data.error || '모델이 응답을 반환하지 않았습니다.';
                 console.log('[AI] ❌ No analysis:', errorMsg);
-                setAiAnalysis({ 
-                    loading: false, 
-                    result: `분석 실패:\n${errorMsg}` 
+                setAiAnalysis({
+                    loading: false,
+                    result: `분석 실패:\n${errorMsg}`
                 });
             } else {
                 // success 필드가 없지만 analysis가 있음 (구버전 호환)
                 console.log('[AI] ⚠️ No success field, but has analysis - displaying it');
-                setAiAnalysis({ 
-                    loading: false, 
-                    result: data.analysis, 
+                setAiAnalysis({
+                    loading: false,
+                    result: data.analysis,
                     model: data.model || 'unknown'
                 });
             }
@@ -334,13 +334,13 @@ const VisualizerContent = () => {
 
     const analyzeProject = async () => {
         if (!projectPath) return;
-        
+
         // Use streaming for potentially large projects
         if (useStreaming) {
             startStream(projectPath, true, true);
             return;
         }
-        
+
         setLoading(true);
         try {
             const res = await fetch(`${API_BASE}/api/analyze`, {
@@ -382,32 +382,32 @@ const VisualizerContent = () => {
             setLoading(false);
         }
     };
-    
+
     // Process streaming results into graph data
     useEffect(() => {
         if (streamState.endpoints.length > 0 && !isStreaming) {
             // Convert streaming endpoints to AnalysisData format
             const endpoints = streamState.endpoints as unknown as Endpoint[];
             const taintFlows = streamState.taintFlows as unknown as TaintFlowEdge[];
-            
+
             const data: AnalysisData = {
                 root_path: projectPath,
                 language_stats: streamState.stats?.language_stats || {},
                 endpoints,
                 taint_flows: taintFlows
             };
-            
+
             setAnalysisData(data);
-            
+
             // Extract files
             const files = new Set<string>();
             endpoints.forEach((ep: Endpoint) => {
                 if (ep.file_path) files.add(ep.file_path);
             });
-            
+
             const fileList = Array.from(files).sort();
             setAllFiles(fileList);
-            
+
             // Select default files
             const defaults = new Set<string>();
             fileList.forEach(f => {
@@ -428,7 +428,7 @@ const VisualizerContent = () => {
 
     const loadCallGraph = async () => {
         if (!projectPath) return;
-        
+
         try {
             const res = await fetch(`${API_BASE}/api/callgraph`, {
                 method: 'POST',
@@ -457,7 +457,7 @@ const VisualizerContent = () => {
     const processCallGraphNodes = (data: CallGraphData) => {
         const g = new dagre.graphlib.Graph();
         // 가독성 개선: LR(좌→우) 방향, 넓은 간격
-        g.setGraph({ 
+        g.setGraph({
             rankdir: 'LR',  // 좌→우 방향이 Call Graph에 더 적합
             nodesep: 60,    // 같은 레벨 노드 간격
             ranksep: 200,   // 레벨 간 간격 (넓게)
@@ -524,7 +524,7 @@ const VisualizerContent = () => {
             // Determine label - 가독성 개선
             let label = cgNode.name;
             let displayLabel = label;
-            
+
             // 아이콘 추가로 시각적 구분
             if (cgNode.is_entry_point) {
                 displayLabel = `🚀 ${label}`;
@@ -537,7 +537,7 @@ const VisualizerContent = () => {
             } else if (cgNode.node_type === 'function') {
                 displayLabel = `ƒ ${label}`;
             }
-            
+
             if (cgNode.node_type === 'method' && cgNode.qualified_name.includes('.')) {
                 const parts = cgNode.qualified_name.split('.');
                 if (parts.length >= 2) {
@@ -576,7 +576,7 @@ const VisualizerContent = () => {
         data.edges.forEach((cgEdge: CallGraphEdge) => {
             const targetNode = data.nodes.find(n => n.id === cgEdge.target_id);
             const sourceNode = data.nodes.find(n => n.id === cgEdge.source_id);
-            
+
             let edgeStyle: React.CSSProperties = {
                 stroke: '#6b7280',
                 strokeWidth: 2,
@@ -637,8 +637,8 @@ const VisualizerContent = () => {
     const processNodes = (endpoints: Endpoint[]) => {
         const g = new dagre.graphlib.Graph();
         // 일반 시각화도 가독성 개선
-        g.setGraph({ 
-            rankdir: 'TB', 
+        g.setGraph({
+            rankdir: 'TB',
             nodesep: 120,   // 같은 레벨 노드 간격 증가
             ranksep: 100,   // 레벨 간 간격 증가
             marginx: 40,
@@ -682,11 +682,11 @@ const VisualizerContent = () => {
         // Recursive Node Processor
         const processNode = (node: Endpoint, parentId: string, level: number) => {
             // Skip sink nodes if showSinks is false
-            const isSinkNode = node.type === 'sink' || 
-                               node.type === 'api_call' || 
-                               node.type === 'event_handler' ||
-                               (node.path && node.path.startsWith('⚠️'));
-            
+            const isSinkNode = node.type === 'sink' ||
+                node.type === 'api_call' ||
+                node.type === 'event_handler' ||
+                (node.path && node.path.startsWith('⚠️'));
+
             if (isSinkNode && !showSinks) {
                 return; // Skip this node
             }
@@ -834,32 +834,32 @@ const VisualizerContent = () => {
                     const edgeId = `taint-${flow.source_node_id}-${flow.sink_node_id}`;
                     if (!addedEdgeIds.has(edgeId)) {
                         addedEdgeIds.add(edgeId);
-                        
+
                         // Color based on severity
                         let strokeColor = '#ef4444'; // red for HIGH
                         if (flow.severity === 'MEDIUM') strokeColor = '#f97316'; // orange
                         if (flow.severity === 'LOW') strokeColor = '#eab308'; // yellow
-                        
+
                         newEdges.push({
                             id: edgeId,
                             source: flow.source_node_id,
                             target: flow.sink_node_id,
                             type: 'smoothstep',
                             animated: true,
-                            style: { 
-                                stroke: strokeColor, 
+                            style: {
+                                stroke: strokeColor,
                                 strokeWidth: 2.5,
                                 strokeDasharray: '5,5',
                             },
                             label: `⚠️ ${flow.vulnerability_type}`,
-                            labelStyle: { 
-                                fill: strokeColor, 
+                            labelStyle: {
+                                fill: strokeColor,
                                 fontWeight: 'bold',
                                 fontSize: '10px'
                             },
-                            labelBgStyle: { 
-                                fill: '#1a1a1a', 
-                                fillOpacity: 0.8 
+                            labelBgStyle: {
+                                fill: '#1a1a1a',
+                                fillOpacity: 0.8
                             },
                         });
                     }
@@ -935,7 +935,7 @@ const VisualizerContent = () => {
                         <span className="text-sm text-zinc-300">Loading nodes... {loadProgress}%</span>
                     </div>
                     <div className="w-48 h-1 bg-zinc-700 rounded-full mt-2 overflow-hidden">
-                        <div 
+                        <div
                             className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all duration-300"
                             style={{ width: `${loadProgress}%` }}
                         />
@@ -970,7 +970,7 @@ const VisualizerContent = () => {
                 >
                     <Background color="#444" gap={25} />
                     <Controls className="bg-zinc-800 border-zinc-700 fill-white" />
-                    <MiniMap 
+                    <MiniMap
                         className="bg-zinc-900 border-zinc-700"
                         nodeStrokeWidth={3}
                         nodeColor={(node) => {
@@ -986,7 +986,7 @@ const VisualizerContent = () => {
                 </ReactFlow>
 
                 {/* Performance Monitor - shows when graph is large */}
-                <PerformanceMonitor 
+                <PerformanceMonitor
                     stats={performanceStats}
                     isVirtualized={isVirtualized}
                 />

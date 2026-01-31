@@ -1,0 +1,5 @@
+fastapi
+uvicorn[standard]
+docker
+jinja2
+websockets

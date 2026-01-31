@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WSunghun / Docker</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+
+<body>
+    <div class="app-container">
+        <header>
+            <div class="logo">WSunghun <span>/ Docker</span></div>
+            <nav class="nav-links">
+                <a href="#" class="active">Monitoring</a>
+                <a href="#">Images</a>
+                <a href="#">Networks</a>
+                <a href="#">Logs</a>
+            </nav>
+        </header>
+
+        <main>
+            <h1 class="dashboard-title">System Status.</h1>
+            <p class="dashboard-desc">Real-time monitoring of local Docker containers and microservices.</p>
+
+            <div class="stats-row">
+                <div class="stat-item">
+                    <span class="stat-label">Total Containers</span>
+                    <span class="stat-value" id="total-count">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Active / Running</span>
+                    <span class="stat-value" id="running-count" style="color: var(--status-running)">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Inactive</span>
+                    <span class="stat-value" id="stopped-count" style="color: var(--text-muted)">0</span>
+                </div>
+            </div>
+
+            <div class="section-header">
+                <h2>Containers</h2>
+                <span class="section-time" id="last-updated">Last updated: --:--:--</span>
+            </div>
+
+            <div class="container-list" id="container-list">
+                <!-- Javascript will inject list here -->
+            </div>
+        </main>
+    </div>
+
+    <template id="container-card-template">
+        <div class="container-card" data-id="">
+            <div class="card-left">
+                <div class="container-name">
+                    <span class="status-dot"></span>
+                    <span class="name-text">name</span>
+                </div>
+                <div class="container-meta">
+                    <span class="id-text">id</span>
+                    <span class="image-text">image</span>
+                    <span class="port-text">ports</span>
+                </div>
+            </div>
+
+            <div class="card-stats">
+                <div class="stat-cpu">CPU: <span class="stat-unit cpu-val">0%</span></div>
+                <div class="stat-mem">MEM: <span class="stat-unit mem-val">0MB</span></div>
+            </div>
+
+            <div class="card-actions">
+                <button class="btn-mini start-btn">START</button>
+                <button class="btn-mini start-btn restart-btn">RESTART</button>
+                <button class="btn-mini stop stop-btn">STOP</button>
+            </div>
+        </div>
+    </template>
+
+    <script src="/static/app.js"></script>
+    <script>
+        // Simple clock for "Last updated"
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('last-updated').textContent = `Last updated: ${now.toLocaleTimeString()}`;
+        }, 1000);
+    </script>
+</body>
+
+</html>

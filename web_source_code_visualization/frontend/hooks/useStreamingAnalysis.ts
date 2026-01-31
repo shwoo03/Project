@@ -6,14 +6,14 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 // Types
 // ============================================
 
-export type StreamEventType = 
-    | 'init' 
-    | 'progress' 
-    | 'symbols' 
-    | 'endpoints' 
-    | 'taint' 
-    | 'stats' 
-    | 'complete' 
+export type StreamEventType =
+    | 'init'
+    | 'progress'
+    | 'symbols'
+    | 'endpoints'
+    | 'taint'
+    | 'stats'
+    | 'complete'
     | 'error';
 
 export interface StreamEvent<T = any> {
@@ -96,7 +96,7 @@ export interface UseStreamingAnalysisOptions {
 // Hook Implementation
 // ============================================
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'http://localhost:10005';
 
 /**
  * Hook for streaming analysis with real-time progress updates.
@@ -191,11 +191,11 @@ export function useStreamingAnalysis(options: UseStreamingAnalysisOptions = {}) 
 
             while (true) {
                 const { done, value } = await reader.read();
-                
+
                 if (done) break;
 
                 buffer += decoder.decode(value, { stream: true });
-                
+
                 // Process complete lines (NDJSON format)
                 const lines = buffer.split('\n');
                 buffer = lines.pop() || '';  // Keep incomplete line in buffer

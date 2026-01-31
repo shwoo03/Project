@@ -39,7 +39,7 @@ COPY *.py ./
 COPY templates/ ./templates/
 
 # 포트 노출
-EXPOSE 8000
+EXPOSE 10000
 
 # 환경 변수 (런타임에 오버라이드)
 ENV PYTHONUNBUFFERED=1

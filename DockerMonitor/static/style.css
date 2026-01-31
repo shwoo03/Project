@@ -1,0 +1,260 @@
+@import url('https://rsms.me/inter/inter.css');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+    --bg-color: #111111;
+    --card-bg: #1a1a1a;
+    --text-main: #eeeeee;
+    --text-muted: #888888;
+    --accent: #3b82f6;
+    /* Blue like the links in the reference */
+    --border: #333333;
+    --status-running: #10b981;
+    --status-stopped: #ef4444;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-main);
+    font-family: 'Inter', sans-serif;
+    line-height: 1.6;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+a {
+    color: var(--text-main);
+    text-decoration: none;
+}
+
+/* Layout - Centered max-width like a blog */
+.app-container {
+    max-width: 900px;
+    margin: 0 auto;
+    width: 100%;
+    padding: 40px 20px;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+/* Header */
+header {
+    margin-bottom: 60px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 20px;
+}
+
+.logo {
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    margin-bottom: 10px;
+    display: inline-block;
+}
+
+.logo span {
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+.nav-links {
+    display: flex;
+    gap: 20px;
+    font-size: 0.95rem;
+}
+
+.nav-links a {
+    color: var(--text-muted);
+    transition: color 0.2s;
+}
+
+.nav-links a:hover,
+.nav-links a.active {
+    color: var(--text-main);
+}
+
+/* Dashboard Content */
+.dashboard-title {
+    font-size: 2rem;
+    font-weight: 700;
+    margin-bottom: 10px;
+    letter-spacing: -1px;
+}
+
+.dashboard-desc {
+    color: var(--text-muted);
+    margin-bottom: 40px;
+    font-size: 1rem;
+}
+
+/* Stats Row */
+.stats-row {
+    display: flex;
+    gap: 40px;
+    margin-bottom: 50px;
+    padding-bottom: 20px;
+    border-bottom: 1px dashed var(--border);
+}
+
+.stat-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.stat-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 5px;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    font-family: 'Inter', sans-serif;
+}
+
+/* Container List */
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+}
+
+.section-time {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.container-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+/* Minimalist Card */
+.container-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 0;
+    border-bottom: 1px solid var(--border);
+    transition: opacity 0.2s;
+}
+
+.container-card:last-child {
+    border-bottom: none;
+}
+
+.card-left {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.container-name {
+    font-size: 1.1rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.container-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    display: flex;
+    gap: 15px;
+    align-items: center;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--border);
+    display: inline-block;
+}
+
+.status-dot.running {
+    background-color: var(--status-running);
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+}
+
+.card-stats {
+    display: flex;
+    gap: 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    min-width: 150px;
+}
+
+.stat-unit {
+    color: var(--text-main);
+}
+
+.card-actions {
+    display: flex;
+    gap: 10px;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.container-card:hover .card-actions {
+    opacity: 1;
+}
+
+.btn-mini {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-family: 'JetBrains Mono', monospace;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-mini:hover {
+    border-color: var(--text-main);
+    color: var(--text-main);
+}
+
+.btn-mini.stop:hover {
+    border-color: var(--status-stopped);
+    color: var(--status-stopped);
+}
+
+.btn-mini.start:hover {
+    border-color: var(--status-running);
+    color: var(--status-running);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-color);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+}

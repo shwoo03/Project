@@ -59,7 +59,7 @@ Features:
 	rootCmd.Flags().StringVarP(&outputFile, "output", "o", "", "Output file path")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 	rootCmd.Flags().BoolVar(&webMode, "web", false, "Start web dashboard mode")
-	rootCmd.Flags().StringVar(&webPort, "port", ":9090", "Web dashboard port")
+	rootCmd.Flags().StringVar(&webPort, "port", ":10003", "Web dashboard port")
 
 	// Version command
 	versionCmd := &cobra.Command{
@@ -77,7 +77,7 @@ Features:
 		Short: "Start web dashboard",
 		Run:   runWebDashboard,
 	}
-	webCmd.Flags().StringVarP(&webPort, "port", "p", ":9090", "Web dashboard port")
+	webCmd.Flags().StringVarP(&webPort, "port", "p", ":10003", "Web dashboard port")
 	rootCmd.AddCommand(webCmd)
 
 	if err := rootCmd.Execute(); err != nil {

@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  docker-monitor:
+    build: .
+    container_name: docker-monitor
+    ports:
+      - "10002:10002"
+    volumes:
+      # 호스트의 Docker 소켓을 컨테이너에 공유하여
+      # 컨테이너 내부에서 호스트의 Docker를 제어할 수 있게 함
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Seoul

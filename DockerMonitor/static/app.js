@@ -152,6 +152,109 @@ function updateDashboard(containers, stats) {
     updateStats(stats, containers);
 }
 
+
+// Terminal variables
+let term = null;
+let termSocket = null;
+let fitAddon = null;
+const terminalModal = document.getElementById('terminal-modal');
+
+// Init FitAddon if available
+if (typeof FitAddon !== 'undefined') {
+    // CDN import might put it in window.FitAddon.FitAddon
+    // But check different versions. Usually window.FitAddon is the class or namespace.
+    // We will initiate it inside openTerminal safely.
+}
+
+function openTerminal(containerId) {
+    if (!terminalModal) return;
+    terminalModal.style.display = 'flex';
+
+    // Clear previous
+    document.getElementById('terminal-container').innerHTML = '';
+
+    // Initialize Terminal
+    term = new Terminal({
+        cursorBlink: true,
+        fontSize: 14,
+        fontFamily: 'Consolas, "Courier New", monospace',
+        theme: {
+            background: '#000000',
+            foreground: '#f0f0f0'
+        }
+    });
+
+    // Add FitAddon
+    if (window.FitAddon) {
+        fitAddon = new window.FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+    }
+
+    term.open(document.getElementById('terminal-container'));
+    if (fitAddon) fitAddon.fit();
+
+    // Connect WebSocket
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    termSocket = new WebSocket(`${protocol}//${window.location.host}/ws/exec/${containerId}`);
+
+    termSocket.onopen = () => {
+        term.write('\x1b[32mConnected to container terminal...\x1b[0m\r\n');
+        term.focus();
+    };
+
+    // Use arraybuffer for binary data if needed, but we used text frame in backend for input, 
+    // but bytes for output. WebSocket handles blob/arraybuffer vs text.
+    // In backend: `websocket.send_bytes(data)`. Client receives Blob by default for binary frames.
+    termSocket.binaryType = 'arraybuffer';
+
+    termSocket.onmessage = (event) => {
+        // xterm.write accepts string or Uint8Array
+        if (event.data instanceof ArrayBuffer) {
+            term.write(new Uint8Array(event.data));
+        } else {
+            term.write(event.data);
+        }
+    };
+
+    termSocket.onclose = () => {
+        term.write('\r\n\x1b[31mSession closed.\x1b[0m');
+    };
+
+    termSocket.onerror = (e) => {
+        console.error(e);
+        term.write('\r\n\x1b[31mConnection error.\x1b[0m');
+    };
+
+    term.onData((data) => {
+        if (termSocket && termSocket.readyState === WebSocket.OPEN) {
+            termSocket.send(data);
+        }
+    });
+
+    window.addEventListener('resize', handleResize);
+}
+
+function handleResize() {
+    if (fitAddon) {
+        fitAddon.fit();
+    }
+}
+
+function closeTerminal() {
+    if (termSocket) {
+        termSocket.close();
+        termSocket = null;
+    }
+    if (term) {
+        term.dispose();
+        term = null;
+    }
+    fitAddon = null;
+    if (terminalModal) terminalModal.style.display = 'none';
+    window.removeEventListener('resize', handleResize);
+}
+
+
 function renderContainerCards(containers) {
     containerList.innerHTML = '';
 
@@ -184,18 +287,25 @@ function renderContainerCards(containers) {
         const startBtn = card.querySelector('.start-btn');
         const stopBtn = card.querySelector('.stop-btn');
         const restartBtn = card.querySelector('.restart-btn');
+        const terminalBtn = card.querySelector('.terminal-btn');
 
-        // Check if buttons exist (restart might be optional in template)
+        // Check if buttons exist
         if (startBtn) startBtn.onclick = () => actionContainer(container.id, 'start');
         if (stopBtn) stopBtn.onclick = () => actionContainer(container.id, 'stop');
         if (restartBtn) restartBtn.onclick = () => actionContainer(container.id, 'restart');
+        if (terminalBtn) terminalBtn.onclick = () => openTerminal(container.id);
 
         // Visibility Logic
         if (container.status === 'running') {
             if (startBtn) startBtn.style.display = 'none';
+            if (stopBtn) stopBtn.style.display = 'inline-block';
+            if (restartBtn) restartBtn.style.display = 'inline-block';
+            if (terminalBtn) terminalBtn.style.display = 'inline-block';
         } else {
+            if (startBtn) startBtn.style.display = 'inline-block';
             if (stopBtn) stopBtn.style.display = 'none';
             if (restartBtn) restartBtn.style.display = 'none';
+            if (terminalBtn) terminalBtn.style.display = 'none';
         }
 
         containerList.appendChild(card);
@@ -222,17 +332,20 @@ function updateStats(stats, containers) {
             const startBtn = card.querySelector('.start-btn');
             const stopBtn = card.querySelector('.stop-btn');
             const restartBtn = card.querySelector('.restart-btn');
+            const terminalBtn = card.querySelector('.terminal-btn');
 
             if (c.status === 'running') {
                 if (indicator) indicator.classList.add('running');
                 if (startBtn) startBtn.style.display = 'none';
                 if (stopBtn) stopBtn.style.display = 'inline-block';
                 if (restartBtn) restartBtn.style.display = 'inline-block';
+                if (terminalBtn) terminalBtn.style.display = 'inline-block';
             } else {
                 if (indicator) indicator.classList.remove('running');
                 if (startBtn) startBtn.style.display = 'inline-block';
                 if (stopBtn) stopBtn.style.display = 'none';
                 if (restartBtn) restartBtn.style.display = 'none';
+                if (terminalBtn) terminalBtn.style.display = 'none';
             }
         }
     });
@@ -269,3 +382,4 @@ function formatBytes(bytes, decimals = 2) {
 
 // Init
 document.addEventListener('DOMContentLoaded', connectWebSocket);
+

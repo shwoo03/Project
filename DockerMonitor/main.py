@@ -6,7 +6,8 @@ from contextlib import asynccontextmanager
 import logging
 
 from core.docker_client import docker_manager
-from routers import containers, websocket, networks, images, logs
+from routers import containers, websocket, networks, images, logs, terminal, volumes
+
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -37,6 +38,8 @@ app.include_router(websocket.router)
 app.include_router(networks.router)
 app.include_router(images.router)
 app.include_router(logs.router)
+app.include_router(terminal.router)
+app.include_router(volumes.router)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -55,6 +58,12 @@ async def get_networks_page(request: Request):
 async def get_images_page(request: Request):
     """Images 페이지"""
     return templates.TemplateResponse("images.html", {"request": request})
+
+
+@app.get("/volumes", response_class=HTMLResponse)
+async def get_volumes_page(request: Request):
+    """Volumes 페이지"""
+    return templates.TemplateResponse("volumes.html", {"request": request})
 
 
 @app.get("/logs", response_class=HTMLResponse)

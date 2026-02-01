@@ -306,5 +306,121 @@ class AsyncDockerClient:
             return f"Error: {str(e)}"
 
 
+
+    def _create_exec_instance_sync(self, container_id: str) -> dict:
+        """Exec 인스턴스 생성"""
+        container = self._client.containers.get(container_id)
+        # Try bash first, then sh. However, for exec_create we just define one.
+        # We will default to /bin/sh for broader compatibility.
+        # User can change if needed (future improvement).
+        exec_id = self._client.api.exec_create(
+            container.id, 
+            cmd="sh", 
+            stdin=True, 
+            tty=True
+        )['Id']
+        return exec_id
+
+    async def create_exec_instance(self, container_id: str) -> str:
+        if not await self.ensure_connected():
+            return None
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(executor, self._create_exec_instance_sync, container_id)
+
+    def _get_exec_socket_sync(self, exec_id: str):
+        """Exec 소켓 가져오기"""
+        # params={"detach": False, "tty": True}
+        socket = self._client.api.exec_start(
+            exec_id, 
+            detach=False, 
+            tty=True, 
+            socket=True
+        )
+        return socket
+
+
+    async def get_exec_socket(self, exec_id: str):
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(executor, self._get_exec_socket_sync, exec_id)
+
+    # --- Volume Management ---
+
+    def _list_volumes_sync(self) -> List[Dict[str, Any]]:
+        """동기 볼륨 목록 조회"""
+        volumes = []
+        volume_list = self._client.volumes.list()
+        for vol in volume_list:
+            attrs = vol.attrs
+            volumes.append({
+                "id": vol.id,
+                "name": vol.name,
+                "driver": attrs.get("Driver", "local"),
+                "mountpoint": attrs.get("Mountpoint", ""),
+                "created": attrs.get("CreatedAt", ""),
+                "labels": attrs.get("Labels", {})
+            })
+        return volumes
+
+    async def list_volumes(self) -> List[Dict[str, Any]]:
+        """볼륨 목록 반환"""
+        if not await self.ensure_connected():
+            return []
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(executor, self._list_volumes_sync)
+
+    def _create_volume_sync(self, name: str, driver: str = 'local') -> Dict[str, Any]:
+        """동기 볼륨 생성"""
+        vol = self._client.volumes.create(name=name, driver=driver)
+        return {
+            "id": vol.id, 
+            "name": vol.name
+        }
+
+    async def create_volume(self, name: str, driver: str = 'local') -> Dict[str, Any]:
+        """볼륨 생성"""
+        if not await self.ensure_connected():
+            return {}
+        loop = asyncio.get_event_loop()
+        try:
+            return await loop.run_in_executor(executor, partial(self._create_volume_sync, name, driver))
+        except Exception as e:
+            logger.error(f"Error creating volume {name}: {e}")
+            raise e
+
+    def _remove_volume_sync(self, name: str, force: bool = False) -> bool:
+        """동기 볼륨 삭제"""
+        vol = self._client.volumes.get(name)
+        vol.remove(force=force)
+        return True
+
+    async def remove_volume(self, name: str, force: bool = False) -> bool:
+        """볼륨 삭제"""
+        if not await self.ensure_connected():
+            return False
+        loop = asyncio.get_event_loop()
+        try:
+            return await loop.run_in_executor(executor, partial(self._remove_volume_sync, name, force))
+        except Exception as e:
+            logger.error(f"Error checking volume {name}: {e}")
+            raise e
+
+    def _inspect_volume_sync(self, name: str) -> Dict[str, Any]:
+        """동기 볼륨 상세 조회"""
+        vol = self._client.volumes.get(name)
+        return vol.attrs
+
+    async def inspect_volume(self, name: str) -> Dict[str, Any]:
+        """볼륨 상세 정보 반환"""
+        if not await self.ensure_connected():
+            return {}
+        loop = asyncio.get_event_loop()
+        try:
+            return await loop.run_in_executor(executor, partial(self._inspect_volume_sync, name))
+        except Exception as e:
+            logger.error(f"Error inspecting volume {name}: {e}")
+            return {}
+
+
+
 # 싱글톤 인스턴스
 docker_manager = AsyncDockerClient()

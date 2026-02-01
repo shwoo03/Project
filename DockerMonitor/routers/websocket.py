@@ -34,13 +34,19 @@ async def websocket_endpoint(websocket: WebSocket):
             containers = await docker_manager.list_containers()
             
             # 2. 실행 중인 컨테이너들의 Stats 가져오기
-            stats_data = []
-            for c in containers:
-                if c['status'] == 'running':
-                    stat = await docker_manager.get_container_stats(c['id'])
+            # 2. 실행 중인 컨테이너들의 Stats 가져오기 (병렬 처리)
+            running_containers = [c for c in containers if c['status'] == 'running']
+            if running_containers:
+                stats_coroutines = [docker_manager.get_container_stats(c['id']) for c in running_containers]
+                stats_results = await asyncio.gather(*stats_coroutines)
+                
+                stats_data = []
+                for i, stat in enumerate(stats_results):
                     if stat:
-                        stat['name'] = c['name']
+                        stat['name'] = running_containers[i]['name']
                         stats_data.append(stat)
+            else:
+                stats_data = []
             
             # 3. 데이터 전송
             payload = {

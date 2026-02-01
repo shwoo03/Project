@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ko" class="dark">
+{% from "macros.html" import render_user_list %}
 
 <head>
     <meta charset="UTF-8">
@@ -260,6 +261,10 @@
                     <span id="wsStatus" class="px-2 py-1 rounded text-xs bg-red-500/20 text-red-400">WS
                         Disconnected</span>
                 </div>
+                <button onclick="openLogsModal()"
+                    class="px-3 py-1.5 rounded-lg text-sm font-medium text-muted hover:text-white hover:bg-white/10 transition-colors mr-2">
+                    Logs
+                </button>
                 <!-- Theme Toggle Button -->
                 <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" aria-label="테마 변경">
                     <svg id="sunIcon" class="hidden" xmlns="http://www.w3.org/2000/svg" width="20" height="20"
@@ -455,7 +460,7 @@
                     placeholder="Search users..." onkeyup="filterList(this, 'notFollowingList')"
                     style="background: var(--input-bg);">
                 <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar" id="notFollowingList">
-                    {{ not_following_back_html | safe }}
+                    {{ render_user_list(not_following_back_list) }}
                 </div>
             </div>
 
@@ -487,7 +492,7 @@
                     placeholder="Search users..." onkeyup="filterList(this, 'imNotFollowingList')"
                     style="background: var(--input-bg);">
                 <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar" id="imNotFollowingList">
-                    {{ im_not_following_html | safe }}
+                    {{ render_user_list(im_not_following_list) }}
                 </div>
             </div>
         </div>
@@ -497,6 +502,53 @@
             <h3 class="text-sm font-mono text-muted mb-2">> System Logs</h3>
             <div class="bg-black/80 rounded-xl border border-white/5 p-4 font-mono text-xs h-40 overflow-y-auto text-green-400"
                 id="logContainer">
+            </div>
+        </div>
+
+        <!-- Logs Modal -->
+        <div id="logsModal" class="fixed inset-0 z-[100] hidden">
+            <div class="absolute inset-0 bg-black/80 backdrop-blur-sm" onclick="closeLogsModal()"></div>
+            <div
+                class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-4xl max-h-[80vh] flex flex-col glass rounded-2xl border border-white/10 shadow-2xl">
+                <div class="flex items-center justify-between p-6 border-b border-white/10">
+                    <h2 class="text-xl font-bold flex items-center gap-2">
+                        <span>📜</span> System Logs
+                    </h2>
+                    <button onclick="closeLogsModal()" class="p-2 hover:bg-white/10 rounded-lg transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                </div>
+                <div class="p-4 border-b border-white/10 flex gap-4">
+                    <select id="logLevelFilter" onchange="loadLogs()"
+                        class="bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/50">
+                        <option value="">All Levels</option>
+                        <option value="INFO">INFO</option>
+                        <option value="WARNING">WARNING</option>
+                        <option value="ERROR">ERROR</option>
+                    </select>
+                    <button onclick="loadLogs()"
+                        class="px-4 py-2 rounded-lg bg-blue-500/10 text-blue-400 text-sm hover:bg-blue-500/20 transition-colors">
+                        Refresh
+                    </button>
+                </div>
+                <div class="flex-1 overflow-auto p-0">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-white/5 text-muted sticky top-0 backdrop-blur-md">
+                            <tr>
+                                <th class="p-4 font-medium w-40">Time</th>
+                                <th class="p-4 font-medium w-24">Level</th>
+                                <th class="p-4 font-medium">Message</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logsTableBody" class="divide-y divide-white/5">
+                            <!-- Logs here -->
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
@@ -798,7 +850,62 @@
             } catch (error) {
                 addLog('❌ Request Failed: ' + error.message);
                 btn.disabled = false;
-                btn.innerHTML = '🚀 Tracker 실행하기';
+                btn.innerHTML = '<span class="mr-2">🚀</span> 추적 실행하기';
+            }
+        }
+
+        // Log Viewer Logic
+        function openLogsModal() {
+            document.getElementById('logsModal').classList.remove('hidden');
+            loadLogs();
+        }
+
+        function closeLogsModal() {
+            document.getElementById('logsModal').classList.add('hidden');
+        }
+
+        async function loadLogs() {
+            const tbody = document.getElementById('logsTableBody');
+            const level = document.getElementById('logLevelFilter').value;
+
+            tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-muted">Loading logs...</td></tr>';
+
+            try {
+                let url = '/api/logs?limit=100';
+                if (level) {
+                    url += `&level=${level}`;
+                }
+
+                const response = await fetch(url);
+                const data = await response.json();
+
+                tbody.innerHTML = '';
+
+                if (!data.logs || data.logs.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-muted">No logs found</td></tr>';
+                    return;
+                }
+
+                data.logs.forEach(log => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'hover:bg-white/5 transition-colors';
+
+                    let levelColor = 'text-gray-400';
+                    if (log.level === 'INFO') levelColor = 'text-blue-400';
+                    if (log.level === 'WARNING') levelColor = 'text-yellow-400';
+                    if (log.level === 'ERROR') levelColor = 'text-red-400';
+
+                    tr.innerHTML = `
+                        <td class="p-4 text-muted font-mono whitespace-nowrap">${log.timestamp}</td>
+                        <td class="p-4 font-bold ${levelColor}">${log.level}</td>
+                        <td class="p-4 text-gray-300 break-all font-mono">${log.message}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+
+            } catch (error) {
+                console.error("Failed to load logs:", error);
+                tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-red-400">Failed to load logs</td></tr>';
             }
         }
 

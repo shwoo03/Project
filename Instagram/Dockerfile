@@ -36,6 +36,7 @@ RUN playwright install-deps chromium
 
 # 애플리케이션 코드 복사
 COPY *.py ./
+COPY routers/ ./routers/
 COPY templates/ ./templates/
 COPY static/ ./static/
 

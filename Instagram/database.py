@@ -232,3 +232,36 @@ def get_change_summary(username, mongo_uri):
         logger.error(f"변동 요약 조회 오류: {e}")
         return None
 
+
+def get_logs(username, mongo_uri, limit=100, level=None):
+    """로그 조회"""
+    if not mongo_uri:
+        return []
+    
+    try:
+        client = get_mongo_client(mongo_uri)
+        if not client:
+            return []
+        
+        db = client.get_database('webhook')
+        col_logs = db['Instagram_Logs']
+        
+        query = {"username": username}
+        if level:
+            query["level"] = level
+            
+        cursor = col_logs.find(query).sort("timestamp", -1).limit(limit)
+        
+        logs = []
+        for doc in cursor:
+            doc["_id"] = str(doc["_id"])
+            if "timestamp" in doc and isinstance(doc["timestamp"], datetime.datetime):
+                doc["timestamp"] = doc["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+            logs.append(doc)
+            
+        return logs
+        
+    except Exception as e:
+        logger.error(f"로그 조회 오류: {e}")
+        return []
+

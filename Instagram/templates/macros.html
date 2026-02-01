@@ -1,0 +1,15 @@
+{% macro render_user_list(users, limit=100) %}
+    {% if not users %}
+        <div class="empty">모두 맞팔 중! ✅</div>
+    {% else %}
+        <ul class="user-list">
+        {% for user in users[:limit] %}
+            <li><a href="https://www.instagram.com/{{ user }}/" target="_blank">{{ user }}</a></li>
+        {% endfor %}
+        
+        {% if users|length > limit %}
+            <li class="more">...외 {{ users|length - limit }}명</li>
+        {% endif %}
+        </ul>
+    {% endif %}
+{% endmacro %}

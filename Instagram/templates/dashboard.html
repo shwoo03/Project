@@ -3,8 +3,17 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#09090b" id="themeColor">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
     <title>Instagram Insight</title>
+
+    <!-- PWA -->
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icon-192.png">
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
@@ -53,34 +62,66 @@
         }
     </script>
     <style>
+        /* Theme Variables */
+        :root {
+            --bg-color: #09090b;
+            --fg-color: #fafafa;
+            --card-bg: rgba(24, 24, 27, 0.4);
+            --card-hover: rgba(39, 39, 42, 0.6);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --muted-color: #a1a1aa;
+            --input-bg: rgba(0, 0, 0, 0.2);
+        }
+
+        html.light {
+            --bg-color: #f8fafc;
+            --fg-color: #0f172a;
+            --card-bg: rgba(255, 255, 255, 0.8);
+            --card-hover: rgba(241, 245, 249, 0.9);
+            --border-color: rgba(0, 0, 0, 0.1);
+            --muted-color: #64748b;
+            --input-bg: rgba(0, 0, 0, 0.05);
+        }
+
         body {
-            background-color: #09090b;
-            color: #fafafa;
+            background-color: var(--bg-color);
+            color: var(--fg-color);
             font-family: 'Inter', sans-serif;
+            transition: background-color 0.3s, color 0.3s;
         }
 
         .glass {
-            background: rgba(24, 24, 27, 0.4);
+            background: var(--card-bg);
             backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            border: 1px solid var(--border-color);
+            transition: background 0.3s, border-color 0.3s;
+        }
+
+        html.light .glass {
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
         }
 
         .glass-card {
-            background: rgba(24, 24, 27, 0.4);
+            background: var(--card-bg);
             backdrop-filter: blur(8px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            border: 1px solid var(--border-color);
             transition: all 0.3s ease;
         }
 
         .glass-card:hover {
-            background: rgba(39, 39, 42, 0.6);
-            border-color: rgba(255, 255, 255, 0.15);
+            background: var(--card-hover);
+            border-color: var(--border-color);
             transform: translateY(-2px);
-            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.3);
+        }
+
+        html.light .glass-card {
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
         }
 
         .text-gradient {
             background: linear-gradient(to right, #3b82f6, #a855f7, #ec4899);
+            background-clip: text;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-size: 200% auto;
@@ -136,6 +177,68 @@
             padding: 2rem;
             color: #71717a;
         }
+
+        html.light .user-list li a {
+            color: #475569;
+        }
+
+        html.light .user-list li a:hover {
+            background: rgba(0, 0, 0, 0.05);
+            color: #0f172a;
+        }
+
+        html.light .empty,
+        html.light .user-list .more {
+            color: var(--muted-color);
+        }
+
+        @media (max-width: 768px) {
+            .user-list li a {
+                padding: 1rem;
+                min-height: 48px;
+            }
+
+            button,
+            .btn {
+                min-height: 44px;
+            }
+        }
+
+        .theme-toggle {
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            background: transparent;
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: all 0.2s;
+            color: var(--muted-color);
+            min-width: 40px;
+            min-height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .theme-toggle:hover {
+            background: var(--card-bg);
+            color: var(--fg-color);
+        }
+
+        .sort-select {
+            background: var(--input-bg);
+            border: 1px solid var(--border-color);
+            color: var(--fg-color);
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.5rem;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .sort-select:focus {
+            outline: none;
+            border-color: #3b82f6;
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -147,13 +250,37 @@
         <div class="container mx-auto px-4 h-16 flex items-center justify-between max-w-6xl">
             <div class="flex items-center gap-2">
                 <span
-                    class="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">Instagram
+                    class="text-lg md:text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">Instagram
                     Insight</span>
             </div>
-            <div class="text-sm font-medium text-muted">
-                마지막 업데이트: <span class="text-foreground">{{ last_updated }}</span>
-                <span id="wsStatus" class="ml-4 px-2 py-1 rounded text-xs bg-red-500/20 text-red-400">WS
-                    Disconnected</span>
+            <div class="flex items-center gap-2 md:gap-4">
+                <div class="hidden sm:flex text-xs md:text-sm font-medium text-muted items-center gap-2">
+                    <span class="hidden md:inline">마지막 업데이트:</span>
+                    <span class="text-foreground">{{ last_updated }}</span>
+                    <span id="wsStatus" class="px-2 py-1 rounded text-xs bg-red-500/20 text-red-400">WS
+                        Disconnected</span>
+                </div>
+                <!-- Theme Toggle Button -->
+                <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" aria-label="테마 변경">
+                    <svg id="sunIcon" class="hidden" xmlns="http://www.w3.org/2000/svg" width="20" height="20"
+                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="5"></circle>
+                        <line x1="12" y1="1" x2="12" y2="3"></line>
+                        <line x1="12" y1="21" x2="12" y2="23"></line>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                        <line x1="1" y1="12" x2="3" y2="12"></line>
+                        <line x1="21" y1="12" x2="23" y2="12"></line>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    </svg>
+                    <svg id="moonIcon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                </button>
             </div>
         </div>
     </header>
@@ -172,12 +299,12 @@
                     </span>
                     Tracker Active
                 </div>
-                <h1 class="text-5xl md:text-7xl font-extrabold tracking-tight leading-tight">
+                <h1 class="text-3xl sm:text-5xl md:text-7xl font-extrabold tracking-tight leading-tight">
                     Analyze Your<br>
                     <span class="text-gradient">Social Growth</span>
                 </h1>
-                <p class="text-lg text-muted max-w-xl leading-relaxed">
-                    인스타그램 데이터를 심층 분석하고 팔로워 변동을 실시간으로 추적하세요.<br>
+                <p class="text-sm sm:text-base md:text-lg text-muted max-w-xl leading-relaxed">
+                    인스타그램 데이터를 심층 분석하고 팔로워 변동을 실시간으로 추적하세요.<br class="hidden sm:block">
                     맞팔 관리와 성장을 위한 인사이트를 제공합니다.
                 </p>
                 <div class="flex gap-4 pt-2">
@@ -301,48 +428,64 @@
         <!-- Lists Section -->
         <div class="grid md:grid-cols-2 gap-8">
             <!-- Not Following Back -->
-            <div class="glass-card rounded-2xl p-8 h-[600px] flex flex-col">
-                <div class="flex items-center justify-between mb-6">
+            <div class="glass-card rounded-2xl p-6 md:p-8 h-[500px] md:h-[600px] flex flex-col">
+                <div class="flex items-center justify-between mb-4">
                     <div>
-                        <h3 class="text-lg font-bold text-white">나를 맞팔하지 않는 사람</h3>
-                        <p class="text-sm text-muted">{{ not_following_back_count }} Users</p>
+                        <h3 class="text-base md:text-lg font-bold">나를 맞팔하지 않는 사람</h3>
+                        <p class="text-xs md:text-sm text-muted">{{ not_following_back_count }} Users</p>
                     </div>
-                    <div class="p-2 bg-red-500/10 rounded-lg text-red-400">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                            <circle cx="8.5" cy="7" r="4"></circle>
-                            <line x1="23" y1="11" x2="17" y2="11"></line>
-                        </svg>
+                    <div class="flex items-center gap-2">
+                        <select class="sort-select" onchange="sortList('notFollowingList', this.value)">
+                            <option value="asc">가나다순</option>
+                            <option value="desc">역순</option>
+                        </select>
+                        <div class="p-2 bg-red-500/10 rounded-lg text-red-400">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                                <circle cx="8.5" cy="7" r="4"></circle>
+                                <line x1="23" y1="11" x2="17" y2="11"></line>
+                            </svg>
+                        </div>
                     </div>
                 </div>
                 <input type="text"
-                    class="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500/50 mb-4 transition-colors placeholder:text-muted/50"
-                    placeholder="Search users..." onkeyup="filterList(this, 'notFollowingList')">
+                    class="w-full bg-black/20 dark:bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500/50 mb-4 transition-colors placeholder:text-muted/50"
+                    placeholder="Search users..." onkeyup="filterList(this, 'notFollowingList')"
+                    style="background: var(--input-bg);">
                 <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar" id="notFollowingList">
                     {{ not_following_back_html | safe }}
                 </div>
             </div>
 
             <!-- I'm Not Following -->
-            <div class="glass-card rounded-2xl p-8 h-[600px] flex flex-col">
-                <div class="flex items-center justify-between mb-6">
+            <div class="glass-card rounded-2xl p-6 md:p-8 h-[500px] md:h-[600px] flex flex-col">
+                <div class="flex items-center justify-between mb-4">
                     <div>
-                        <h3 class="text-lg font-bold text-white">내가 맞팔하지 않는 사람</h3>
-                        <p class="text-sm text-muted">{{ im_not_following_count }} Users</p>
+                        <h3 class="text-base md:text-lg font-bold">내가 맞팔하지 않는 사람</h3>
+                        <p class="text-xs md:text-sm text-muted">{{ im_not_following_count }} Users</p>
                     </div>
-                    <div class="p-2 bg-green-500/10 rounded-lg text-green-400">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                            <circle cx="8.5" cy="7" r="4"></circle>
-                            <polyline points="17 11 19 13 23 9"></polyline>
-                        </svg>
+                    <div class="flex items-center gap-2">
+                        <select class="sort-select" onchange="sortList('imNotFollowingList', this.value)">
+                            <option value="asc">가나다순</option>
+                            <option value="desc">역순</option>
+                        </select>
+                        <div class="p-2 bg-green-500/10 rounded-lg text-green-400">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                                <circle cx="8.5" cy="7" r="4"></circle>
+                                <polyline points="17 11 19 13 23 9"></polyline>
+                            </svg>
+                        </div>
                     </div>
                 </div>
                 <input type="text"
-                    class="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-green-500/50 mb-4 transition-colors placeholder:text-muted/50"
-                    placeholder="Search users..." onkeyup="filterList(this, 'imNotFollowingList')">
+                    class="w-full border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-green-500/50 mb-4 transition-colors placeholder:text-muted/50"
+                    placeholder="Search users..." onkeyup="filterList(this, 'imNotFollowingList')"
+                    style="background: var(--input-bg);">
                 <div class="flex-1 overflow-y-auto pr-2 custom-scrollbar" id="imNotFollowingList">
                     {{ im_not_following_html | safe }}
                 </div>
@@ -369,8 +512,77 @@
     <div id="toast-container" class="fixed top-4 right-4 z-[100] flex flex-col gap-2"></div>
 
     <script>
+        // Theme Management
+        function initTheme() {
+            const savedTheme = localStorage.getItem('theme');
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const theme = savedTheme || (prefersDark ? 'dark' : 'dark');
+
+            document.documentElement.classList.toggle('light', theme === 'light');
+            document.documentElement.classList.toggle('dark', theme === 'dark');
+            updateThemeIcons(theme);
+            updateThemeColor(theme);
+        }
+
+        function toggleTheme() {
+            const isLight = document.documentElement.classList.contains('light');
+            const newTheme = isLight ? 'dark' : 'light';
+
+            document.documentElement.classList.toggle('light', newTheme === 'light');
+            document.documentElement.classList.toggle('dark', newTheme === 'dark');
+            localStorage.setItem('theme', newTheme);
+            updateThemeIcons(newTheme);
+            updateThemeColor(newTheme);
+            showToast(`${newTheme === 'light' ? '☀️ 라이트' : '🌙 다크'} 테마로 변경됨`);
+        }
+
+        function updateThemeIcons(theme) {
+            const sunIcon = document.getElementById('sunIcon');
+            const moonIcon = document.getElementById('moonIcon');
+            if (sunIcon && moonIcon) {
+                sunIcon.classList.toggle('hidden', theme === 'dark');
+                moonIcon.classList.toggle('hidden', theme === 'light');
+            }
+        }
+
+        function updateThemeColor(theme) {
+            const themeColorMeta = document.getElementById('themeColor');
+            if (themeColorMeta) {
+                themeColorMeta.setAttribute('content', theme === 'light' ? '#f8fafc' : '#09090b');
+            }
+        }
+
+        // List Sorting
+        function sortList(listId, order) {
+            const container = document.getElementById(listId);
+            const ul = container.querySelector('ul');
+            if (!ul) return;
+
+            const items = Array.from(ul.querySelectorAll('li:not(.more)'));
+            const moreItem = ul.querySelector('li.more');
+
+            items.sort((a, b) => {
+                const textA = a.textContent.trim().toLowerCase();
+                const textB = b.textContent.trim().toLowerCase();
+                return order === 'asc' ? textA.localeCompare(textB) : textB.localeCompare(textA);
+            });
+
+            items.forEach(item => ul.appendChild(item));
+            if (moreItem) ul.appendChild(moreItem);
+        }
+
+        // PWA Service Worker Registration
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/static/sw.js')
+                    .then(reg => console.log('Service Worker registered'))
+                    .catch(err => console.log('Service Worker registration failed:', err));
+            });
+        }
+
         // Improved User List Styling
         const styleUserLists = () => {
+            const isLight = document.documentElement.classList.contains('light');
             document.querySelectorAll('.user-list').forEach(ul => {
                 ul.className = 'space-y-1';
                 Array.from(ul.children).forEach(li => {
@@ -381,14 +593,17 @@
                     li.className = '';
                     const a = li.querySelector('a');
                     if (a) {
-                        a.className = 'block px-4 py-3 rounded-lg hover:bg-white/5 text-sm transition-colors text-gray-300 hover:text-white flex items-center gap-2';
-                        a.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-50"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg> ${a.innerText}`;
+                        const textClass = isLight ? 'text-gray-600 hover:text-gray-900 hover:bg-black/5' : 'text-gray-300 hover:text-white hover:bg-white/5';
+                        a.className = `block px-4 py-3 rounded-lg text-sm transition-colors flex items-center gap-2 ${textClass}`;
+                        const username = a.textContent.replace(/^[\s\S]*?(?=[a-zA-Z0-9_])/, '').trim();
+                        a.innerHTML = `<div class="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white text-xs font-bold">${username.charAt(0).toUpperCase()}</div> ${username}`;
                     }
                 });
             });
         };
 
         document.addEventListener('DOMContentLoaded', () => {
+            initTheme();
             styleUserLists();
             connectWebSocket();
             loadSchedule();

@@ -37,6 +37,7 @@ RUN playwright install-deps chromium
 # 애플리케이션 코드 복사
 COPY *.py ./
 COPY templates/ ./templates/
+COPY static/ ./static/
 
 # 포트 노출
 EXPOSE 10000

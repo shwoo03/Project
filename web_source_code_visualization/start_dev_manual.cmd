@@ -1,17 +1,21 @@
-# Web Source Code Visualization - Development Server Starter
-# 백엔드/프론트엔드를 백그라운드로 실행하고 로그만 모니터링
+@echo off
+setlocal
+set "ROOT=%~dp0"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$Root = '%ROOT%'; $script = Get-Content -Raw '%~f0'; $marker = '#PS_' + 'START'; $idx = $script.IndexOf($marker); if ($idx -lt 0) { throw 'Marker not found in start_dev_manual.cmd' }; $script = $script.Substring($idx + $marker.Length); $sb = [ScriptBlock]::Create($script); $null = $sb.Invoke($Root)"
+exit /b
+
+#PS_START
+param([string]$Root)
 
 Write-Host "========================================================" -ForegroundColor Cyan
 Write-Host "  Web Source Code Visualization - Dev Server" -ForegroundColor White
 Write-Host "========================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Step 1: Stop existing servers
 Write-Host "[CLEAN] Stopping existing servers..." -ForegroundColor Yellow
 
 $stopped = $false
 
-# Kill backend (port 8000)
 $backend = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique
 if ($backend) {
     $backend | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
@@ -19,7 +23,6 @@ if ($backend) {
     $stopped = $true
 }
 
-# Kill frontend (port 3000)
 $frontend = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique
 if ($frontend) {
     $frontend | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
@@ -27,9 +30,8 @@ if ($frontend) {
     $stopped = $true
 }
 
-# Kill any remaining node/python processes related to the project
-Get-Process | Where-Object { 
-    $_.ProcessName -like "*node*" -or 
+Get-Process | Where-Object {
+    $_.ProcessName -like "*node*" -or
     ($_.ProcessName -like "*python*" -and $_.Path -like "*web_source_code_visualization*")
 } | Stop-Process -Force -ErrorAction SilentlyContinue
 
@@ -42,18 +44,16 @@ if ($stopped) {
 
 Write-Host ""
 
-# Step 2: Start frontend in background first
 Write-Host "[Frontend] Starting on port 3000..." -ForegroundColor Cyan
 
-$frontendPath = Join-Path $PSScriptRoot "frontend"
-$frontendProcess = Start-Process powershell -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-Command", "cd '$frontendPath'; npm run dev" -WindowStyle Hidden -PassThru
+$frontendPath = Join-Path $Root "frontend"
+$frontendProcess = Start-Process powershell -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-Command", "npm run dev" -WindowStyle Hidden -PassThru -WorkingDirectory $frontendPath
 
 Write-Host "  Frontend running (PID: $($frontendProcess.Id))" -ForegroundColor Green
 Write-Host ""
 
 Start-Sleep -Seconds 2
 
-# Step 3: Start backend in current terminal (foreground with full logs)
 Write-Host "========================================================" -ForegroundColor Green
 Write-Host "[Backend] Starting on port 8000..." -ForegroundColor Cyan
 Write-Host ""
@@ -65,7 +65,7 @@ Write-Host "   Press Ctrl+C twice to stop (frontend will auto-close)" -Foregroun
 Write-Host "========================================================" -ForegroundColor Green
 Write-Host ""
 
-$backendPath = Join-Path $PSScriptRoot "backend"
+$backendPath = Join-Path $Root "backend"
 Set-Location $backendPath
 
 function Test-VenvPython([string]$PythonPath) {
@@ -80,7 +80,7 @@ function Test-VenvPython([string]$PythonPath) {
 }
 
 $venvDir = Join-Path $backendPath "venv"
-$venvPython = Join-Path $venvDir "Scripts\python.exe"
+$venvPython = Join-Path $venvDir "Scripts\\python.exe"
 $requirements = Join-Path $backendPath "requirements.txt"
 
 if (-not (Test-VenvPython $venvPython)) {
@@ -110,4 +110,3 @@ finally {
     Stop-Process -Id $frontendProcess.Id -Force -ErrorAction SilentlyContinue
     Write-Host "[OK] All servers stopped" -ForegroundColor Green
 }
-

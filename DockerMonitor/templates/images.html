@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WSunghun / Docker - Images</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .image-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+        }
+
+        .image-table th {
+            text-align: left;
+            padding: 12px 15px;
+            border-bottom: 2px solid var(--border);
+            color: var(--text-muted);
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.5px;
+        }
+
+        .image-table td {
+            padding: 15px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
+        }
+
+        .image-table tr:hover {
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        .image-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+
+        .image-tag {
+            background: rgba(59, 130, 246, 0.15);
+            color: #60a5fa;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        .image-tag.none {
+            background: rgba(107, 114, 128, 0.15);
+            color: #9ca3af;
+            border-color: rgba(107, 114, 128, 0.3);
+        }
+
+        .image-size {
+            color: var(--text-main);
+            font-weight: 500;
+        }
+
+        .image-id {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+        }
+
+        .image-date {
+            color: var(--text-muted);
+        }
+
+        .btn-delete {
+            background: transparent;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #f87171;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+
+        .btn-delete:hover {
+            background: rgba(239, 68, 68, 0.1);
+            border-color: #f87171;
+        }
+
+        .btn-delete:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .loading-spinner {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 60px;
+        }
+
+        .loading-spinner i {
+            font-size: 2rem;
+            color: var(--accent);
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .table-container {
+            overflow-x: auto;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+        }
+
+        .confirm-dialog {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .confirm-content {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 400px;
+            text-align: center;
+        }
+
+        .confirm-content h3 {
+            margin-bottom: 15px;
+        }
+
+        .confirm-content p {
+            color: var(--text-muted);
+            margin-bottom: 25px;
+        }
+
+        .confirm-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .btn-confirm {
+            padding: 10px 25px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+
+        .btn-confirm.cancel {
+            background: var(--border);
+            color: var(--text-main);
+        }
+
+        .btn-confirm.delete {
+            background: #ef4444;
+            color: white;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- Confirm Dialog -->
+    <div class="confirm-dialog" id="confirm-dialog" style="display: none;">
+        <div class="confirm-content">
+            <h3>Delete Image</h3>
+            <p id="confirm-message">Are you sure you want to delete this image?</p>
+            <div class="confirm-buttons">
+                <button class="btn-confirm cancel" onclick="hideConfirm()">Cancel</button>
+                <button class="btn-confirm delete" id="confirm-delete-btn">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="app-container">
+        <header>
+            <div class="header-left">
+                <div class="logo">WSunghun <span>/ Docker</span></div>
+                <nav class="nav-links">
+                    <a href="/">Monitoring</a>
+                    <a href="/images" class="active">Images</a>
+                    <a href="/networks">Networks</a>
+                    <a href="/logs">Logs</a>
+                </nav>
+            </div>
+            <div class="header-right">
+                <div class="connection-status connected" id="connection-status">
+                    <span class="status-indicator"></span>
+                    <span class="status-text">Connected</span>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <h1 class="dashboard-title">Images.</h1>
+            <p class="dashboard-desc">Manage Docker images on your system.</p>
+
+            <div class="stats-row">
+                <div class="stat-item">
+                    <span class="stat-label">Total Images</span>
+                    <span class="stat-value" id="total-count">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Total Size</span>
+                    <span class="stat-value" id="total-size" style="font-size: 1.5rem">0 GB</span>
+                </div>
+            </div>
+
+            <div class="section-header">
+                <h2>Image List</h2>
+                <button class="btn-mini" onclick="loadImages()">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+
+            <div class="table-container">
+                <table class="image-table">
+                    <thead>
+                        <tr>
+                            <th>Repository / Tag</th>
+                            <th>Image ID</th>
+                            <th>Size</th>
+                            <th>Created</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="image-list">
+                        <tr>
+                            <td colspan="5">
+                                <div class="loading-spinner">
+                                    <i class="fas fa-circle-notch"></i>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const imageList = document.getElementById('image-list');
+        const totalEl = document.getElementById('total-count');
+        const totalSizeEl = document.getElementById('total-size');
+        let pendingDeleteId = null;
+
+        async function loadImages() {
+            imageList.innerHTML = `
+                <tr>
+                    <td colspan="5">
+                        <div class="loading-spinner">
+                            <i class="fas fa-circle-notch"></i>
+                        </div>
+                    </td>
+                </tr>
+            `;
+
+            try {
+                const response = await fetch('/api/images');
+                const images = await response.json();
+
+                // Update counts
+                totalEl.textContent = images.length;
+
+                // Calculate total size
+                const totalBytes = images.reduce((sum, img) => sum + img.size, 0);
+                const totalGB = (totalBytes / (1024 * 1024 * 1024)).toFixed(2);
+                totalSizeEl.textContent = `${totalGB} GB`;
+
+                renderImages(images);
+            } catch (error) {
+                console.error('Error loading images:', error);
+                imageList.innerHTML = `
+                    <tr>
+                        <td colspan="5">
+                            <div class="empty-state">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                <h3>Failed to load images</h3>
+                                <p>${error.message}</p>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        function renderImages(images) {
+            if (images.length === 0) {
+                imageList.innerHTML = `
+                    <tr>
+                        <td colspan="5">
+                            <div class="empty-state">
+                                <i class="fab fa-docker"></i>
+                                <h3>No Images Found</h3>
+                                <p>Pull an image to see it here.</p>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            imageList.innerHTML = images.map(image => `
+                <tr data-id="${image.id}">
+                    <td>
+                        <div class="image-tags">
+                            ${image.tags.map(tag => `
+                                <span class="image-tag ${tag === '<none>' ? 'none' : ''}">${tag}</span>
+                            `).join('')}
+                        </div>
+                    </td>
+                    <td class="image-id">${image.id}</td>
+                    <td class="image-size">${image.size_human}</td>
+                    <td class="image-date">${formatDate(image.created)}</td>
+                    <td>
+                        <button class="btn-delete" onclick="confirmDelete('${image.id}', '${image.tags[0]}')">
+                            <i class="fas fa-trash"></i> Delete
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function formatDate(timestamp) {
+            const date = new Date(timestamp * 1000);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        }
+
+        function confirmDelete(imageId, tag) {
+            pendingDeleteId = imageId;
+            document.getElementById('confirm-message').textContent =
+                `Are you sure you want to delete "${tag}"?`;
+            document.getElementById('confirm-dialog').style.display = 'flex';
+
+            document.getElementById('confirm-delete-btn').onclick = () => deleteImage(imageId);
+        }
+
+        function hideConfirm() {
+            document.getElementById('confirm-dialog').style.display = 'none';
+            pendingDeleteId = null;
+        }
+
+        async function deleteImage(imageId) {
+            hideConfirm();
+
+            try {
+                const response = await fetch(`/api/images/${imageId}?force=true`, {
+                    method: 'DELETE'
+                });
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    showToast('Image deleted successfully', 'success');
+                    loadImages();
+                } else {
+                    showToast(`Failed to delete: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                showToast(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        // Toast function
+        function showToast(message, type = 'info', duration = 5000) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+
+            const icons = {
+                error: 'fa-circle-exclamation',
+                success: 'fa-circle-check',
+                warning: 'fa-triangle-exclamation',
+                info: 'fa-circle-info'
+            };
+
+            toast.innerHTML = `
+                <i class="fas ${icons[type] || icons.info}"></i>
+                <span>${message}</span>
+            `;
+
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.style.animation = 'slideIn 0.3s ease reverse';
+                setTimeout(() => toast.remove(), 300);
+            }, duration);
+        }
+
+        // Init
+        document.addEventListener('DOMContentLoaded', loadImages);
+    </script>
+</body>
+
+</html>

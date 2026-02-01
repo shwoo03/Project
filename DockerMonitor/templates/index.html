@@ -10,15 +10,26 @@
 </head>
 
 <body>
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
     <div class="app-container">
         <header>
-            <div class="logo">WSunghun <span>/ Docker</span></div>
-            <nav class="nav-links">
-                <a href="#" class="active">Monitoring</a>
-                <a href="#">Images</a>
-                <a href="#">Networks</a>
-                <a href="#">Logs</a>
-            </nav>
+            <div class="header-left">
+                <div class="logo">WSunghun <span>/ Docker</span></div>
+                <nav class="nav-links">
+                    <a href="/" class="active">Monitoring</a>
+                    <a href="/images">Images</a>
+                    <a href="/networks">Networks</a>
+                    <a href="/logs">Logs</a>
+                </nav>
+            </div>
+            <div class="header-right">
+                <div class="connection-status connecting" id="connection-status">
+                    <span class="status-indicator"></span>
+                    <span class="status-text">Connecting...</span>
+                </div>
+            </div>
         </header>
 
         <main>

@@ -1,0 +1,45 @@
+<div class="grid grid-cols-2 gap-4 md:w-[400px]">
+    <div class="glass-card rounded-2xl p-6 flex flex-col justify-between aspect-square group">
+        <div class="p-3 bg-blue-500/10 w-fit rounded-xl text-blue-400 group-hover:scale-110 transition-transform">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                <circle cx="8.5" cy="7" r="4"></circle>
+                <polyline points="17 11 19 13 23 9"></polyline>
+            </svg>
+        </div>
+        <div>
+            <div class="text-4xl font-bold tracking-tight mb-1">{{ followers_count }}</div>
+            <div class="text-sm text-muted font-medium">Followers</div>
+        </div>
+    </div>
+    <div class="glass-card rounded-2xl p-6 flex flex-col justify-between aspect-square group">
+        <div class="p-3 bg-purple-500/10 w-fit rounded-xl text-purple-400 group-hover:scale-110 transition-transform">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                <circle cx="8.5" cy="7" r="4"></circle>
+                <line x1="18" y1="8" x2="23" y2="13"></line>
+                <line x1="23" y1="8" x2="18" y2="13"></line>
+            </svg>
+        </div>
+        <div>
+            <div class="text-4xl font-bold tracking-tight mb-1">{{ following_count }}</div>
+            <div class="text-sm text-muted font-medium">Following</div>
+        </div>
+    </div>
+    <div class="glass-card rounded-2xl p-6 col-span-2 flex items-center justify-between group">
+        <div>
+            <div class="text-sm text-muted font-medium mb-1">맞팔하지 않음</div>
+            <div class="text-3xl font-bold">{{ not_following_back_count }}</div>
+        </div>
+        <div class="p-3 bg-red-500/10 rounded-xl text-red-400 group-hover:rotate-12 transition-transform">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="15" y1="9" x2="9" y2="15"></line>
+                <line x1="9" y1="9" x2="15" y2="15"></line>
+            </svg>
+        </div>
+    </div>
+</div>

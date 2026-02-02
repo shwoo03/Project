@@ -1,8 +1,8 @@
 import logging
-from config import get_env_var
+from config import get_settings
 from auth_async import login_async
 from api_async import get_followers_and_following_async
-from database import save_and_get_results_to_db, save_history
+from repositories.user_repository import UserRepository
 from notification import send_discord_webhook, send_change_notification
 from state_manager import state
 
@@ -18,8 +18,8 @@ async def run_tracker_task():
     
     try:
         await state.broadcast_progress(5, "환경 변수 로드 중...")
-        env_vars = get_env_var()
-        if not env_vars:
+        settings = get_settings()
+        if not settings.user_id or not settings.user_password:
             await state.broadcast_log("❌ 환경 변수 로드 실패")
             return
         
@@ -28,7 +28,7 @@ async def run_tracker_task():
         
         await state.broadcast_progress(20, "인스타그램 로그인 중...")
         await state.broadcast_log("🔐 Playwright 로그인 시작...")
-        cookies_dict = await login_async(env_vars["USERNAME"], env_vars["PASSWORD"])
+        cookies_dict = await login_async(settings.user_id, settings.user_password)
         
         if not cookies_dict:
             await state.broadcast_log("❌ 로그인 실패")
@@ -43,8 +43,10 @@ async def run_tracker_task():
         await state.broadcast_log(f"📊 팔로워: {len(results['followers'])}명, 팔로잉: {len(results['following'])}명")
         await state.broadcast_progress(70, "데이터베이스 저장 중...")
         
-        diff_result = save_and_get_results_to_db(results, env_vars["USERNAME"], env_vars["MONGO_URI"])
-        save_history(results, env_vars["USERNAME"], env_vars["MONGO_URI"])
+        repo = UserRepository(settings.mongo_uri)
+        diff_result = repo.save_results(settings.user_id, results)
+        repo.save_history(settings.user_id, results)
+        
         await state.broadcast_log("💾 DB 저장 완료! (히스토리 포함)")
         
         # 변동 사항 알림
@@ -56,12 +58,12 @@ async def run_tracker_task():
         
         await state.broadcast_progress(85, "Discord 알림 전송 중...")
         
-        if env_vars.get("DISCORD_WEBHOOK") and env_vars["DISCORD_WEBHOOK"].lower() not in ["none", ""]:
+        if settings.discord_webhook and settings.discord_webhook.lower() not in ["none", ""]:
             # 전체 리포트
-            send_discord_webhook(results, env_vars["DISCORD_WEBHOOK"])
+            send_discord_webhook(results, settings.discord_webhook)
             # 변동 알림 (변동이 있을 때만)
             if new_followers or lost_followers:
-                send_change_notification(new_followers, lost_followers, env_vars["DISCORD_WEBHOOK"])
+                send_change_notification(new_followers, lost_followers, settings.discord_webhook)
             await state.broadcast_log("📨 Discord 전송 완료!")
         else:
             await state.broadcast_log("ℹ️ Discord Webhook 미설정")

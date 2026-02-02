@@ -1,16 +1,41 @@
 """
-환경 변수 설정 로드
+환경 변수 설정 로드 (Pydantic Settings 기반)
 """
-import os
 import logging
-from dotenv import load_dotenv
+from functools import lru_cache
+from typing import Optional
+
+from pydantic_settings import BaseSettings
 
 logger = logging.getLogger(__name__)
 
 
-def get_env_var():
+class Settings(BaseSettings):
+    """애플리케이션 설정 (환경 변수에서 로드)"""
+    user_id: str
+    user_password: str
+    mongo_uri: str
+    discord_webhook: Optional[str] = None
+
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+        extra = "ignore"  # 정의되지 않은 환경 변수 무시
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """설정 싱글톤 반환 (캐시됨)"""
+    try:
+        return Settings()
+    except Exception as e:
+        logger.error(f"설정 로드 실패: {e}")
+        raise
+
+
+def get_env_var() -> Optional[dict]:
     """
-    .env 파일에서 ID, PW, Webhook URL, MONGO_URI 불러오기 
+    하위 호환성을 위한 함수 (기존 코드와 호환)
     
     return: dict
         USERNAME: str
@@ -19,37 +44,14 @@ def get_env_var():
         MONGO_URI: str
         형태로 반환 
     """
-    env_vars = {}
     try:
-        with open(".env", "r", encoding="utf-8-sig") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if "=" in line:
-                    key, value = line.split("=", 1)
-                    env_vars[key.strip()] = value.strip().strip('"').strip("'")
-    except FileNotFoundError:
-        logger.info(".env 파일이 없습니다. 시스템 환경변수를 사용합니다.")
-        load_dotenv()
-        env_vars = dict(os.environ)
+        settings = get_settings()
+        return {
+            "USERNAME": settings.user_id,
+            "PASSWORD": settings.user_password,
+            "DISCORD_WEBHOOK": settings.discord_webhook,
+            "MONGO_URI": settings.mongo_uri
+        }
     except Exception as e:
-        logger.warning(f".env 파일 읽기 실패: {e}")
-        load_dotenv()
-        env_vars = dict(os.environ)
-
-    user_id = env_vars.get("USER_ID")
-    user_password = env_vars.get("USER_PASSWORD")
-    webhook = env_vars.get("DISCORD_WEBHOOK")
-    mongo_uri = env_vars.get("MONGO_URI")
-    
-    if not user_id or not user_password:
-        logger.error(".env 파일에서 USER_ID 또는 USER_PASSWORD를 찾을 수 없습니다.")
-        return None 
-
-    return {
-        "USERNAME": user_id,
-        "PASSWORD": user_password,
-        "DISCORD_WEBHOOK": webhook,
-        "MONGO_URI": mongo_uri
-    }
+        logger.error(f"환경 변수 로드 실패: {e}")
+        return None

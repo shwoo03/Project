@@ -1,0 +1,221 @@
+<script>
+    tailwind.config = {
+        darkMode: 'class',
+        theme: {
+            extend: {
+                fontFamily: {
+                    sans: ['Inter', 'sans-serif'],
+                },
+                colors: {
+                    background: '#09090b',
+                    foreground: '#fafafa',
+                    card: 'rgba(24, 24, 27, 0.6)',
+                    'card-hover': 'rgba(39, 39, 42, 0.8)',
+                    border: 'rgba(255, 255, 255, 0.1)',
+                    primary: '#3b82f6',
+                    muted: '#a1a1aa',
+                },
+                animation: {
+                    'gradient-x': 'gradient-x 15s ease infinite',
+                    'slide-up': 'slide-up 0.6s ease-out forwards',
+                    'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                },
+                keyframes: {
+                    'gradient-x': {
+                        '0%, 100%': {
+                            'background-size': '200% 200%',
+                            'background-position': 'left center'
+                        },
+                        '50%': {
+                            'background-size': '200% 200%',
+                            'background-position': 'right center'
+                        },
+                    },
+                    'slide-up': {
+                        '0%': { transform: 'translateY(20px)', opacity: '0' },
+                        '100%': { transform: 'translateY(0)', opacity: '1' },
+                    }
+                }
+            }
+        }
+    }
+</script>
+<style>
+    /* Theme Variables */
+    :root {
+        --bg-color: #09090b;
+        --fg-color: #fafafa;
+        --card-bg: rgba(24, 24, 27, 0.4);
+        --card-hover: rgba(39, 39, 42, 0.6);
+        --border-color: rgba(255, 255, 255, 0.08);
+        --muted-color: #a1a1aa;
+        --input-bg: rgba(0, 0, 0, 0.2);
+    }
+
+    html.light {
+        --bg-color: #f8fafc;
+        --fg-color: #0f172a;
+        --card-bg: rgba(255, 255, 255, 0.8);
+        --card-hover: rgba(241, 245, 249, 0.9);
+        --border-color: rgba(0, 0, 0, 0.1);
+        --muted-color: #64748b;
+        --input-bg: rgba(0, 0, 0, 0.05);
+    }
+
+    body {
+        background-color: var(--bg-color);
+        color: var(--fg-color);
+        font-family: 'Inter', sans-serif;
+        transition: background-color 0.3s, color 0.3s;
+    }
+
+    .glass {
+        background: var(--card-bg);
+        backdrop-filter: blur(12px);
+        border: 1px solid var(--border-color);
+        transition: background 0.3s, border-color 0.3s;
+    }
+
+    html.light .glass {
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    }
+
+    .glass-card {
+        background: var(--card-bg);
+        backdrop-filter: blur(8px);
+        border: 1px solid var(--border-color);
+        transition: all 0.3s ease;
+    }
+
+    .glass-card:hover {
+        background: var(--card-hover);
+        border-color: var(--border-color);
+        transform: translateY(-2px);
+        box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.3);
+    }
+
+    html.light .glass-card {
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    }
+
+    .text-gradient {
+        background: linear-gradient(to right, #3b82f6, #a855f7, #ec4899);
+        background-clip: text;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-size: 200% auto;
+        animation: gradient-x 5s linear infinite;
+    }
+
+    ::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: #09090b;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: #27272a;
+        border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: #3f3f46;
+    }
+
+    .user-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .user-list li a {
+        display: block;
+        padding: 0.75rem 1rem;
+        border-radius: 0.5rem;
+        color: #d1d5db;
+        text-decoration: none;
+        transition: all 0.2s;
+    }
+
+    .user-list li a:hover {
+        background: rgba(255, 255, 255, 0.05);
+        color: #fff;
+    }
+
+    .user-list .more {
+        text-align: center;
+        padding: 0.5rem;
+        color: #71717a;
+        font-size: 0.875rem;
+    }
+
+    .empty {
+        text-align: center;
+        padding: 2rem;
+        color: #71717a;
+    }
+
+    html.light .user-list li a {
+        color: #475569;
+    }
+
+    html.light .user-list li a:hover {
+        background: rgba(0, 0, 0, 0.05);
+        color: #0f172a;
+    }
+
+    html.light .empty,
+    html.light .user-list .more {
+        color: var(--muted-color);
+    }
+
+    @media (max-width: 768px) {
+        .user-list li a {
+            padding: 1rem;
+            min-height: 48px;
+        }
+
+        button,
+        .btn {
+            min-height: 44px;
+        }
+    }
+
+    .theme-toggle {
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        background: transparent;
+        border: 1px solid var(--border-color);
+        cursor: pointer;
+        transition: all 0.2s;
+        color: var(--muted-color);
+        min-width: 40px;
+        min-height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .theme-toggle:hover {
+        background: var(--card-bg);
+        color: var(--fg-color);
+    }
+
+    .sort-select {
+        background: var(--input-bg);
+        border: 1px solid var(--border-color);
+        color: var(--fg-color);
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.5rem;
+        font-size: 0.75rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .sort-select:focus {
+        outline: none;
+        border-color: #3b82f6;
+    }
+</style>

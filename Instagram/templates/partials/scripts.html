@@ -1,0 +1,527 @@
+<script>
+    // Theme Management
+    function initTheme() {
+        const savedTheme = localStorage.getItem('theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const theme = savedTheme || (prefersDark ? 'dark' : 'dark');
+
+        document.documentElement.classList.toggle('light', theme === 'light');
+        document.documentElement.classList.toggle('dark', theme === 'dark');
+        updateThemeIcons(theme);
+        updateThemeColor(theme);
+    }
+
+    function toggleTheme() {
+        const isLight = document.documentElement.classList.contains('light');
+        const newTheme = isLight ? 'dark' : 'light';
+
+        document.documentElement.classList.toggle('light', newTheme === 'light');
+        document.documentElement.classList.toggle('dark', newTheme === 'dark');
+        localStorage.setItem('theme', newTheme);
+        updateThemeIcons(newTheme);
+        updateThemeColor(newTheme);
+        showToast(`${newTheme === 'light' ? '☀️ 라이트' : '🌙 다크'} 테마로 변경됨`);
+    }
+
+    function updateThemeIcons(theme) {
+        const sunIcon = document.getElementById('sunIcon');
+        const moonIcon = document.getElementById('moonIcon');
+        if (sunIcon && moonIcon) {
+            sunIcon.classList.toggle('hidden', theme === 'dark');
+            moonIcon.classList.toggle('hidden', theme === 'light');
+        }
+    }
+
+    function updateThemeColor(theme) {
+        const themeColorMeta = document.getElementById('themeColor');
+        if (themeColorMeta) {
+            themeColorMeta.setAttribute('content', theme === 'light' ? '#f8fafc' : '#09090b');
+        }
+    }
+
+    // List Sorting
+    function sortList(listId, order) {
+        const container = document.getElementById(listId);
+        const ul = container.querySelector('ul');
+        if (!ul) return;
+
+        const items = Array.from(ul.querySelectorAll('li:not(.more)'));
+        const moreItem = ul.querySelector('li.more');
+
+        items.sort((a, b) => {
+            const textA = a.textContent.trim().toLowerCase();
+            const textB = b.textContent.trim().toLowerCase();
+            return order === 'asc' ? textA.localeCompare(textB) : textB.localeCompare(textA);
+        });
+
+        items.forEach(item => ul.appendChild(item));
+        if (moreItem) ul.appendChild(moreItem);
+    }
+
+    // PWA Service Worker Registration
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/static/sw.js')
+                .then(reg => console.log('Service Worker registered'))
+                .catch(err => console.log('Service Worker registration failed:', err));
+        });
+    }
+
+    // Improved User List Styling
+    const styleUserLists = () => {
+        const isLight = document.documentElement.classList.contains('light');
+        document.querySelectorAll('.user-list').forEach(ul => {
+            ul.className = 'space-y-1';
+            Array.from(ul.children).forEach(li => {
+                if (li.classList.contains('more')) {
+                    li.className = 'text-xs text-muted text-center py-2';
+                    return;
+                }
+                li.className = '';
+                const a = li.querySelector('a');
+                if (a) {
+                    const textClass = isLight ? 'text-gray-600 hover:text-gray-900 hover:bg-black/5' : 'text-gray-300 hover:text-white hover:bg-white/5';
+                    a.className = `block px-4 py-3 rounded-lg text-sm transition-colors flex items-center gap-2 ${textClass}`;
+                    const username = a.textContent.replace(/^[\s\S]*?(?=[a-zA-Z0-9_])/, '').trim();
+                    a.innerHTML = `<div class="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white text-xs font-bold">${username.charAt(0).toUpperCase()}</div> ${username}`;
+                }
+            });
+        });
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+        initTheme();
+        styleUserLists();
+        connectWebSocket();
+        loadSchedule();
+        loadTrendChart();
+    });
+
+    let ws = null;
+
+    function showToast(message, type = 'success') {
+        const container = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+
+        const colors = type === 'success'
+            ? 'bg-green-500/10 border-green-500/20 text-green-400'
+            : 'bg-red-500/10 border-red-500/20 text-red-400';
+
+        toast.className = `px-4 py-3 rounded-lg border backdrop-blur-md shadow-lg transform transition-all duration-300 translate-x-full opacity-0 ${colors} border font-medium text-sm flex items-center gap-2`;
+        toast.innerHTML = type === 'success'
+            ? `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> ${message}`
+            : `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg> ${message}`;
+
+        container.appendChild(toast);
+
+        requestAnimationFrame(() => {
+            toast.classList.remove('translate-x-full', 'opacity-0');
+        });
+
+        setTimeout(() => {
+            toast.classList.add('translate-x-full', 'opacity-0');
+            setTimeout(() => toast.remove(), 300);
+        }, 4000);
+    }
+
+    function connectWebSocket() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(protocol + '//' + window.location.host + '/ws');
+        const statusEl = document.getElementById('wsStatus');
+
+        ws.onopen = function () {
+            if (statusEl) {
+                statusEl.innerText = 'WS Connected';
+                statusEl.className = 'ml-4 px-2 py-1 rounded text-xs bg-green-500/20 text-green-400';
+            }
+            console.log('WebSocket Connected');
+        };
+
+        ws.onmessage = function (event) {
+            const data = JSON.parse(event.data);
+
+            if (data.type === 'log') {
+                addLog(data.message);
+            } else if (data.type === 'progress') {
+                updateProgress(data.progress, data.status);
+            }
+        };
+
+        ws.onclose = function () {
+            if (statusEl) {
+                statusEl.innerText = 'WS Disconnected';
+                statusEl.className = 'ml-4 px-2 py-1 rounded text-xs bg-red-500/20 text-red-400';
+            }
+            setTimeout(connectWebSocket, 3000);
+        };
+
+        ws.onerror = function (err) {
+            console.error('WebSocket Error:', err);
+            showToast('WebSocket Connection Error', 'error');
+        };
+    }
+
+    function addLog(message) {
+        const section = document.getElementById('logSection');
+        section.style.display = 'block';
+
+        const container = document.getElementById('logContainer');
+        const line = document.createElement('div');
+        line.className = 'py-0.5 border-b border-white/5 hover:bg-white/5 px-2';
+        line.innerHTML = `<span class="opacity-50 mr-2">[${new Date().toLocaleTimeString()}]</span> ${message}`;
+        container.appendChild(line);
+        container.scrollTop = container.scrollHeight;
+
+        if (message.includes('모든 작업이 완료')) {
+            showToast('✅ Follower Check Completed!');
+        }
+        if (message.includes('오류 발생')) {
+            showToast(message, 'error');
+        }
+    }
+
+    function updateProgress(progress, status) {
+        const progressContainer = document.getElementById('progressContainer');
+        const progressFill = document.getElementById('progressFill');
+        const progressStatus = document.getElementById('progressStatus');
+        const runBtn = document.getElementById('runBtn');
+
+        progressContainer.classList.remove('hidden');
+        progressFill.style.width = progress + '%';
+        progressStatus.textContent = status + ' (' + progress + '%)';
+
+        if (progress === 100) {
+            runBtn.disabled = false;
+            runBtn.innerHTML = '<span class="mr-2">🎉</span> 완료됨!';
+            runBtn.classList.add('bg-green-500', 'hover:bg-green-600', 'text-white');
+            runBtn.classList.remove('bg-white', 'text-black');
+
+            // 완료 배너 표시
+            showCompletionBanner();
+
+            // 진행 상태 완료 스타일로 변경
+            progressFill.classList.remove('from-blue-500', 'to-purple-500');
+            progressFill.classList.add('from-green-400', 'to-emerald-500');
+
+            // Running 텍스트를 완료로 변경
+            const runningText = progressContainer.querySelector('span:last-child');
+            if (runningText) {
+                runningText.textContent = '✅ 완료!';
+                runningText.classList.add('text-green-400');
+            }
+        } else if (progress === 0 && status === '오류') {
+            runBtn.disabled = false;
+            runBtn.innerHTML = '<span class="mr-2">🔄</span> 다시 시도';
+            runBtn.classList.add('bg-red-500', 'hover:bg-red-600', 'text-white');
+            runBtn.classList.remove('bg-white', 'text-black');
+
+            // 진행 상태 오류 스타일로 변경
+            progressFill.classList.remove('from-blue-500', 'to-purple-500');
+            progressFill.classList.add('from-red-400', 'to-red-500');
+
+            const runningText = progressContainer.querySelector('span:last-child');
+            if (runningText) {
+                runningText.textContent = '❌ 오류 발생';
+                runningText.classList.add('text-red-400');
+            }
+        }
+    }
+
+    function showCompletionBanner() {
+        // 기존 배너가 있으면 제거
+        const existingBanner = document.getElementById('completionBanner');
+        if (existingBanner) existingBanner.remove();
+
+        const banner = document.createElement('div');
+        banner.id = 'completionBanner';
+        banner.className = 'fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 animate-slide-up';
+        banner.innerHTML = `
+            <div class="glass-card flex items-center gap-4 px-6 py-4 rounded-2xl border border-green-500/30 bg-green-500/10 shadow-2xl shadow-green-500/20">
+                <div class="flex items-center justify-center w-12 h-12 rounded-full bg-green-500/20 text-green-400">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                </div>
+                <div class="flex flex-col">
+                    <span class="text-base font-bold text-foreground">추적 완료!</span>
+                    <span class="text-sm text-green-300/80">팔로워 데이터가 업데이트되었습니다</span>
+                </div>
+                <button onclick="location.reload()" class="ml-4 px-5 py-2.5 rounded-xl bg-white text-black font-bold text-sm hover:bg-gray-200 transition-colors flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="23 4 23 10 17 10"></polyline>
+                        <polyline points="1 20 1 14 7 14"></polyline>
+                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                    </svg>
+                    새로고침
+                </button>
+                <button onclick="this.closest('#completionBanner').remove()" class="p-2 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+        `;
+        document.body.appendChild(banner);
+    }
+
+    async function runTracker() {
+        const runBtn = document.getElementById('runBtn');
+        runBtn.disabled = true;
+        runBtn.innerHTML = '<span class="mr-2">⌛</span> 시작 중...';
+        runBtn.className = "group relative inline-flex items-center justify-center rounded-full bg-white/50 px-8 py-3 text-sm font-bold text-black cursor-wait";
+
+        // 진행 상태바 초기화
+        const progressContainer = document.getElementById('progressContainer');
+        const progressFill = document.getElementById('progressFill');
+        const progressStatus = document.getElementById('progressStatus');
+        const runningText = progressContainer.querySelector('span:last-child');
+
+        progressContainer.classList.remove('hidden');
+        progressFill.style.width = '2%';
+        progressFill.classList.remove('from-green-400', 'to-emerald-500', 'from-red-400', 'to-red-500');
+        progressFill.classList.add('from-blue-500', 'to-purple-500');
+        progressStatus.textContent = '서버에 요청 중... (2%)';
+
+        if (runningText) {
+            runningText.textContent = 'Running...';
+            runningText.classList.remove('text-green-400', 'text-red-400');
+        }
+
+        try {
+            const response = await fetch('/api/run', { method: 'POST' });
+            const data = await response.json();
+
+            // APIResponse 형식 처리 (data.success 또는 직접 status 확인)
+            if (data.success || data.status === 'started') {
+                showToast(data.message || '추적 작업이 시작되었습니다.');
+            } else {
+                showToast(data.message || data.error || '실행 실패', 'error');
+                updateProgress(0, '오류');
+            }
+        } catch (error) {
+            showToast('서버 연결 실패', 'error');
+            updateProgress(0, '오류');
+        }
+    }
+
+    function openLogsModal() {
+        document.getElementById('logsModal').classList.remove('hidden');
+        loadLogs();
+    }
+
+    function closeLogsModal() {
+        document.getElementById('logsModal').classList.add('hidden');
+    }
+
+    async function loadLogs() {
+        const tbody = document.getElementById('logsTableBody');
+        const level = document.getElementById('logLevelFilter').value;
+
+        try {
+            const url = level ? `/api/logs?level=${level}` : '/api/logs';
+            const response = await fetch(url);
+            const result = await response.json();
+            const data = result.data || result;
+            const logs = data.logs || [];
+
+            tbody.innerHTML = '';
+
+            if (logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-muted">No logs found</td></tr>';
+                return;
+            }
+
+            logs.forEach(log => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-white/5 transition-colors';
+
+                let levelColor = 'text-blue-400';
+                if (log.level === 'WARNING') levelColor = 'text-yellow-400';
+                if (log.level === 'ERROR') levelColor = 'text-red-400';
+
+                tr.innerHTML = `
+                    <td class="p-4 text-muted whitespace-nowrap">${log.asctime}</td>
+                    <td class="p-4 font-bold ${levelColor}">${log.level}</td>
+                    <td class="p-4 text-gray-300 break-all font-mono">${log.message}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+        } catch (error) {
+            console.error("Failed to load logs:", error);
+            tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-red-400">Failed to load logs</td></tr>';
+        }
+    }
+
+    // Chart Configuration
+    Chart.defaults.color = '#71717a';
+    Chart.defaults.borderColor = 'rgba(255, 255, 255, 0.05)';
+
+    async function loadTrendChart() {
+        try {
+            const response = await fetch('/api/history?days=14');
+            const result = await response.json();
+
+            // 새로운 APIResponse 형식 지원 (data.data.history)
+            const historyData = result.data?.history || result.history || [];
+
+            if (!historyData || historyData.length === 0) {
+                // 데이터가 없을 때 안내 메시지 표시
+                const canvas = document.getElementById('trendChart');
+                if (canvas) {
+                    const container = canvas.parentElement;
+                    container.innerHTML = '<div class="flex items-center justify-center h-full text-muted text-sm">📊 히스토리 데이터가 없습니다. 추적을 실행해주세요.</div>';
+                }
+                return;
+            }
+
+            const labels = historyData.map(h => h.date).map(d => d.substring(5));
+            const followersData = historyData.map(h => h.followers);
+            const followingData = historyData.map(h => h.following);
+
+            const ctx = document.getElementById('trendChart').getContext('2d');
+
+            const gradientBlue = ctx.createLinearGradient(0, 0, 0, 300);
+            gradientBlue.addColorStop(0, 'rgba(59, 130, 246, 0.5)');
+            gradientBlue.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+
+            const gradientPurple = ctx.createLinearGradient(0, 0, 0, 300);
+            gradientPurple.addColorStop(0, 'rgba(168, 85, 247, 0.5)');
+            gradientPurple.addColorStop(1, 'rgba(168, 85, 247, 0.0)');
+
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Followers',
+                            data: followersData,
+                            borderColor: '#3b82f6',
+                            backgroundColor: gradientBlue,
+                            tension: 0.4,
+                            fill: true,
+                            borderWidth: 2,
+                            pointBackgroundColor: '#09090b',
+                            pointBorderColor: '#3b82f6',
+                            pointBorderWidth: 2
+                        },
+                        {
+                            label: 'Following',
+                            data: followingData,
+                            borderColor: '#a855f7',
+                            backgroundColor: gradientPurple,
+                            tension: 0.4,
+                            fill: true,
+                            borderWidth: 2,
+                            pointBackgroundColor: '#09090b',
+                            pointBorderColor: '#a855f7',
+                            pointBorderWidth: 2
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: 'rgba(9, 9, 11, 0.9)',
+                            titleColor: '#fff',
+                            bodyColor: '#a1a1aa',
+                            borderColor: 'rgba(255,255,255,0.1)',
+                            borderWidth: 1,
+                            padding: 10,
+                            cornerRadius: 8
+                        }
+                    },
+                    interaction: {
+                        mode: 'nearest',
+                        axis: 'x',
+                        intersect: false
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false }
+                        },
+                        y: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.05)',
+                                borderDash: [5, 5]
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Chart Load Error:', error);
+        }
+    }
+
+    // Search Filtering
+    window.filterList = function (input, listId) {
+        const filter = input.value.toLowerCase();
+        const list = document.getElementById(listId);
+        const li = list.getElementsByTagName('li');
+
+        for (let i = 0; i < li.length; i++) {
+            const txtValue = li[i].textContent || li[i].innerText;
+            if (txtValue.toLowerCase().indexOf(filter) > -1) {
+                li[i].style.display = "";
+            } else {
+                li[i].style.display = "none";
+            }
+        }
+    }
+
+    // Schedule Functions 
+    async function loadSchedule() {
+        try {
+            const response = await fetch('/api/schedule');
+            const result = await response.json();
+            const data = result.data || result;
+
+            document.getElementById('scheduleHour').value = data.hour || 9;
+            document.getElementById('scheduleMinute').value = data.minute || 0;
+
+            const statusEl = document.getElementById('scheduleStatus');
+            if (data.enabled) {
+                statusEl.innerHTML = `<span class="text-green-400">● Active</span> Next: ${data.next_run || 'Calculating...'}`;
+            } else {
+                statusEl.innerHTML = `<span class="text-red-400">● Inactive</span>`;
+            }
+        } catch (error) {
+            console.error('Schedule Load Failed:', error);
+        }
+    }
+
+    async function setSchedule() {
+        const hour = parseInt(document.getElementById('scheduleHour').value);
+        const minute = parseInt(document.getElementById('scheduleMinute').value);
+
+        try {
+            const response = await fetch(`/api/schedule?hour=${hour}&minute=${minute}`, { method: 'POST' });
+            const result = await response.json();
+            showToast(result.message);
+            loadSchedule();
+        } catch (error) {
+            showToast('Failed to save schedule', 'error');
+        }
+    }
+
+    async function removeSchedule() {
+        try {
+            const response = await fetch('/api/schedule', { method: 'DELETE' });
+            const result = await response.json();
+            showToast(result.message);
+            loadSchedule();
+        } catch (error) {
+            showToast('Failed to remove schedule', 'error');
+        }
+    }
+</script>

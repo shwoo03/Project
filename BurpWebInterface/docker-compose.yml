@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: burp-web-backend
+    ports:
+      - "10006:10006"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=10006
+      - DEBUG=false
+      - BURP_MCP_HOST=host.docker.internal
+      - BURP_MCP_PORT=9999
+    volumes:
+      - ./backend:/app
+    networks:
+      - burp-web-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: burp-web-frontend
+    ports:
+      - "10007:10007"
+    environment:
+      - VITE_API_URL=http://localhost:10006
+    depends_on:
+      - backend
+    networks:
+      - burp-web-network
+    restart: unless-stopped
+
+networks:
+  burp-web-network:
+    driver: bridge

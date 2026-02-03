@@ -66,12 +66,13 @@ if (-not (Test-Path $nodeModules)) {
     Pop-Location
 }
 
-# Start frontend in a new minimized PowerShell window (visible for debugging)
+# Start frontend in background (hidden window)
 $frontendProcess = Start-Process powershell -ArgumentList @(
     "-NoProfile",
+    "-WindowStyle", "Hidden",
     "-Command",
     "Set-Location '$frontendPath'; npm run dev"
-) -WorkingDirectory $frontendPath -PassThru
+) -WorkingDirectory $frontendPath -WindowStyle Hidden -PassThru
 
 Write-Host "  Frontend running (PID: $($frontendProcess.Id))" -ForegroundColor Green
 Write-Host ""

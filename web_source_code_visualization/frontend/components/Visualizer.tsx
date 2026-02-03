@@ -38,7 +38,7 @@ import { ErrorToast } from '@/components/feedback/ErrorToast';
 import { PerformanceMonitor } from '@/components/feedback/PerformanceMonitor';
 import { StreamingProgress } from '@/components/feedback/StreamingProgress';
 
-const API_BASE = 'http://localhost:10005';
+const API_BASE = 'http://localhost:8000';
 
 // Threshold for enabling virtualization
 const VIRTUALIZATION_THRESHOLD = 100;

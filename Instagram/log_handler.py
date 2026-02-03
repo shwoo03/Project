@@ -1,7 +1,7 @@
 import logging
 import datetime
 import socket
-from database import get_mongo_client
+from repositories.base import BaseRepository
 from config import get_env_var
 
 class MongoHandler(logging.Handler):
@@ -29,7 +29,9 @@ class MongoHandler(logging.Handler):
         self.username = env_vars.get("USERNAME", "system")
         
         try:
-            client = get_mongo_client(self.mongo_uri)
+            # BaseRepository를 통한 MongoDB 클라이언트 접근
+            repo = BaseRepository(self.mongo_uri)
+            client = repo._get_client()
             if client:
                 self._collection = client.get_database('webhook').get_collection('Instagram_Logs')
                 self._initialized = True

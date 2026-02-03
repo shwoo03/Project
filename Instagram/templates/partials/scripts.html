@@ -89,12 +89,45 @@
         });
     };
 
+    // Count-up Animation
+    function animateCountUp() {
+        const counters = document.querySelectorAll('.count-up');
+        const duration = 1500; // 1.5 seconds
+
+        counters.forEach(counter => {
+            const target = parseInt(counter.getAttribute('data-target')) || parseInt(counter.textContent) || 0;
+            const startTime = performance.now();
+
+            function updateCount(currentTime) {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+
+                // Easing function (ease-out-cubic)
+                const easeOutCubic = 1 - Math.pow(1 - progress, 3);
+                const current = Math.floor(easeOutCubic * target);
+
+                counter.textContent = current.toLocaleString();
+
+                if (progress < 1) {
+                    requestAnimationFrame(updateCount);
+                } else {
+                    counter.textContent = target.toLocaleString();
+                    counter.classList.add('counting');
+                    setTimeout(() => counter.classList.remove('counting'), 500);
+                }
+            }
+
+            requestAnimationFrame(updateCount);
+        });
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         initTheme();
         styleUserLists();
         connectWebSocket();
         loadSchedule();
         loadTrendChart();
+        animateCountUp();
     });
 
     let ws = null;

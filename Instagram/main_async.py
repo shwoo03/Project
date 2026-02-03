@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 from config import get_env_var
 from auth_async import login_async
 from api_async import get_followers_and_following_async
-from database import check_last_run, save_and_get_results_to_db
+from repositories.user_repository import UserRepository
 from notification import send_discord_webhook
 
 
@@ -36,8 +36,11 @@ async def main():
         logger.error("프로그램을 종료합니다.")
         return 1
 
+    # Repository 초기화
+    user_repo = UserRepository(env_vars["MONGO_URI"])
+
     # 2. 오늘 이미 실행했는지 확인
-    if check_last_run(env_vars["USERNAME"], env_vars["MONGO_URI"]):
+    if user_repo.check_last_run(env_vars["USERNAME"]):
         logger.info(f"오늘({datetime.datetime.now().strftime('%Y-%m-%d')}) 이미 실행된 기록이 있습니다.")
         logger.info("스크립트를 종료합니다.")
         return 0
@@ -56,8 +59,9 @@ async def main():
     logger.info(f"[결과] 팔로워 수: {len(results['followers'])}")
     logger.info(f"[결과] 팔로잉 수: {len(results['following'])}")
 
-    # 5. 결과를 DB에 저장
-    save_and_get_results_to_db(results, env_vars["USERNAME"], env_vars["MONGO_URI"])
+    # 5. 결과를 DB에 저장 (Repository 패턴 사용)
+    user_repo.save_results(env_vars["USERNAME"], results)
+    user_repo.save_history(env_vars["USERNAME"], results)
     logger.info("모든 작업 완료!")
 
     # 6. 결과 디스코드로 보내기

@@ -1,184 +1,150 @@
-<!DOCTYPE html>
-<html lang="en">
+{% extends "base.html" %}
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WSunghun / Docker</title>
-    <link rel="stylesheet" href="/static/style.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
-    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
-    <style>
-        .terminal-modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.7);
-            z-index: 2000;
-            justify-content: center;
-            align-items: center;
-        }
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+<style>
+    .terminal-modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.7);
+        z-index: 2000;
+        justify-content: center;
+        align-items: center;
+    }
 
-        .terminal-content {
-            background-color: #1e1e1e;
-            width: 80%;
-            height: 80%;
-            border-radius: 8px;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-            border: 1px solid #333;
-        }
+    .terminal-content {
+        background-color: #1e1e1e;
+        width: 80%;
+        height: 80%;
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        border: 1px solid #333;
+    }
 
-        .terminal-header {
-            padding: 10px 15px;
-            background-color: #2d2d2d;
-            border-bottom: 1px solid #333;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            color: #ccc;
-        }
+    .terminal-header {
+        padding: 10px 15px;
+        background-color: #2d2d2d;
+        border-bottom: 1px solid #333;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        color: #ccc;
+    }
 
-        .terminal-close {
-            background: none;
-            border: none;
-            color: #ccc;
-            cursor: pointer;
-            font-size: 1.2rem;
-        }
+    .terminal-close {
+        background: none;
+        border: none;
+        color: #ccc;
+        cursor: pointer;
+        font-size: 1.2rem;
+    }
 
-        .terminal-close:hover {
-            color: #fff;
-        }
+    .terminal-close:hover {
+        color: #fff;
+    }
 
-        #terminal-container {
-            flex: 1;
-            padding: 10px;
-            background-color: #000;
-            overflow: hidden;
-        }
+    #terminal-container {
+        flex: 1;
+        padding: 10px;
+        background-color: #000;
+        overflow: hidden;
+    }
 
-        .btn-mini.terminal-btn {
-            background: rgba(16, 185, 129, 0.1);
-            color: #10b981;
-            border: 1px solid rgba(16, 185, 129, 0.3);
-        }
+    .btn-mini.terminal-btn {
+        background: rgba(16, 185, 129, 0.1);
+        color: #10b981;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+    }
 
-        .btn-mini.terminal-btn:hover {
-            background: rgba(16, 185, 129, 0.2);
-        }
-    </style>
-</head>
+    .btn-mini.terminal-btn:hover {
+        background: rgba(16, 185, 129, 0.2);
+    }
+</style>
+{% endblock %}
 
-<body>
-    <!-- Toast Container -->
-    <div class="toast-container" id="toast-container"></div>
-
-    <!-- Terminal Modal -->
-    <div class="terminal-modal" id="terminal-modal">
-        <div class="terminal-content">
-            <div class="terminal-header">
-                <span id="terminal-title">Terminal</span>
-                <button class="terminal-close" onclick="closeTerminal()">&times;</button>
-            </div>
-            <div id="terminal-container"></div>
+{% block content %}
+<!-- Terminal Modal -->
+<div class="terminal-modal" id="terminal-modal">
+    <div class="terminal-content">
+        <div class="terminal-header">
+            <span id="terminal-title">Terminal</span>
+            <button class="terminal-close" onclick="closeTerminal()">&times;</button>
         </div>
+        <div id="terminal-container"></div>
     </div>
+</div>
 
-    <div class="app-container">
-        <!-- ... existing header ... -->
-        <header>
-            <div class="header-left">
-                <div class="logo">WSunghun <span>/ Docker</span></div>
-                <nav class="nav-links">
-                    <a href="/" class="active">Monitoring</a>
-                    <a href="/images">Images</a>
-                    <a href="/networks">Networks</a>
-                    <a href="/volumes">Volumes</a>
-                    <a href="/logs">Logs</a>
-                </nav>
-            </div>
-            <div class="header-right">
-                <div class="connection-status connecting" id="connection-status">
-                    <span class="status-indicator"></span>
-                    <span class="status-text">Connecting...</span>
-                </div>
-            </div>
-        </header>
+<h1 class="dashboard-title">System Status.</h1>
+<p class="dashboard-desc">Real-time monitoring of local Docker containers and microservices.</p>
 
-        <main>
-            <h1 class="dashboard-title">System Status.</h1>
-            <p class="dashboard-desc">Real-time monitoring of local Docker containers and microservices.</p>
-
-            <div class="stats-row">
-                <div class="stat-item">
-                    <span class="stat-label">Total Containers</span>
-                    <span class="stat-value" id="total-count">0</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">Active / Running</span>
-                    <span class="stat-value" id="running-count" style="color: var(--status-running)">0</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">Inactive</span>
-                    <span class="stat-value" id="stopped-count" style="color: var(--text-muted)">0</span>
-                </div>
-            </div>
-
-            <div class="section-header">
-                <h2>Containers</h2>
-                <span class="section-time" id="last-updated">Last updated: --:--:--</span>
-            </div>
-
-            <div class="container-list" id="container-list">
-                <!-- Javascript will inject list here -->
-            </div>
-        </main>
+<div class="stats-row">
+    <div class="stat-item">
+        <span class="stat-label">Total Containers</span>
+        <span class="stat-value" id="total-count">0</span>
     </div>
+    <div class="stat-item">
+        <span class="stat-label">Active / Running</span>
+        <span class="stat-value" id="running-count" style="color: var(--status-running)">0</span>
+    </div>
+    <div class="stat-item">
+        <span class="stat-label">Inactive</span>
+        <span class="stat-value" id="stopped-count" style="color: var(--text-muted)">0</span>
+    </div>
+</div>
 
-    <template id="container-card-template">
-        <div class="container-card" data-id="">
-            <div class="card-left">
-                <div class="container-name">
-                    <span class="status-dot"></span>
-                    <span class="name-text">name</span>
-                </div>
-                <div class="container-meta">
-                    <span class="id-text">id</span>
-                    <span class="image-text">image</span>
-                    <span class="port-text">ports</span>
-                </div>
+<div class="section-header">
+    <h2>Containers</h2>
+    <span class="section-time" id="last-updated">Last updated: --:--:--</span>
+</div>
+
+<div class="container-list" id="container-list">
+    <!-- Javascript will inject list here -->
+</div>
+
+<template id="container-card-template">
+    <div class="container-card" data-id="">
+        <div class="card-left">
+            <div class="container-name">
+                <span class="status-dot"></span>
+                <span class="name-text">name</span>
             </div>
-
-            <div class="card-stats">
-                <div class="stat-cpu">CPU: <span class="stat-unit cpu-val">0%</span></div>
-                <div class="stat-mem">MEM: <span class="stat-unit mem-val">0MB</span></div>
-            </div>
-
-            <div class="card-actions">
-                <button class="btn-mini terminal-btn"><i class="fas fa-terminal"></i> TERM</button>
-                <button class="btn-mini start-btn">START</button>
-                <button class="btn-mini start-btn restart-btn">RESTART</button>
-                <button class="btn-mini stop stop-btn">STOP</button>
+            <div class="container-meta">
+                <span class="id-text">id</span>
+                <span class="image-text">image</span>
+                <span class="port-text">ports</span>
             </div>
         </div>
-    </template>
 
-    <script src="/static/app.js"></script>
-    <script>
-        // Simple clock for "Last updated"
-        setInterval(() => {
-            const now = new Date();
-            document.getElementById('last-updated').textContent = `Last updated: ${now.toLocaleTimeString()}`;
-        }, 1000);
-    </script>
-</body>
+        <div class="card-stats">
+            <div class="stat-cpu">CPU: <span class="stat-unit cpu-val">0%</span></div>
+            <div class="stat-mem">MEM: <span class="stat-unit mem-val">0MB</span></div>
+        </div>
 
-</html>
+        <div class="card-actions">
+            <button class="btn-mini terminal-btn"><i class="fas fa-terminal"></i> TERM</button>
+            <button class="btn-mini start-btn">START</button>
+            <button class="btn-mini start-btn restart-btn">RESTART</button>
+            <button class="btn-mini stop stop-btn">STOP</button>
+        </div>
+    </div>
+</template>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Simple clock for "Last updated"
+    setInterval(() => {
+        const now = new Date();
+        document.getElementById('last-updated').textContent = `Last updated: ${now.toLocaleTimeString()}`;
+    }, 1000);
+</script>
+{% endblock %}

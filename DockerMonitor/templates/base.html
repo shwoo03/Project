@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}WSunghun / Docker{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    {% block head %}{% endblock %}
+</head>
+
+<body>
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <div class="app-container">
+        <header>
+            <div class="header-left">
+                <div class="logo">WSunghun <span>/ Docker</span></div>
+                <nav class="nav-links">
+                    <a href="/" class="{{ 'active' if request.url.path == '/' else '' }}">Monitoring</a>
+                    <a href="/images" class="{{ 'active' if request.url.path == '/images' else '' }}">Images</a>
+                    <a href="/networks" class="{{ 'active' if request.url.path == '/networks' else '' }}">Networks</a>
+                    <a href="/volumes" class="{{ 'active' if request.url.path == '/volumes' else '' }}">Volumes</a>
+                    <a href="/logs" class="{{ 'active' if request.url.path == '/logs' else '' }}">Logs</a>
+                </nav>
+            </div>
+            <div class="header-right">
+                <div class="connection-status connecting" id="connection-status">
+                    <span class="status-indicator"></span>
+                    <span class="status-text">Connecting...</span>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <!-- Common Scripts -->
+    <script src="/static/app.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+
+</html>

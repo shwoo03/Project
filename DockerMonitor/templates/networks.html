@@ -1,293 +1,266 @@
-<!DOCTYPE html>
-<html lang="en">
+{% extends "base.html" %}
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WSunghun / Docker - Networks</title>
-    <link rel="stylesheet" href="/static/style.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        .network-card {
-            background: var(--card-bg);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 15px;
-            transition: all 0.3s ease;
+{% block title %}WSunghun / Docker - Networks{% endblock %}
+
+{% block head %}
+<style>
+    .network-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 15px;
+        transition: all 0.3s ease;
+    }
+
+    .network-card:hover {
+        border-color: var(--accent);
+        transform: translateY(-2px);
+    }
+
+    .network-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+    }
+
+    .network-name {
+        font-size: 1.2rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .network-name i {
+        color: var(--accent);
+    }
+
+    .network-badge {
+        font-size: 0.75rem;
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-family: 'JetBrains Mono', monospace;
+        text-transform: uppercase;
+    }
+
+    .badge-bridge {
+        background: rgba(59, 130, 246, 0.2);
+        color: #60a5fa;
+        border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
+    .badge-host {
+        background: rgba(245, 158, 11, 0.2);
+        color: #fbbf24;
+        border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .badge-overlay {
+        background: rgba(139, 92, 246, 0.2);
+        color: #a78bfa;
+        border: 1px solid rgba(139, 92, 246, 0.3);
+    }
+
+    .badge-null {
+        background: rgba(107, 114, 128, 0.2);
+        color: #9ca3af;
+        border: 1px solid rgba(107, 114, 128, 0.3);
+    }
+
+    .network-meta {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 15px;
+        margin-bottom: 15px;
+        padding: 15px;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 8px;
+    }
+
+    .meta-item {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .meta-label {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-family: 'JetBrains Mono', monospace;
+    }
+
+    .meta-value {
+        font-size: 0.9rem;
+        font-family: 'JetBrains Mono', monospace;
+    }
+
+    .containers-section {
+        border-top: 1px solid var(--border);
+        padding-top: 15px;
+    }
+
+    .containers-title {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .containers-title .count {
+        background: var(--accent);
+        color: white;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 0.75rem;
+    }
+
+    .connected-containers {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .container-chip {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: rgba(16, 185, 129, 0.1);
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        border-radius: 8px;
+        font-size: 0.85rem;
+    }
+
+    .container-chip .chip-name {
+        font-weight: 500;
+    }
+
+    .container-chip .chip-ip {
+        color: var(--text-muted);
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.8rem;
+    }
+
+    .no-containers {
+        color: var(--text-muted);
+        font-size: 0.85rem;
+        font-style: italic;
+    }
+
+    .loading-spinner {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 60px;
+    }
+
+    .loading-spinner i {
+        font-size: 2rem;
+        color: var(--accent);
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        from {
+            transform: rotate(0deg);
         }
 
-        .network-card:hover {
-            border-color: var(--accent);
-            transform: translateY(-2px);
+        to {
+            transform: rotate(360deg);
         }
+    }
+</style>
+{% endblock %}
 
-        .network-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-        }
+{% block content %}
+<h1 class="dashboard-title">Networks.</h1>
+<p class="dashboard-desc">Docker network configuration and connected containers.</p>
 
-        .network-name {
-            font-size: 1.2rem;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .network-name i {
-            color: var(--accent);
-        }
-
-        .network-badge {
-            font-size: 0.75rem;
-            padding: 4px 10px;
-            border-radius: 20px;
-            font-family: 'JetBrains Mono', monospace;
-            text-transform: uppercase;
-        }
-
-        .badge-bridge {
-            background: rgba(59, 130, 246, 0.2);
-            color: #60a5fa;
-            border: 1px solid rgba(59, 130, 246, 0.3);
-        }
-
-        .badge-host {
-            background: rgba(245, 158, 11, 0.2);
-            color: #fbbf24;
-            border: 1px solid rgba(245, 158, 11, 0.3);
-        }
-
-        .badge-overlay {
-            background: rgba(139, 92, 246, 0.2);
-            color: #a78bfa;
-            border: 1px solid rgba(139, 92, 246, 0.3);
-        }
-
-        .badge-null {
-            background: rgba(107, 114, 128, 0.2);
-            color: #9ca3af;
-            border: 1px solid rgba(107, 114, 128, 0.3);
-        }
-
-        .network-meta {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-            margin-bottom: 15px;
-            padding: 15px;
-            background: rgba(0, 0, 0, 0.2);
-            border-radius: 8px;
-        }
-
-        .meta-item {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-
-        .meta-label {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            font-family: 'JetBrains Mono', monospace;
-        }
-
-        .meta-value {
-            font-size: 0.9rem;
-            font-family: 'JetBrains Mono', monospace;
-        }
-
-        .containers-section {
-            border-top: 1px solid var(--border);
-            padding-top: 15px;
-        }
-
-        .containers-title {
-            font-size: 0.85rem;
-            color: var(--text-muted);
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .containers-title .count {
-            background: var(--accent);
-            color: white;
-            padding: 2px 8px;
-            border-radius: 10px;
-            font-size: 0.75rem;
-        }
-
-        .connected-containers {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-
-        .container-chip {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 12px;
-            background: rgba(16, 185, 129, 0.1);
-            border: 1px solid rgba(16, 185, 129, 0.3);
-            border-radius: 8px;
-            font-size: 0.85rem;
-        }
-
-        .container-chip .chip-name {
-            font-weight: 500;
-        }
-
-        .container-chip .chip-ip {
-            color: var(--text-muted);
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.8rem;
-        }
-
-        .no-containers {
-            color: var(--text-muted);
-            font-size: 0.85rem;
-            font-style: italic;
-        }
-
-        .loading-spinner {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 60px;
-        }
-
-        .loading-spinner i {
-            font-size: 2rem;
-            color: var(--accent);
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            from {
-                transform: rotate(0deg);
-            }
-
-            to {
-                transform: rotate(360deg);
-            }
-        }
-    </style>
-</head>
-
-<body>
-    <!-- Toast Container -->
-    <div class="toast-container" id="toast-container"></div>
-
-    <div class="app-container">
-        <header>
-            <div class="header-left">
-                <div class="logo">WSunghun <span>/ Docker</span></div>
-                <nav class="nav-links">
-                    <a href="/">Monitoring</a>
-                    <a href="/images">Images</a>
-                    <a href="/networks" class="active">Networks</a>
-                    <a href="/volumes">Volumes</a>
-                    <a href="/logs">Logs</a>
-                </nav>
-            </div>
-            <div class="header-right">
-                <div class="connection-status connected" id="connection-status">
-                    <span class="status-indicator"></span>
-                    <span class="status-text">Connected</span>
-                </div>
-            </div>
-        </header>
-
-        <main>
-            <h1 class="dashboard-title">Networks.</h1>
-            <p class="dashboard-desc">Docker network configuration and connected containers.</p>
-
-            <div class="stats-row">
-                <div class="stat-item">
-                    <span class="stat-label">Total Networks</span>
-                    <span class="stat-value" id="total-count">0</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">Bridge</span>
-                    <span class="stat-value" id="bridge-count" style="color: #60a5fa">0</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">Host</span>
-                    <span class="stat-value" id="host-count" style="color: #fbbf24">0</span>
-                </div>
-            </div>
-
-            <div class="section-header">
-                <h2>Network List</h2>
-                <button class="btn-mini" onclick="loadNetworks()">
-                    <i class="fas fa-sync-alt"></i> Refresh
-                </button>
-            </div>
-
-            <div class="network-list" id="network-list">
-                <div class="loading-spinner">
-                    <i class="fas fa-circle-notch"></i>
-                </div>
-            </div>
-        </main>
+<div class="stats-row">
+    <div class="stat-item">
+        <span class="stat-label">Total Networks</span>
+        <span class="stat-value" id="total-count">0</span>
     </div>
+    <div class="stat-item">
+        <span class="stat-label">Bridge</span>
+        <span class="stat-value" id="bridge-count" style="color: #60a5fa">0</span>
+    </div>
+    <div class="stat-item">
+        <span class="stat-label">Host</span>
+        <span class="stat-value" id="host-count" style="color: #fbbf24">0</span>
+    </div>
+</div>
 
-    <script>
-        const networkList = document.getElementById('network-list');
-        const totalEl = document.getElementById('total-count');
-        const bridgeEl = document.getElementById('bridge-count');
-        const hostEl = document.getElementById('host-count');
+<div class="section-header">
+    <h2>Network List</h2>
+    <button class="btn-mini" onclick="loadNetworks()">
+        <i class="fas fa-sync-alt"></i> Refresh
+    </button>
+</div>
 
-        async function loadNetworks() {
-            networkList.innerHTML = `
+<div class="network-list" id="network-list">
+    <div class="loading-spinner">
+        <i class="fas fa-circle-notch"></i>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const networkList = document.getElementById('network-list');
+    const totalEl = document.getElementById('total-count');
+    const bridgeEl = document.getElementById('bridge-count');
+    const hostEl = document.getElementById('host-count');
+
+    async function loadNetworks() {
+        networkList.innerHTML = `
                 <div class="loading-spinner">
                     <i class="fas fa-circle-notch"></i>
                 </div>
             `;
 
-            try {
-                const response = await fetch('/api/networks');
-                const networks = await response.json();
+        try {
+            const response = await fetch('/api/networks');
+            const result = await response.json();
+            const networks = result.data;
 
-                // Update counts
-                totalEl.textContent = networks.length;
-                bridgeEl.textContent = networks.filter(n => n.driver === 'bridge').length;
-                hostEl.textContent = networks.filter(n => n.driver === 'host').length;
+            // Update counts
+            totalEl.textContent = networks.length;
+            bridgeEl.textContent = networks.filter(n => n.driver === 'bridge').length;
+            hostEl.textContent = networks.filter(n => n.driver === 'host').length;
 
-                renderNetworks(networks);
-            } catch (error) {
-                console.error('Error loading networks:', error);
-                networkList.innerHTML = `
+            renderNetworks(networks);
+        } catch (error) {
+            console.error('Error loading networks:', error);
+            networkList.innerHTML = `
                     <div class="empty-state">
                         <i class="fas fa-exclamation-triangle"></i>
                         <h3>Failed to load networks</h3>
                         <p>${error.message}</p>
                     </div>
                 `;
-            }
         }
+    }
 
-        function renderNetworks(networks) {
-            if (networks.length === 0) {
-                networkList.innerHTML = `
+    function renderNetworks(networks) {
+        if (networks.length === 0) {
+            networkList.innerHTML = `
                     <div class="empty-state">
                         <i class="fas fa-network-wired"></i>
                         <h3>No Networks Found</h3>
                         <p>Docker networks will appear here.</p>
                     </div>
                 `;
-                return;
-            }
+            return;
+        }
 
-            networkList.innerHTML = networks.map(network => `
+        networkList.innerHTML = networks.map(network => `
                 <div class="network-card">
                     <div class="network-header">
                         <div class="network-name">
@@ -337,37 +310,11 @@
                     </div>
                 </div>
             `).join('');
-        }
+    }
 
-        // Toast function
-        function showToast(message, type = 'info', duration = 5000) {
-            const container = document.getElementById('toast-container');
-            const toast = document.createElement('div');
-            toast.className = `toast ${type}`;
+    // Removed showToast as it's now in app.js (check before removing? app.js has it, base.html includes app.js)
 
-            const icons = {
-                error: 'fa-circle-exclamation',
-                success: 'fa-circle-check',
-                warning: 'fa-triangle-exclamation',
-                info: 'fa-circle-info'
-            };
-
-            toast.innerHTML = `
-                <i class="fas ${icons[type] || icons.info}"></i>
-                <span>${message}</span>
-            `;
-
-            container.appendChild(toast);
-
-            setTimeout(() => {
-                toast.style.animation = 'slideIn 0.3s ease reverse';
-                setTimeout(() => toast.remove(), 300);
-            }, duration);
-        }
-
-        // Init
-        document.addEventListener('DOMContentLoaded', loadNetworks);
-    </script>
-</body>
-
-</html>
+    // Init
+    document.addEventListener('DOMContentLoaded', loadNetworks);
+</script>
+{% endblock %}

@@ -104,13 +104,15 @@ function connectWebSocket() {
 }
 
 function showDockerOfflineState(message) {
-    containerList.innerHTML = `
-        <div class="empty-state">
-            <i class="fab fa-docker"></i>
-            <h3>Docker Daemon Unavailable</h3>
-            <p>${message || 'Please make sure Docker Desktop is running.'}</p>
-        </div>
-    `;
+    if (containerList) {
+        containerList.innerHTML = `
+            <div class="empty-state">
+                <i class="fab fa-docker"></i>
+                <h3>Docker Daemon Unavailable</h3>
+                <p>${message || 'Please make sure Docker Desktop is running.'}</p>
+            </div>
+        `;
+    }
 
     // Reset counters
     if (totalEl) totalEl.textContent = '-';
@@ -119,13 +121,16 @@ function showDockerOfflineState(message) {
 }
 
 function updateDashboard(containers, stats) {
-    // 1. Update Counts
+    // 1. Update Counts (Gloabl if elements exist)
     if (totalEl) totalEl.textContent = containers.length;
 
     const running = containers.filter(c => c.status === 'running').length;
     if (runningEl) runningEl.textContent = running;
 
     if (stoppedEl) stoppedEl.textContent = containers.length - running;
+
+    // Return if no container list (not on dashboard)
+    if (!containerList) return;
 
     // 2. Handle empty state
     if (containers.length === 0) {
@@ -256,6 +261,7 @@ function closeTerminal() {
 
 
 function renderContainerCards(containers) {
+    if (!containerList) return;
     containerList.innerHTML = '';
 
     containers.forEach(container => {
@@ -359,7 +365,7 @@ async function actionContainer(id, action) {
             body: JSON.stringify({ action: action })
         });
         const result = await res.json();
-        if (result.status === 'success') {
+        if (result.success) {
             showToast(`Container ${action} successful`, 'success', 3000);
         } else {
             console.error(result.message);

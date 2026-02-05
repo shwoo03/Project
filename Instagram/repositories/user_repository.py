@@ -98,8 +98,55 @@ class UserRepository(BaseRepository):
                 upsert=True
             )
             logger.info(f"[History] 히스토리 저장: {today.strftime('%Y-%m-%d')}")
+
         except Exception as e:
             logger.error(f"히스토리 저장 오류: {e}")
+
+
+    def get_analysis(self, username: str) -> Dict[str, Any]:
+        """팔로워/팔로잉 분석 데이터 반환 (맞팔 안 함, 팬 등)"""
+        try:
+            doc = self.col_latest.find_one({"_id": username})
+            if not doc:
+                return {
+                    "followers": [],
+                    "following": [],
+                    "non_followers": [],
+                    "fans": [],
+                    "last_updated": None
+                }
+
+            followers = doc.get("followers", [])
+            following = doc.get("following", [])
+            last_updated = doc.get("last_updated")
+
+            # username 집합 생성
+            followers_set = {u['username'] for u in followers if 'username' in u}
+            following_set = {u['username'] for u in following if 'username' in u}
+
+            # 분석 (단순 문자열 리스트 반환)
+            non_followers = sorted(list(following_set - followers_set))
+            fans = sorted(list(followers_set - following_set))
+
+            return {
+                "followers": followers,
+                "following": following,
+                "non_followers": non_followers, # 나를 맞팔 안 함 (내가 팔로우함 - 나를 팔로우함)
+                "fans": fans,                   # 나를 짝사랑 함 (나를 팔로우함 - 내가 팔로우함)
+                "last_updated": last_updated
+            }
+
+        except Exception as e:
+            logger.error(f"분석 데이터 조회 실패: {e}")
+            return {
+                "followers": [],
+                "following": [],
+                "non_followers": [],
+                "fans": [],
+                "last_updated": None
+            }
+
+
 
     def get_history(self, username: str, days: int = 30) -> List[Dict[str, Any]]:
         """최근 N일간 히스토리 조회"""

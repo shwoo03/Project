@@ -87,6 +87,54 @@ async def api_get_logs(limit: int = 100, level: str = None):
     return APIResponse.ok("로그 조회 성공", data={"logs": logs})
 
 
+@router.get("/export/{export_type}")
+async def api_export_csv(export_type: str):
+    """데이터 CSV 내보내기 (followers, following, non_followers, fans)"""
+    try:
+        import pandas as pd
+        from io import BytesIO
+        from starlette.responses import StreamingResponse
+        
+        settings = get_settings()
+        if not settings.mongo_uri or not settings.user_id:
+            return APIResponse.fail("환경 변수 설정 오류")
+
+        repo = UserRepository(settings.mongo_uri)
+        data = repo.get_analysis(settings.user_id)
+        
+        target_list = data.get(export_type, [])
+        if not target_list:
+             # 빈 데이터라도 컬럼이 있는 CSV를 주기 위해 빈 리스트 처리
+             pass
+        
+        # 데이터가 단순 문자열(username) 리스트인지, 객체(dict) 리스트인지 확인
+        if target_list and isinstance(target_list[0], str):
+            # 문자열 리스트인 경우 (non_followers, fans 등)
+            df = pd.DataFrame(target_list, columns=["username"])
+        else:
+            # 객체 리스트인 경우 (followers, following)
+            df = pd.DataFrame(target_list)
+            # 필요한 컬럼만 선택 (예: id, username, full_name) - 데이터에 따라 다름
+            # 일단 모든 컬럼 다 내보내기
+        
+        # CSV 변환
+        stream = BytesIO()
+        df.to_csv(stream, index=False, encoding='utf-8-sig')
+        stream.seek(0)
+        
+        filename = f"instagram_{export_type}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        
+        return StreamingResponse(
+            stream, 
+            media_type="text/csv", 
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+
+    except Exception as e:
+        logger.error(f"CSV 내보내기 실패: {e}")
+        return APIResponse.fail(f"내보내기 실패: {str(e)}")
+
+
 @router.get("/latest")
 async def api_latest():
     """최신 데이터 API"""

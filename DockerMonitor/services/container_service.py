@@ -66,6 +66,32 @@ class ContainerService(BaseService):
             
         return await self.run_sync(self._get_container_action_sync, container_id, action)
 
+    def _update_container_resources_sync(self, container_id: str, cpu_quota: int, memory_limit: str) -> bool:
+        try:
+            container = self.client.containers.get(container_id)
+            # kwargs 딕셔너리 구성 (None이 아닌 값만 포함)
+            update_kwargs = {}
+            if cpu_quota is not None:
+                update_kwargs['cpu_quota'] = cpu_quota
+            if memory_limit is not None:
+                update_kwargs['mem_limit'] = memory_limit
+                
+            if update_kwargs:
+                container.update(**update_kwargs)
+            return True
+        except Exception as e:
+            if "No such container" in str(e):
+                raise ContainerNotFoundError(container_id)
+            logger.error(f"Error updating container {container_id}: {e}")
+            raise e
+
+    async def update_container_resources(self, container_id: str, cpu_quota: int = None, memory_limit: str = None) -> bool:
+        """컨테이너 리소스 제한 업데이트"""
+        if not await self.ensure_connected():
+            return False
+            
+        return await self.run_sync(self._update_container_resources_sync, container_id, cpu_quota, memory_limit)
+
     def _get_logs_sync(self, container_id: str, tail: int) -> str:
         try:
             container = self.client.containers.get(container_id)

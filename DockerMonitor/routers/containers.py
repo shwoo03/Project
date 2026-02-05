@@ -19,6 +19,11 @@ async def list_containers():
     return success_response(data=containers)
 
 
+class UpdateResourceRequest(BaseModel):
+    cpu_quota: int = None
+    memory_limit: str = None  # e.g. "512m", "1g"
+
+
 @router.post("/{container_id}/action")
 async def container_action(container_id: str, req: ActionRequest):
     """컨테이너 제어 API (start, stop, restart)"""
@@ -38,6 +43,24 @@ async def get_container_logs(container_id: str, tail: int = 100):
     """컨테이너 로그 조회 API"""
     logs = await docker_manager.get_container_logs(container_id, tail=tail)
     return success_response(data={"container_id": container_id, "logs": logs})
+
+
+@router.post("/{container_id}/resources")
+async def update_container_resources(container_id: str, req: UpdateResourceRequest):
+    """컨테이너 리소스 제한 업데이트 API"""
+    if req.cpu_quota is None and req.memory_limit is None:
+        raise InvalidActionError("No resources specified for update")
+        
+    success = await docker_manager.update_container_resources(
+        container_id, 
+        cpu_quota=req.cpu_quota, 
+        memory_limit=req.memory_limit
+    )
+    
+    if success:
+        return success_response(data={"container_id": container_id, "updated": req.dict()})
+        
+    raise ContainerActionError(container_id=container_id, action="update_resources")
 
 
 @router.get("/status")

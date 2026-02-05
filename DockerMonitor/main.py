@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from core.docker_client import docker_manager
+from core.monitor import monitor
 from routers import containers, websocket, networks, images, terminal, volumes
 from middleware.error_handler import register_error_handlers
 
@@ -20,9 +21,12 @@ async def lifespan(app: FastAPI):
     """앱 시작/종료 시 Docker 연결 관리"""
     # 시작 시 Docker 연결
     await docker_manager.connect()
+    # 모니터링 시작
+    await monitor.start()
     logger.info("Application started")
     yield
     # 종료 시 연결 해제
+    await monitor.stop()
     await docker_manager.disconnect()
     logger.info("Application shutdown")
 

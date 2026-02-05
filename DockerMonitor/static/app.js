@@ -260,6 +260,61 @@ function closeTerminal() {
 }
 
 
+// Resource Modal Logic
+const resourceModal = document.getElementById('resource-modal');
+let currentResourceContainerId = null;
+
+function openResourceModal(containerId) {
+    currentResourceContainerId = containerId;
+    if (resourceModal) {
+        resourceModal.style.display = 'flex';
+        // Reset inputs
+        document.getElementById('cpu-quota-input').value = '';
+        document.getElementById('memory-limit-input').value = '';
+    }
+}
+
+function closeResourceModal() {
+    if (resourceModal) resourceModal.style.display = 'none';
+    currentResourceContainerId = null;
+}
+
+async function submitResourceUpdate() {
+    if (!currentResourceContainerId) return;
+
+    const cpuQuota = document.getElementById('cpu-quota-input').value;
+    const memoryLimit = document.getElementById('memory-limit-input').value;
+
+    const payload = {};
+    if (cpuQuota) payload.cpu_quota = parseInt(cpuQuota);
+    if (memoryLimit) payload.memory_limit = memoryLimit;
+
+    if (Object.keys(payload).length === 0) {
+        showToast('Please specify at least one limit', 'warning');
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/containers/${currentResourceContainerId}/resources`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await res.json();
+        if (result.success) {
+            showToast('Resources updated successfully', 'success');
+            closeResourceModal();
+        } else {
+            showToast(`Update failed: ${result.message}`, 'error');
+        }
+    } catch (e) {
+        console.error(e);
+        showToast(`Error: ${e.message}`, 'error');
+    }
+}
+
+
 function renderContainerCards(containers) {
     if (!containerList) return;
     containerList.innerHTML = '';
@@ -294,12 +349,14 @@ function renderContainerCards(containers) {
         const stopBtn = card.querySelector('.stop-btn');
         const restartBtn = card.querySelector('.restart-btn');
         const terminalBtn = card.querySelector('.terminal-btn');
+        const settingsBtn = card.querySelector('.settings-btn');
 
         // Check if buttons exist
         if (startBtn) startBtn.onclick = () => actionContainer(container.id, 'start');
         if (stopBtn) stopBtn.onclick = () => actionContainer(container.id, 'stop');
         if (restartBtn) restartBtn.onclick = () => actionContainer(container.id, 'restart');
         if (terminalBtn) terminalBtn.onclick = () => openTerminal(container.id);
+        if (settingsBtn) settingsBtn.onclick = () => openResourceModal(container.id);
 
         // Visibility Logic
         if (container.status === 'running') {
@@ -307,11 +364,13 @@ function renderContainerCards(containers) {
             if (stopBtn) stopBtn.style.display = 'inline-block';
             if (restartBtn) restartBtn.style.display = 'inline-block';
             if (terminalBtn) terminalBtn.style.display = 'inline-block';
+            if (settingsBtn) settingsBtn.style.display = 'inline-block';
         } else {
             if (startBtn) startBtn.style.display = 'inline-block';
             if (stopBtn) stopBtn.style.display = 'none';
             if (restartBtn) restartBtn.style.display = 'none';
             if (terminalBtn) terminalBtn.style.display = 'none';
+            if (settingsBtn) settingsBtn.style.display = 'inline-block';
         }
 
         containerList.appendChild(card);
@@ -339,6 +398,7 @@ function updateStats(stats, containers) {
             const stopBtn = card.querySelector('.stop-btn');
             const restartBtn = card.querySelector('.restart-btn');
             const terminalBtn = card.querySelector('.terminal-btn');
+            const settingsBtn = card.querySelector('.settings-btn');
 
             if (c.status === 'running') {
                 if (indicator) indicator.classList.add('running');
@@ -346,12 +406,14 @@ function updateStats(stats, containers) {
                 if (stopBtn) stopBtn.style.display = 'inline-block';
                 if (restartBtn) restartBtn.style.display = 'inline-block';
                 if (terminalBtn) terminalBtn.style.display = 'inline-block';
+                if (settingsBtn) settingsBtn.style.display = 'inline-block';
             } else {
                 if (indicator) indicator.classList.remove('running');
                 if (startBtn) startBtn.style.display = 'inline-block';
                 if (stopBtn) stopBtn.style.display = 'none';
                 if (restartBtn) restartBtn.style.display = 'none';
                 if (terminalBtn) terminalBtn.style.display = 'none';
+                if (settingsBtn) settingsBtn.style.display = 'inline-block';
             }
         }
     });

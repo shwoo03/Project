@@ -83,6 +83,34 @@
     </div>
 </div>
 
+<!-- Resource Modal -->
+<div class="terminal-modal" id="resource-modal">
+    <div class="terminal-content" style="height: auto; width: 400px; padding: 20px;">
+        <div class="terminal-header" style="margin: -21px -21px 20px -21px;">
+            <span>Update Resources</span>
+            <button class="terminal-close" onclick="closeResourceModal()">&times;</button>
+        </div>
+        <div style="color: #fff;">
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px;">CPU Quota (100000 = 1 CPU)</label>
+                <input type="number" id="cpu-quota-input" placeholder="e.g. 50000 for 0.5 CPU"
+                    style="width: 100%; padding: 8px; background: #333; border: 1px solid #444; color: #fff; border-radius: 4px;">
+            </div>
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 5px;">Memory Limit (e.g. 512m, 1g)</label>
+                <input type="text" id="memory-limit-input" placeholder="e.g. 512m"
+                    style="width: 100%; padding: 8px; background: #333; border: 1px solid #444; color: #fff; border-radius: 4px;">
+            </div>
+            <div style="text-align: right;">
+                <button onclick="closeResourceModal()"
+                    style="padding: 8px 16px; background: transparent; color: #ccc; border: 1px solid #444; border-radius: 4px; cursor: pointer; margin-right: 10px;">Cancel</button>
+                <button onclick="submitResourceUpdate()"
+                    style="padding: 8px 16px; background: #10b981; color: #fff; border: none; border-radius: 4px; cursor: pointer;">Update</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <h1 class="dashboard-title">System Status.</h1>
 <p class="dashboard-desc">Real-time monitoring of local Docker containers and microservices.</p>
 
@@ -130,6 +158,7 @@
         </div>
 
         <div class="card-actions">
+            <button class="btn-mini settings-btn" title="Resources"><i class="fas fa-cog"></i></button>
             <button class="btn-mini terminal-btn"><i class="fas fa-terminal"></i> TERM</button>
             <button class="btn-mini start-btn">START</button>
             <button class="btn-mini start-btn restart-btn">RESTART</button>

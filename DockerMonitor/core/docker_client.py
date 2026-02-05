@@ -92,6 +92,9 @@ class AsyncDockerClient:
     async def get_container_logs(self, container_id: str, tail: int = 100):
         return await container_service.get_logs(container_id, tail)
 
+    async def update_container_resources(self, container_id: str, cpu_quota: int = None, memory_limit: str = None):
+        return await container_service.update_container_resources(container_id, cpu_quota, memory_limit)
+
     # --- Image Methods ---
     async def list_images(self):
         return await image_service.list_images()

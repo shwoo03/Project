@@ -54,7 +54,6 @@ PyJWT==2.10.1
 PyYAML==6.0.3
 python-dotenv==1.2.1
 python-multipart==0.0.22
-pywin32==311
 redis==5.2.1
 referencing==0.37.0
 requests==2.32.5

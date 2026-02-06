@@ -96,7 +96,7 @@ export interface UseStreamingAnalysisOptions {
 // Hook Implementation
 // ============================================
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'http://localhost:10008';
 
 /**
  * Hook for streaming analysis with real-time progress updates.

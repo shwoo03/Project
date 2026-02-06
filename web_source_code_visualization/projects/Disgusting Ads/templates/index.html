@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>Ads</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="preload" as="style" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+    <div class="noise"></div>
+
+    <div class="container">
+        <h1>Ads</h1>
+        {% if flag %}
+        <p class="sub">You escaped the ad dimension. Here is your flag:</p>
+        <pre
+            style="font-size:18px;padding:14px;border:1px solid rgba(255,255,255,0.12);border-radius:12px;background:rgba(255,255,255,0.03);">{{ flag }}</pre>
+        {% else %}
+        <p class="sub">
+            You’re stuck in a pop-up storm. Close an ad and another spawns.
+            To really leave, stop the ad engine itself.
+        </p>
+
+        {% if error %}
+        <div id="error">{{ error }}</div>
+        {% endif %}
+
+        <form id="claimForm" method="POST" action="{{ url_for('claim') }}" style="margin-top:16px;">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button id="claimBtn" class="btn" type="submit">I escaped the ads — claim flag</button>
+        </form>
+
+
+        <noscript>
+            <div class="info"
+                style="margin-top:12px; padding:10px; border-radius:12px; border:1px solid rgba(94,234,212,0.35); background:rgba(94,234,212,0.08);">
+                JavaScript is disabled. Wait {{ stale_seconds }} seconds after this page load, then click “claim flag”.
+            </div>
+        </noscript>
+        {% endif %}
+    </div>
+
+    {% if not flag %}
+    <script>
+        const MAX_ADS = {{ max_ads| int }};
+        const HEARTBEAT_MS = {{ hb_ms| int }};
+        const ADS = {{ ads| tojson }};
+
+        window.__hb = setInterval(() => {
+            try {
+                if (navigator.sendBeacon) {
+                    const blob = new Blob([], { type: 'text/plain' });
+                    navigator.sendBeacon("/hb", blob);
+                } else {
+                    fetch("/hb", { method: "POST", credentials: "same-origin" });
+                }
+            } catch (e) { }
+        }, HEARTBEAT_MS);
+
+        const adsSet = new Set();
+        function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+        function pickOne(arr) { return arr.length ? arr[Math.floor(Math.random() * arr.length)] : null; }
+
+        function spawnAd() {
+            const chosen = pickOne(ADS) || { title: "Sponsored Ad", body: "Greatest deal of your life." };
+            const ad = document.createElement("div");
+            ad.className = "ad";
+            // 까먹지 말고 조정
+            const vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+            const vh = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0);
+            const w = Math.min(320, Math.floor(vw * 0.4));
+            const h = Math.min(220, Math.floor(vh * 0.32));
+            ad.style.left = rand(0, Math.max(0, vw - w)) + "px";
+            ad.style.top = rand(0, Math.max(0, vh - h)) + "px";
+
+            ad.innerHTML = `
+      <div class="ad-header">
+        <span>${(chosen.title || "Sponsored Ad").replace(/[<>]/g, '')}</span>
+        <button class="ad-close" aria-label="close" title="close">✕</button>
+      </div>
+      <div class="ad-body">
+        ${chosen.body || ""}
+      </div>
+    `;
+
+            ad.querySelector(".ad-close").addEventListener("click", (ev) => {
+                ev.stopPropagation();
+                ad.remove();
+                adsSet.delete(ad);
+                ensureAds(true);
+            });
+
+            const shaker = setInterval(() => {
+                if (!document.body.contains(ad)) { clearInterval(shaker); return; }
+                const curL = parseInt(ad.style.left || "0", 10);
+                const curT = parseInt(ad.style.top || "0", 10);
+                const dx = rand(-12, 12);
+                const dy = rand(-10, 10);
+                ad.style.left = Math.max(0, Math.min(curL + dx, vw - w)) + "px";
+                ad.style.top = Math.max(0, Math.min(curT + dy, vh - h)) + "px";
+            }, 1800 + rand(0, 900));
+
+            document.body.appendChild(ad);
+            adsSet.add(ad);
+        }
+
+        function ensureAds(spawnImmediately = false) {
+            if (spawnImmediately) {
+                while (adsSet.size < MAX_ADS) spawnAd();
+                return;
+            }
+            if (adsSet.size < MAX_ADS) spawnAd();
+        }
+
+        setInterval(() => ensureAds(false), 300);
+        ensureAds(true);
+
+        const obs = new MutationObserver(() => {
+            if (adsSet.size < MAX_ADS) ensureAds(false);
+        });
+        obs.observe(document.body, { childList: true });
+
+        setInterval(() => {
+            const btn = document.getElementById("claimBtn");
+            if (!btn) return;
+            const r = btn.getBoundingClientRect();
+            const ad = document.createElement("div");
+            ad.className = "ad";
+            ad.style.left = Math.max(0, r.left - 40) + "px";
+            ad.style.top = Math.max(0, r.top - 30) + "px";
+            const chosen = pickOne(ADS) || {};
+            const title = ((chosen.title || "Smart Ad")).replace(/[<>]/g, '');
+            ad.innerHTML = `
+      <div class="ad-header">
+        <span>${title}</span>
+        <button class="ad-close" aria-label="close" title="close">✕</button>
+      </div>
+      <div class="ad-body">${chosen.body || "One more for the road."}</div>
+    `;
+            ad.querySelector(".ad-close").addEventListener("click", (ev) => {
+                ev.stopPropagation();
+                ad.remove();
+                adsSet.delete(ad);
+                ensureAds(true);
+            });
+            document.body.appendChild(ad);
+            adsSet.add(ad);
+        }, 5000 + Math.floor(Math.random() * 4000));
+    </script>
+    {% endif %}
+</body>
+
+</html>

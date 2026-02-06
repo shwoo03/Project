@@ -13,6 +13,7 @@ services:
     volumes:
       - ./backend:/app
       - /app/__pycache__
+      - ./projects:/projects
     depends_on:
       - redis
     restart: unless-stopped

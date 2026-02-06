@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { AnalysisData, SecurityFinding, CallGraphData } from '@/types/graph';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'http://localhost:10008';
 
 // ===========================
 // API 함수들

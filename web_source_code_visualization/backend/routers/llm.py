@@ -23,9 +23,21 @@ def get_llm_analyzer():
     return _llm_analyzer
 
 
+# Import CodeContext for lazy loading
+_CodeContext = None
+
+def get_code_context_class():
+    """Get CodeContext class with lazy loading."""
+    global _CodeContext
+    if _CodeContext is None:
+        from core.llm_security_analyzer import CodeContext
+        _CodeContext = CodeContext
+    return _CodeContext
+
+
 def get_code_context(file_path: str, code: str, language: str, framework: Optional[str] = None):
     """Create a CodeContext for LLM analysis."""
-    from core.llm_security_analyzer import CodeContext
+    CodeContext = get_code_context_class()
     return CodeContext(
         file_path=file_path,
         code=code,
@@ -102,7 +114,7 @@ def llm_analyze_code(request: LLMAnalysisRequest):
         language = lang_map.get(ext, 'unknown')
         framework = analyzer.detect_framework(code, language)
         
-        context = LLMCodeContext(
+        context = get_code_context(
             file_path=request.file_path,
             code=code[:8000],  # Limit code size
             language=language,
@@ -151,7 +163,7 @@ def llm_generate_remediation(request: LLMRemediationRequest):
         language = lang_map.get(ext, 'unknown')
         framework = analyzer.detect_framework(request.code, language)
         
-        context = LLMCodeContext(
+        context = get_code_context(
             file_path=request.file_path,
             code=request.code,
             language=language,
@@ -222,7 +234,7 @@ def llm_analyze_project(request: LLMBatchRequest):
                 language = lang_map.get(ext, 'unknown')
                 framework = analyzer.detect_framework(code, language)
                 
-                context = LLMCodeContext(
+                context = get_code_context(
                     file_path=file_path,
                     code=code[:8000],
                     language=language,

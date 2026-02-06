@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Any
 from tree_sitter import Language, Parser
 import tree_sitter_javascript
 import os

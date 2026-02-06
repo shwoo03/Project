@@ -71,6 +71,9 @@ const VisualizerContent = () => {
     // Streaming mode (for large projects)
     const [useStreaming, setUseStreaming] = useState(false);
 
+    // Available projects from 'projects' directory
+    const [availableProjects, setAvailableProjects] = useState<Array<{name: string; path: string; full_path: string}>>([]);
+
     // Custom Hooks
     const { panelWidth, isResizing, startResizing } = useResizePanel({ initialWidth: 800 });
     const { highlightBacktrace, resetHighlight } = useBacktrace();
@@ -108,6 +111,24 @@ const VisualizerContent = () => {
     // Progressive loading for large node sets
     const { loadedItems: progressiveNodes, isLoading: nodesLoading, progress: loadProgress } =
         useProgressiveLoading(nodes, 200, 30);
+
+    // Load available projects on mount
+    useEffect(() => {
+        const loadProjects = async () => {
+            try {
+                const res = await fetch(`${API_BASE}/api/projects`);
+                const data = await res.json();
+                if (data.projects) {
+                    setAvailableProjects(data.projects);
+                    console.log(`Loaded ${data.count} projects from ${data.projects_path}`);
+                }
+            } catch (e) {
+                console.error('Failed to load projects:', e);
+                // Continue without projects list
+            }
+        };
+        loadProjects();
+    }, []);
 
     // Process nodes when filters change
     useEffect(() => {
@@ -900,6 +921,7 @@ const VisualizerContent = () => {
                 showCallGraph={showCallGraph}
                 useStreaming={useStreaming}
                 isStreaming={isStreaming}
+                availableProjects={availableProjects}
             />
 
             {/* Streaming Progress Overlay */}

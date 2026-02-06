@@ -397,3 +397,43 @@ def analyze_project_security(request: SemgrepRequest):
     """Run Semgrep security scan on a project."""
     findings = semgrep_analyzer.scan_project(request.project_path)
     return {"findings": findings}
+
+
+@router.get("/projects")
+def list_projects():
+    """
+    List available projects from the 'projects' directory.
+    Returns a list of directory names that can be analyzed.
+    """
+    try:
+        # Get the backend directory path
+        backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        # Go up one level to workspace root
+        workspace_root = os.path.dirname(backend_dir)
+        projects_dir = os.path.join(workspace_root, "projects")
+        
+        if not os.path.exists(projects_dir):
+            return {"projects": [], "projects_path": projects_dir}
+        
+        # Get all subdirectories in projects folder
+        projects = []
+        for item in os.listdir(projects_dir):
+            item_path = os.path.join(projects_dir, item)
+            if os.path.isdir(item_path):
+                projects.append({
+                    "name": item,
+                    "path": item_path,
+                    "full_path": os.path.abspath(item_path)
+                })
+        
+        # Sort by name
+        projects.sort(key=lambda x: x["name"])
+        
+        return {
+            "projects": projects,
+            "projects_path": projects_dir,
+            "count": len(projects)
+        }
+    except Exception as e:
+        print(f"[ERROR] Failed to list projects: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list projects: {str(e)}")

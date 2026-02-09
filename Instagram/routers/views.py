@@ -1,97 +1,86 @@
 """
 뷰 라우터 - HTML 페이지 렌더링
 """
-from fastapi import APIRouter, Request, Form
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+import logging
 import datetime
 import hashlib
 import hmac
 import base64
-import os
+
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 
 from config import get_settings
 from repositories.user_repository import UserRepository
-from utils import get_db_data
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
-# 허용된 이메일 목록
-ALLOWED_EMAILS = ["dntmdgns03@naver.com"]
-
-# 토큰 시크릿 (shwoo_server와 동일해야 함)
-TOKEN_SECRET = os.getenv("INSTAGRAM_TOKEN_SECRET", "shwoo-instagram-secret-2026")
-
-# 토큰 유효 시간 (5분)
-TOKEN_EXPIRY_SECONDS = 300
-
 
 def verify_token(token: str) -> str | None:
     """토큰 검증 - 유효하면 이메일 반환, 아니면 None"""
+    settings = get_settings()
+    
     try:
-        print(f"[DEBUG] Received token: {token[:50]}...")
+        logger.debug(f"Received token: {token[:50]}...")
         
         # Base64 URL-safe 디코딩 (패딩 추가)
-        # Node.js의 base64url은 패딩을 제거하므로 다시 추가해야 함
         padding = 4 - len(token) % 4
         if padding != 4:
             token = token + '=' * padding
         
         decoded = base64.urlsafe_b64decode(token).decode()
-        print(f"[DEBUG] Decoded token: {decoded}")
+        logger.debug(f"Decoded token: {decoded}")
         
         parts = decoded.split(":")
         
         if len(parts) != 3:
-            print(f"[DEBUG] Invalid parts count: {len(parts)}")
+            logger.debug(f"Invalid parts count: {len(parts)}")
             return None
         
         email, timestamp_str, signature = parts
-        print(f"[DEBUG] Email: {email}, Timestamp: {timestamp_str}")
+        logger.debug(f"Email: {email}, Timestamp: {timestamp_str}")
         
         # 서명 검증
         data = f"{email}:{timestamp_str}"
         expected_signature = hmac.new(
-            TOKEN_SECRET.encode(),
+            settings.instagram_token_secret.encode(),
             data.encode(),
             hashlib.sha256
         ).hexdigest()
         
-        print(f"[DEBUG] Expected signature: {expected_signature[:20]}...")
-        print(f"[DEBUG] Received signature: {signature[:20]}...")
-        
         if not hmac.compare_digest(signature, expected_signature):
-            print("[DEBUG] Signature mismatch!")
+            logger.debug("Signature mismatch!")
             return None
         
-        # 시간 검증 (5분 이내)
+        # 시간 검증
         timestamp = int(timestamp_str)
         current_time = datetime.datetime.now().timestamp() * 1000
         time_diff = current_time - timestamp
-        print(f"[DEBUG] Time diff: {time_diff}ms (max: {TOKEN_EXPIRY_SECONDS * 1000}ms)")
         
-        if time_diff > TOKEN_EXPIRY_SECONDS * 1000:
-            print("[DEBUG] Token expired!")
+        if time_diff > settings.token_expiry_seconds * 1000:
+            logger.debug("Token expired!")
             return None
         
         # 허용된 이메일인지 확인
-        if email not in ALLOWED_EMAILS:
-            print(f"[DEBUG] Email not allowed: {email}")
+        if email not in settings.allowed_emails:
+            logger.debug(f"Email not allowed: {email}")
             return None
         
-        print(f"[DEBUG] Token valid for email: {email}")
+        logger.debug(f"Token valid for email: {email}")
         return email
     except Exception as e:
-        print(f"Token verification error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Token verification error: {e}")
         return None
 
 
 def hash_email(email: str) -> str:
     """이메일 해시 생성"""
-    return hashlib.sha256(f"{email}:{TOKEN_SECRET}".encode()).hexdigest()
+    settings = get_settings()
+    return hashlib.sha256(f"{email}:{settings.instagram_token_secret}".encode()).hexdigest()
 
 
 @router.get("/auth")
@@ -105,41 +94,11 @@ async def auth_callback(request: Request, token: str = None):
     email = verify_token(token)
     
     if not email:
-        # 토큰이 유효하지 않음 - 접근 거부 페이지 표시
-        html = f'''
-<!DOCTYPE html>
-<html lang="ko" class="dark">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>접근 거부 - Instagram Insight</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        body {{
-            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%);
-            min-height: 100vh;
-        }}
-        .glass {{
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }}
-    </style>
-</head>
-<body class="flex items-center justify-center">
-    <div class="glass rounded-2xl p-8 max-w-md w-full mx-4 text-center">
-        <div class="text-6xl mb-4">🔒</div>
-        <h1 class="text-2xl font-bold text-red-400 mb-4">접근이 거부되었습니다</h1>
-        <p class="text-gray-400 mb-6">유효하지 않거나 만료된 인증 토큰입니다.</p>
-        <a href="{settings.shwoo_url}" 
-           class="inline-block px-6 py-3 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 text-white font-medium hover:opacity-90 transition-opacity">
-            Shwoo 사이트로 돌아가기
-        </a>
-    </div>
-</body>
-</html>
-'''
-        return HTMLResponse(content=html, status_code=403)
+        return templates.TemplateResponse(
+            "access_denied.html",
+            {"request": request, "shwoo_url": settings.shwoo_url},
+            status_code=403
+        )
     
     # 인증 성공 - 세션 쿠키 설정 후 대시보드로 리다이렉트
     response = RedirectResponse("/", status_code=302)
@@ -171,7 +130,7 @@ async def dashboard(request: Request):
             repo = UserRepository(settings.mongo_uri)
             data = repo.get_analysis(settings.user_id)
         except Exception as e:
-            print(f"Error: {e}")
+            logger.error(f"Dashboard data error: {e}")
 
     followers_count = len(data.get("followers", [])) if data else 0
     following_count = len(data.get("following", [])) if data else 0

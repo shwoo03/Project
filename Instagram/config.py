@@ -17,7 +17,21 @@ class Settings(BaseSettings):
     mongo_uri: str
     discord_webhook: Optional[str] = None
     access_password: str = "shwoo2026"
-    shwoo_url: str = "https://shwoo.site"
+    shwoo_url: str = "https://xn--9t4ba122aba.site"
+
+    # SSO 인증 관련 설정
+    instagram_token_secret: str = "shwoo-instagram-secret-2026"
+    allowed_emails: list[str] = ["dntmdgns03@naver.com"]
+    token_expiry_seconds: int = 300  # 5분
+
+    # API 설정
+    user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    api_timeout: float = 30.0
+    request_headers: dict = {
+        "Accept-Language": "ko-KR",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+    }
 
     class Config:
         env_file = ".env"

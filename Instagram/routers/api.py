@@ -7,9 +7,10 @@ import datetime
 import logging
 
 from config import get_settings
+from config import get_settings
 from scheduler import schedule_daily_run, remove_schedule, get_schedule_info
 from state_manager import state
-from tasks import run_tracker_task
+from services.task_service import TaskService
 from schemas import APIResponse
 from utils import get_db_data
 from repositories.user_repository import UserRepository
@@ -28,7 +29,7 @@ async def api_run(background_tasks: BackgroundTasks):
             status_code=409
         )
 
-    background_tasks.add_task(run_tracker_task)
+    background_tasks.add_task(TaskService.run_tracker)
     return APIResponse.ok("🚀 팔로워 추적을 시작합니다...")
 
 
@@ -45,7 +46,7 @@ async def api_set_schedule(hour: int = 9, minute: int = 0):
     if not (0 <= hour <= 23 and 0 <= minute <= 59):
         return APIResponse.fail("잘못된 시간 형식", error="hour: 0-23, minute: 0-59")
 
-    success = schedule_daily_run(hour, minute, run_tracker_task)
+    success = schedule_daily_run(hour, minute, TaskService.run_tracker)
     if success:
         return APIResponse.ok(f"스케줄 설정: 매일 {hour:02d}:{minute:02d}")
     return APIResponse.fail("스케줄 설정 실패")
@@ -91,9 +92,8 @@ async def api_get_logs(limit: int = 100, level: str = None):
 async def api_export_csv(export_type: str):
     """데이터 CSV 내보내기 (followers, following, non_followers, fans)"""
     try:
-        import pandas as pd
-        from io import BytesIO
         from starlette.responses import StreamingResponse
+        from services.export_service import ExportService
         
         settings = get_settings()
         if not settings.mongo_uri or not settings.user_id:
@@ -103,24 +103,9 @@ async def api_export_csv(export_type: str):
         data = repo.get_analysis(settings.user_id)
         
         target_list = data.get(export_type, [])
-        if not target_list:
-             # 빈 데이터라도 컬럼이 있는 CSV를 주기 위해 빈 리스트 처리
-             pass
         
-        # 데이터가 단순 문자열(username) 리스트인지, 객체(dict) 리스트인지 확인
-        if target_list and isinstance(target_list[0], str):
-            # 문자열 리스트인 경우 (non_followers, fans 등)
-            df = pd.DataFrame(target_list, columns=["username"])
-        else:
-            # 객체 리스트인 경우 (followers, following)
-            df = pd.DataFrame(target_list)
-            # 필요한 컬럼만 선택 (예: id, username, full_name) - 데이터에 따라 다름
-            # 일단 모든 컬럼 다 내보내기
-        
-        # CSV 변환
-        stream = BytesIO()
-        df.to_csv(stream, index=False, encoding='utf-8-sig')
-        stream.seek(0)
+        # ExportService를 사용하여 CSV 스트림 생성
+        stream = ExportService.create_csv(target_list)
         
         filename = f"instagram_{export_type}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         

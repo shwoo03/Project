@@ -11,4 +11,7 @@ apscheduler
 jinja2
 pydantic-settings
 python-multipart
-pandas
+
+pytest
+pytest-asyncio
+mypy

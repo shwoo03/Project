@@ -40,6 +40,8 @@ COPY routers/ ./routers/
 COPY repositories/ ./repositories/
 COPY templates/ ./templates/
 COPY static/ ./static/
+COPY services/ ./services/
+COPY tests/ ./tests/
 
 # 포트 노출
 EXPOSE 10000

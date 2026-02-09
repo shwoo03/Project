@@ -1,27 +1,22 @@
 """
-뷰 라우터 - HTML 페이지 렌더링
+인증 관련 모듈 - shwoo_server SSO 연동
 """
-from fastapi import APIRouter, Request, Form
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
-import datetime
 import hashlib
 import hmac
 import base64
+import datetime
 import os
-
-from config import get_settings
-from repositories.user_repository import UserRepository
-from utils import get_db_data
-
-router = APIRouter()
-templates = Jinja2Templates(directory="templates")
+from fastapi import Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 # 허용된 이메일 목록
 ALLOWED_EMAILS = ["dntmdgns03@naver.com"]
 
 # 토큰 시크릿 (shwoo_server와 동일해야 함)
-TOKEN_SECRET = os.getenv("INSTAGRAM_TOKEN_SECRET", "shwoo-instagram-secret-2026")
+TOKEN_SECRET = os.getenv("DOCKER_TOKEN_SECRET", "shwoo-docker-secret-2026")
+
+# Shwoo 서버 URL
+SHWOO_URL = os.getenv("SHWOO_URL", "https://xn--9t4ba122aba.site")
 
 # 토큰 유효 시간 (5분)
 TOKEN_EXPIRY_SECONDS = 300
@@ -30,25 +25,18 @@ TOKEN_EXPIRY_SECONDS = 300
 def verify_token(token: str) -> str | None:
     """토큰 검증 - 유효하면 이메일 반환, 아니면 None"""
     try:
-        print(f"[DEBUG] Received token: {token[:50]}...")
-        
         # Base64 URL-safe 디코딩 (패딩 추가)
-        # Node.js의 base64url은 패딩을 제거하므로 다시 추가해야 함
         padding = 4 - len(token) % 4
         if padding != 4:
             token = token + '=' * padding
         
         decoded = base64.urlsafe_b64decode(token).decode()
-        print(f"[DEBUG] Decoded token: {decoded}")
-        
         parts = decoded.split(":")
         
         if len(parts) != 3:
-            print(f"[DEBUG] Invalid parts count: {len(parts)}")
             return None
         
         email, timestamp_str, signature = parts
-        print(f"[DEBUG] Email: {email}, Timestamp: {timestamp_str}")
         
         # 서명 검증
         data = f"{email}:{timestamp_str}"
@@ -58,49 +46,36 @@ def verify_token(token: str) -> str | None:
             hashlib.sha256
         ).hexdigest()
         
-        print(f"[DEBUG] Expected signature: {expected_signature[:20]}...")
-        print(f"[DEBUG] Received signature: {signature[:20]}...")
-        
         if not hmac.compare_digest(signature, expected_signature):
-            print("[DEBUG] Signature mismatch!")
             return None
         
         # 시간 검증 (5분 이내)
         timestamp = int(timestamp_str)
         current_time = datetime.datetime.now().timestamp() * 1000
         time_diff = current_time - timestamp
-        print(f"[DEBUG] Time diff: {time_diff}ms (max: {TOKEN_EXPIRY_SECONDS * 1000}ms)")
         
         if time_diff > TOKEN_EXPIRY_SECONDS * 1000:
-            print("[DEBUG] Token expired!")
             return None
         
         # 허용된 이메일인지 확인
         if email not in ALLOWED_EMAILS:
-            print(f"[DEBUG] Email not allowed: {email}")
             return None
         
-        print(f"[DEBUG] Token valid for email: {email}")
         return email
     except Exception as e:
         print(f"Token verification error: {e}")
-        import traceback
-        traceback.print_exc()
         return None
 
 
 def hash_email(email: str) -> str:
-    """이메일 해시 생성"""
+    """이메일 해시 생성 - 세션 토큰용"""
     return hashlib.sha256(f"{email}:{TOKEN_SECRET}".encode()).hexdigest()
 
 
-@router.get("/auth")
 async def auth_callback(request: Request, token: str = None):
     """토큰 기반 인증 콜백 - shwoo_server에서 리다이렉트됨"""
-    settings = get_settings()
-    
     if not token:
-        return RedirectResponse(settings.shwoo_url, status_code=302)
+        return RedirectResponse(SHWOO_URL, status_code=302)
     
     email = verify_token(token)
     
@@ -112,7 +87,7 @@ async def auth_callback(request: Request, token: str = None):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>접근 거부 - Instagram Insight</title>
+    <title>접근 거부 - Docker Monitor</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body {{
@@ -131,7 +106,7 @@ async def auth_callback(request: Request, token: str = None):
         <div class="text-6xl mb-4">🔒</div>
         <h1 class="text-2xl font-bold text-red-400 mb-4">접근이 거부되었습니다</h1>
         <p class="text-gray-400 mb-6">유효하지 않거나 만료된 인증 토큰입니다.</p>
-        <a href="{settings.shwoo_url}" 
+        <a href="{SHWOO_URL}" 
            class="inline-block px-6 py-3 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 text-white font-medium hover:opacity-90 transition-opacity">
             Shwoo 사이트로 돌아가기
         </a>
@@ -145,7 +120,7 @@ async def auth_callback(request: Request, token: str = None):
     response = RedirectResponse("/", status_code=302)
     session_token = hash_email(email)
     response.set_cookie(
-        key="instagram_auth",
+        key="docker_auth",
         value=session_token,
         httponly=True,
         max_age=86400 * 7  # 7일
@@ -153,40 +128,6 @@ async def auth_callback(request: Request, token: str = None):
     return response
 
 
-@router.get("/login")
 async def login_redirect(request: Request):
     """로그인 페이지 - shwoo_server로 리다이렉트"""
-    settings = get_settings()
-    return RedirectResponse(settings.shwoo_url, status_code=302)
-
-
-@router.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request):
-    """메인 대시보드 HTML"""
-    settings = get_settings()
-    data = None
-    
-    if settings.mongo_uri and settings.user_id:
-        try:
-            repo = UserRepository(settings.mongo_uri)
-            data = repo.get_analysis(settings.user_id)
-        except Exception as e:
-            print(f"Error: {e}")
-
-    followers_count = len(data.get("followers", [])) if data else 0
-    following_count = len(data.get("following", [])) if data else 0
-    last_updated = data.get("last_updated", "없음") if data else "없음"
-
-    if isinstance(last_updated, datetime.datetime):
-        last_updated = last_updated.strftime('%Y-%m-%d %H:%M:%S')
-
-    return templates.TemplateResponse("dashboard.html", {
-        "request": request,
-        "last_updated": last_updated,
-        "followers_count": followers_count,
-        "following_count": following_count,
-        "not_following_back_count": len(data.get("non_followers", [])) if data else 0,
-        "im_not_following_count": len(data.get("fans", [])) if data else 0,
-        "not_following_back_list": data.get("non_followers", []) if data else [],
-        "im_not_following_list": data.get("fans", []) if data else [],
-    })
+    return RedirectResponse(SHWOO_URL, status_code=302)

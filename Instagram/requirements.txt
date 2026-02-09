@@ -10,3 +10,5 @@ uvicorn[standard]
 apscheduler
 jinja2
 pydantic-settings
+python-multipart
+pandas

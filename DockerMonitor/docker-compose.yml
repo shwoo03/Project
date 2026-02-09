@@ -13,3 +13,5 @@ services:
     restart: unless-stopped
     environment:
       - TZ=Asia/Seoul
+      - SHWOO_URL=https://xn--9t4ba122aba.site
+      - DOCKER_TOKEN_SECRET=shwoo-docker-secret-2026

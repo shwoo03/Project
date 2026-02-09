@@ -4,10 +4,13 @@
 """
 import logging
 import os
+import hashlib
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 import uvicorn
 
 # 모듈 import
@@ -15,6 +18,7 @@ from log_handler import MongoHandler
 from scheduler import get_scheduler, shutdown_scheduler
 from routers import views, api
 from state_manager import state
+from config import get_settings
 
 # 로깅 설정
 # 기존 파일 핸들러 유지 + MongoDB 핸들러 추가
@@ -40,6 +44,46 @@ logger.addHandler(mongo_handler)
 
 local_logger = logging.getLogger(__name__)
 
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """인증 미들웨어 - 보호된 경로에 대한 접근 제어"""
+    
+    # 인증 없이 접근 가능한 경로
+    PUBLIC_PATHS = ["/login", "/auth", "/static", "/favicon.ico"]
+    
+    # 허용된 이메일 목록
+    ALLOWED_EMAILS = ["dntmdgns03@naver.com"]
+    
+    # 토큰 시크릿 (shwoo_server와 동일해야 함)
+    TOKEN_SECRET = os.getenv("INSTAGRAM_TOKEN_SECRET", "shwoo-instagram-secret-2026")
+    
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        
+        # 공개 경로는 인증 없이 허용
+        if any(path.startswith(p) for p in self.PUBLIC_PATHS):
+            return await call_next(request)
+        
+        # 인증 확인 - 이메일 기반 세션 토큰 검증
+        session_token = request.cookies.get("instagram_auth")
+        
+        if not session_token:
+            return RedirectResponse("/login", status_code=302)
+        
+        # 허용된 이메일 중 하나와 일치하는지 확인
+        valid_session = False
+        for email in self.ALLOWED_EMAILS:
+            expected_token = hashlib.sha256(f"{email}:{self.TOKEN_SECRET}".encode()).hexdigest()
+            if session_token == expected_token:
+                valid_session = True
+                break
+        
+        if not valid_session:
+            return RedirectResponse("/login", status_code=302)
+        
+        return await call_next(request)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """앱 시작/종료 시 실행"""
@@ -56,6 +100,9 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan
 )
+
+# 인증 미들웨어 등록
+app.add_middleware(AuthMiddleware)
 
 # 라우터 등록
 app.include_router(views.router)

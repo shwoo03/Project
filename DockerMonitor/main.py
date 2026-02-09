@@ -7,8 +7,10 @@ import logging
 
 from core.docker_client import docker_manager
 from core.monitor import monitor
+from core.auth import auth_callback, login_redirect
 from routers import containers, websocket, networks, images, terminal, volumes
 from middleware.error_handler import register_error_handlers
+from middleware.auth_middleware import AuthMiddleware
 
 
 # 로깅 설정
@@ -33,6 +35,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Docker Monitor", lifespan=lifespan)
 
+# 인증 미들웨어 등록
+app.add_middleware(AuthMiddleware)
+
 # Register Exception Handlers
 register_error_handlers(app)
 
@@ -49,6 +54,10 @@ app.include_router(networks.router)
 app.include_router(images.router)
 app.include_router(terminal.router)
 app.include_router(volumes.router)
+
+# 인증 라우트 등록
+app.get("/auth")(auth_callback)
+app.get("/login")(login_redirect)
 
 
 @app.get("/", response_class=HTMLResponse)

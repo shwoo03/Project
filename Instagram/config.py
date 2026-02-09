@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     user_password: str
     mongo_uri: str
     discord_webhook: Optional[str] = None
+    access_password: str = "shwoo2026"
+    shwoo_url: str = "https://shwoo.site"
 
     class Config:
         env_file = ".env"

@@ -5,6 +5,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    container_name: source-viz-backend
     ports:
       - "10003:8000"
     environment:
@@ -17,30 +18,41 @@ services:
     depends_on:
       - redis
     restart: unless-stopped
+    networks:
+      - source-viz-net
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://code.xn--9t4ba122aba.site}
+    container_name: source-viz-frontend
     ports:
       - "10004:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:10003
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://code.xn--9t4ba122aba.site}
     depends_on:
       - backend
     restart: unless-stopped
+    networks:
+      - source-viz-net
 
   redis:
     image: redis:7-alpine
+    container_name: source-viz-redis
     ports:
       - "10005:6379"
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    networks:
+      - source-viz-net
 
 volumes:
   redis_data:
+
+
+networks:
+  source-viz-net:
+    driver: bridge

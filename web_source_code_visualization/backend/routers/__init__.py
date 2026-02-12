@@ -19,6 +19,7 @@ from .ml import router as ml_router
 from .llm import router as llm_router
 from .dataflow import router as dataflow_router
 from .semantic import router as semantic_router
+from .upload import router as upload_router
 
 __all__ = [
     "analyze_router",
@@ -36,4 +37,5 @@ __all__ = [
     "llm_router",
     "dataflow_router",
     "semantic_router",
+    "upload_router",
 ]

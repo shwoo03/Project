@@ -62,7 +62,7 @@ export function ControlBar({
                         </button>
                     )}
                 </div>
-                
+
                 {/* Projects dropdown button */}
                 <button
                     onClick={() => setShowProjectDropdown(!showProjectDropdown)}
@@ -126,21 +126,86 @@ export function ControlBar({
             >
                 {scanning ? '스캔 중...' : '🛡️ 보안 스캔'}
             </button>
-            {/* Streaming mode toggle */}
             {onToggleStreaming && (
                 <button
                     onClick={onToggleStreaming}
-                    className={`px-4 py-2 rounded-lg border transition-all font-bold flex items-center gap-2 ${
-                        useStreaming 
-                            ? 'bg-green-500/20 text-green-400 border-green-500/50' 
+                    className={`px-4 py-2 rounded-lg border transition-all font-bold flex items-center gap-2 ${useStreaming
+                            ? 'bg-green-500/20 text-green-400 border-green-500/50'
                             : 'bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10'
-                    }`}
+                        }`}
                     title="스트리밍 모드: 대규모 프로젝트에서 실시간 진행률 표시"
                 >
                     <Zap size={16} />
                     Stream
                 </button>
             )}
+
+            {/* Upload Button */}
+            <div className="relative">
+                <input
+                    type="file"
+                    id="project-upload"
+                    accept=".zip"
+                    className="hidden"
+                    onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+
+                        if (!file.name.endsWith('.zip')) {
+                            alert('오직 .zip 파일만 업로드 가능합니다.');
+                            return;
+                        }
+
+                        // Create form data
+                        const formData = new FormData();
+                        formData.append('file', file);
+
+                        try {
+                            // Show loading state (optimistic UI or simple alert for now)
+                            const btn = document.getElementById('upload-btn');
+                            if (btn) btn.innerText = 'Uploading...';
+
+                            const API_BASE = 'http://localhost:10008'; // Hardcoded for now, should use env or prop
+                            const res = await fetch(`${API_BASE}/api/upload`, {
+                                method: 'POST',
+                                body: formData,
+                            });
+
+                            if (!res.ok) {
+                                const err = await res.json();
+                                throw new Error(err.detail || 'Upload failed');
+                            }
+
+                            const data = await res.json();
+                            alert(`프로젝트 업로드 완료: ${data.project_name}`);
+
+                            // Trigger refresh if callback provided, or just update path
+                            if (onProjectPathChange) {
+                                onProjectPathChange(data.path);
+                            }
+
+                            // Clear input
+                            e.target.value = '';
+
+                        } catch (err: any) {
+                            console.error(err);
+                            alert(`업로드 실패: ${err.message}`);
+                        } finally {
+                            const btn = document.getElementById('upload-btn');
+                            if (btn) btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-upload"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg> Upload';
+                        }
+                    }}
+                />
+                <button
+                    id="upload-btn"
+                    onClick={() => document.getElementById('project-upload')?.click()}
+                    className="px-4 py-2 bg-white/5 rounded-lg border border-white/10 hover:bg-white/10 transition-all flex items-center gap-2 text-zinc-400"
+                    title="프로젝트 업로드 (.zip)"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-upload"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" x2="12" y1="3" y2="15" /></svg>
+                    Upload
+                </button>
+            </div>
             <button
                 onClick={onToggleCallGraph}
                 className={`px-4 py-2 rounded-lg border transition-all font-bold flex items-center gap-2 ${showCallGraph ? 'bg-purple-500/20 text-purple-400 border-purple-500/50' : 'bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10'}`}

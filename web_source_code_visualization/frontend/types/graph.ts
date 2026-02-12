@@ -159,6 +159,8 @@ export interface ControlBarProps {
     showCallGraph: boolean;
     useStreaming?: boolean;
     isStreaming?: boolean;
+    availableProjects?: Array<{ name: string; path: string; full_path: string }>;
+    refreshProjects?: () => void;
 }
 
 export interface FileTreeSidebarProps {

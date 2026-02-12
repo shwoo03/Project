@@ -43,6 +43,7 @@ from routers import (
     llm_router,
     dataflow_router,
     semantic_router,
+    upload_router,
 )
 
 # Include all routers
@@ -61,6 +62,7 @@ app.include_router(ml_router)
 app.include_router(llm_router)
 app.include_router(dataflow_router)
 app.include_router(semantic_router)
+app.include_router(upload_router)
 
 
 @app.get("/")

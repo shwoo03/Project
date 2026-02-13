@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 class="dashboard-title">Compose Projects.</h1>
+<p class="dashboard-desc">Manage Docker Compose projects and their services.</p>
+
+<div class="section-header">
+    <h2>Projects</h2>
+    <button class="btn-mini" onclick="loadComposeProjects()" style="opacity:1;">
+        <i class="fas fa-sync-alt"></i> REFRESH
+    </button>
+</div>
+
+<div id="compose-projects">
+    <div class="empty-state">
+        <i class="fas fa-spinner fa-spin"></i>
+        <h3>Loading Compose projects...</h3>
+    </div>
+</div>
+
+<!-- Services Modal -->
+<div class="terminal-modal" id="services-modal" style="display:none;">
+    <div class="terminal-content" style="height: auto; max-height: 80vh; width: 700px; padding: 20px; overflow-y: auto;">
+        <div class="terminal-header" style="margin: -21px -21px 20px -21px;">
+            <span id="services-modal-title">Services</span>
+            <button class="terminal-close" onclick="closeServicesModal()">&times;</button>
+        </div>
+        <div id="services-list" style="color: #fff;">
+            <!-- JS 렌더링 -->
+        </div>
+    </div>
+</div>
+
+<style>
+    .compose-card {
+        padding: 20px 0;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .compose-card:last-child { border-bottom: none; }
+
+    .compose-info { display: flex; flex-direction: column; gap: 5px; flex: 1; }
+    .compose-name {
+        font-size: 1.1rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .compose-meta {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        display: flex;
+        gap: 15px;
+        align-items: center;
+    }
+    .compose-status {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.8rem;
+        padding: 3px 8px;
+        border-radius: 4px;
+        display: inline-block;
+    }
+    .compose-status.running {
+        background: rgba(16, 185, 129, 0.15);
+        color: #10b981;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .compose-status.exited, .compose-status.stopped {
+        background: rgba(239, 68, 68, 0.15);
+        color: #ef4444;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+    .compose-status.partial {
+        background: rgba(245, 158, 11, 0.15);
+        color: #f59e0b;
+        border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+    .compose-actions {
+        display: flex;
+        gap: 8px;
+        flex-shrink: 0;
+    }
+    .compose-actions .btn-mini { opacity: 1; }
+    .btn-mini.up-btn {
+        background: rgba(16, 185, 129, 0.1);
+        color: #10b981;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .btn-mini.up-btn:hover { background: rgba(16, 185, 129, 0.2); }
+    .btn-mini.down-btn {
+        background: rgba(239, 68, 68, 0.1);
+        color: #ef4444;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+    .btn-mini.down-btn:hover { background: rgba(239, 68, 68, 0.2); }
+    .btn-mini.restart-btn-compose {
+        background: rgba(59, 130, 246, 0.1);
+        color: #3b82f6;
+        border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+    .btn-mini.restart-btn-compose:hover { background: rgba(59, 130, 246, 0.2); }
+    .btn-mini.pull-btn {
+        background: rgba(168, 85, 247, 0.1);
+        color: #a855f7;
+        border: 1px solid rgba(168, 85, 247, 0.3);
+    }
+    .btn-mini.pull-btn:hover { background: rgba(168, 85, 247, 0.2); }
+    .btn-mini.info-btn {
+        background: rgba(245, 158, 11, 0.1);
+        color: #f59e0b;
+        border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+    .btn-mini.info-btn:hover { background: rgba(245, 158, 11, 0.2); }
+
+    /* Service list in modal */
+    .service-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--border);
+    }
+    .service-row:last-child { border-bottom: none; }
+    .service-info { display: flex; flex-direction: column; gap: 4px; }
+    .service-name { font-weight: 600; font-size: 0.95rem; }
+    .service-detail {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+    }
+    .btn-mini[disabled] {
+        opacity: 0.4;
+        cursor: not-allowed;
+        pointer-events: none;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let composeProjects = [];
+
+async function loadComposeProjects() {
+    const el = document.getElementById('compose-projects');
+    el.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Loading...</h3></div>';
+
+    try {
+        const res = await fetch('/api/compose');
+        const result = await res.json();
+        if (result.success && result.data) {
+            composeProjects = result.data;
+            renderComposeProjects(result.data);
+        } else {
+            el.innerHTML = '<div class="empty-state"><i class="fab fa-docker"></i><h3>No Compose Projects Found</h3><p>No running compose projects detected.</p></div>';
+        }
+    } catch (e) {
+        console.error(e);
+        el.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><h3>Error loading projects</h3><p>' + e.message + '</p></div>';
+    }
+}
+
+function getStatusClass(status) {
+    if (!status) return '';
+    const s = status.toLowerCase();
+    if (s.includes('running')) return 'running';
+    if (s.includes('exited') || s.includes('stopped') || s.includes('dead')) return 'exited';
+    return 'partial';
+}
+
+function renderComposeProjects(projects) {
+    const el = document.getElementById('compose-projects');
+    if (!projects || projects.length === 0) {
+        el.innerHTML = '<div class="empty-state"><i class="fab fa-docker"></i><h3>No Compose Projects</h3><p>No docker compose projects found.</p></div>';
+        return;
+    }
+
+    el.innerHTML = projects.map(proj => {
+        const statusClass = getStatusClass(proj.status);
+        const configFile = proj.config_files || '';
+        const cfEscaped = configFile.replace(/'/g, "\\'");
+        return `
+            <div class="compose-card">
+                <div class="compose-info">
+                    <div class="compose-name">
+                        <i class="fab fa-docker" style="color: var(--accent); font-size: 1.2rem;"></i>
+                        ${proj.name}
+                    </div>
+                    <div class="compose-meta">
+                        <span class="compose-status ${statusClass}">${proj.status || 'unknown'}</span>
+                        <span title="${configFile}" style="max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            <i class="fas fa-file-code"></i> ${configFile.split('/').pop() || configFile.split('\\\\').pop() || configFile}
+                        </span>
+                    </div>
+                </div>
+                <div class="compose-actions">
+                    <button class="btn-mini info-btn" onclick="viewServices('${cfEscaped}', '${proj.name}')" title="Services"><i class="fas fa-list"></i></button>
+                    <button class="btn-mini up-btn" onclick="composeAction('${cfEscaped}', 'up')" title="Up"><i class="fas fa-play"></i> UP</button>
+                    <button class="btn-mini down-btn" onclick="composeAction('${cfEscaped}', 'down')" title="Down"><i class="fas fa-stop"></i> DOWN</button>
+                    <button class="btn-mini restart-btn-compose" onclick="composeAction('${cfEscaped}', 'restart')" title="Restart"><i class="fas fa-redo"></i></button>
+                    <button class="btn-mini pull-btn" onclick="composeAction('${cfEscaped}', 'pull')" title="Pull"><i class="fas fa-download"></i> PULL</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function composeAction(configFile, action) {
+    const actionLabels = { up: 'Starting', down: 'Stopping', restart: 'Restarting', pull: 'Pulling' };
+    showToast(`${actionLabels[action] || action}...`, 'info', 3000);
+
+    // Disable buttons during action
+    document.querySelectorAll('.compose-actions .btn-mini').forEach(b => b.disabled = true);
+
+    try {
+        const res = await fetch('/api/compose/action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ config_file: configFile, action: action })
+        });
+        const result = await res.json();
+        if (result.success) {
+            showToast(`Compose ${action} completed`, 'success', 4000);
+            // 잠시 후 목록 갱신
+            setTimeout(() => loadComposeProjects(), 2000);
+        } else {
+            showToast(`Compose ${action} failed: ${result.error?.message || 'Unknown error'}`, 'error', 6000);
+        }
+    } catch (e) {
+        console.error(e);
+        showToast(`Error: ${e.message}`, 'error');
+    } finally {
+        document.querySelectorAll('.compose-actions .btn-mini').forEach(b => b.disabled = false);
+    }
+}
+
+async function viewServices(configFile, projectName) {
+    const modal = document.getElementById('services-modal');
+    const list = document.getElementById('services-list');
+    const title = document.getElementById('services-modal-title');
+
+    title.textContent = `${projectName} — Services`;
+    modal.style.display = 'flex';
+    list.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);"><i class="fas fa-spinner fa-spin"></i> Loading services...</div>';
+
+    try {
+        const res = await fetch(`/api/compose/services?config_file=${encodeURIComponent(configFile)}`);
+        const result = await res.json();
+
+        if (result.success && result.data && result.data.length > 0) {
+            list.innerHTML = result.data.map(svc => {
+                const stateClass = getStatusClass(svc.state || svc.status);
+                let portsStr = '';
+                if (Array.isArray(svc.ports)) {
+                    portsStr = svc.ports.map(p => {
+                        if (typeof p === 'object') {
+                            return p.PublishedPort ? `${p.PublishedPort}→${p.TargetPort}` : `${p.TargetPort}`;
+                        }
+                        return p;
+                    }).join(', ');
+                } else if (svc.ports) {
+                    portsStr = String(svc.ports);
+                }
+                return `
+                    <div class="service-row">
+                        <div class="service-info">
+                            <div class="service-name">
+                                <span class="status-dot ${stateClass === 'running' ? 'running' : ''}"></span>
+                                ${svc.name || svc.service}
+                            </div>
+                            <div class="service-detail">
+                                <span><i class="fas fa-cube"></i> ${svc.image || '-'}</span>
+                                ${portsStr ? `<span style="margin-left:10px;"><i class="fas fa-network-wired"></i> ${portsStr}</span>` : ''}
+                            </div>
+                        </div>
+                        <span class="compose-status ${stateClass}">${svc.state || svc.status || 'unknown'}</span>
+                    </div>
+                `;
+            }).join('');
+        } else {
+            list.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);">No services found</div>';
+        }
+    } catch (e) {
+        console.error(e);
+        list.innerHTML = `<div style="text-align:center; padding:20px; color:#ef4444;">Error: ${e.message}</div>`;
+    }
+}
+
+function closeServicesModal() {
+    document.getElementById('services-modal').style.display = 'none';
+}
+
+// 모달 바깥 클릭으로 닫기
+document.getElementById('services-modal')?.addEventListener('click', function(e) {
+    if (e.target === this) closeServicesModal();
+});
+
+// 초기 로드
+document.addEventListener('DOMContentLoaded', loadComposeProjects);
+</script>
+{% endblock %}

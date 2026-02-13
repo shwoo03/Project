@@ -52,6 +52,30 @@ function setConnectionStatus(status, text) {
     }
 }
 
+// --- Browser Notification API ---
+function requestNotificationPermission() {
+    if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+    }
+}
+
+function sendBrowserNotification(name, fromStatus, toStatus) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const icon = toStatus === 'running' ? '🟢' : toStatus === 'exited' ? '🔴' : '🟡';
+    try {
+        new Notification('Docker Monitor', {
+            body: `${icon} ${name}: ${fromStatus} → ${toStatus}`,
+            tag: `container-${name}`,
+            silent: false,
+        });
+    } catch (e) {
+        console.warn('Notification failed:', e);
+    }
+}
+
+// Request permission on load
+document.addEventListener('DOMContentLoaded', requestNotificationPermission);
+
 function connectWebSocket() {
     setConnectionStatus('connecting', 'Connecting...');
     socket = new WebSocket(socketUrl);
@@ -79,6 +103,19 @@ function connectWebSocket() {
                 setConnectionStatus('connected', 'Connected');
             }
             updateDashboard(data.containers, data.stats);
+            // Chart.js hook (defined in index.html page script)
+            if (typeof window.updateStatsWithCharts === 'function') {
+                window.updateStatsWithCharts(data.stats, data.containers);
+            }
+            // Browser Notification for status changes
+            if (data.status_events && data.status_events.length > 0) {
+                data.status_events.forEach(ev => {
+                    const icon = ev.to === 'running' ? '🟢' : ev.to === 'exited' ? '🔴' : '🟡';
+                    const msg = `${icon} ${ev.name}: ${ev.from} → ${ev.to}`;
+                    showToast(msg, ev.to === 'running' ? 'success' : 'warning', 5000);
+                    sendBrowserNotification(ev.name, ev.from, ev.to);
+                });
+            }
         }
     };
 
@@ -315,6 +352,37 @@ async function submitResourceUpdate() {
 }
 
 
+/**
+ * 컨테이너 상태에 따라 버튼 visibility를 설정하는 헬퍼 함수
+ */
+function setButtonVisibility(card, isRunning) {
+    const startBtn = card.querySelector('.start-btn');
+    const stopBtn = card.querySelector('.stop-btn');
+    const restartBtn = card.querySelector('.restart-btn');
+    const terminalBtn = card.querySelector('.terminal-btn');
+    const settingsBtn = card.querySelector('.settings-btn');
+    const inspectBtn = card.querySelector('.inspect-btn');
+    const indicator = card.querySelector('.status-dot');
+
+    if (inspectBtn) inspectBtn.style.display = 'inline-block';
+
+    if (isRunning) {
+        if (indicator) indicator.classList.add('running');
+        if (startBtn) startBtn.style.display = 'none';
+        if (stopBtn) stopBtn.style.display = 'inline-block';
+        if (restartBtn) restartBtn.style.display = 'inline-block';
+        if (terminalBtn) terminalBtn.style.display = 'inline-block';
+        if (settingsBtn) settingsBtn.style.display = 'inline-block';
+    } else {
+        if (indicator) indicator.classList.remove('running');
+        if (startBtn) startBtn.style.display = 'inline-block';
+        if (stopBtn) stopBtn.style.display = 'none';
+        if (restartBtn) restartBtn.style.display = 'none';
+        if (terminalBtn) terminalBtn.style.display = 'none';
+        if (settingsBtn) settingsBtn.style.display = 'inline-block';
+    }
+}
+
 function renderContainerCards(containers) {
     if (!containerList) return;
     containerList.innerHTML = '';
@@ -336,42 +404,23 @@ function renderContainerCards(containers) {
         }
         card.querySelector('.port-text').textContent = portsText;
 
-        // Status
-        const indicator = card.querySelector('.status-dot');
-        if (container.status === 'running') {
-            indicator.classList.add('running');
-        } else {
-            indicator.classList.remove('running');
-        }
-
-        // Buttons
+        // Buttons - event binding
         const startBtn = card.querySelector('.start-btn');
         const stopBtn = card.querySelector('.stop-btn');
         const restartBtn = card.querySelector('.restart-btn');
         const terminalBtn = card.querySelector('.terminal-btn');
         const settingsBtn = card.querySelector('.settings-btn');
+        const inspectBtn = card.querySelector('.inspect-btn');
 
-        // Check if buttons exist
         if (startBtn) startBtn.onclick = () => actionContainer(container.id, 'start');
         if (stopBtn) stopBtn.onclick = () => actionContainer(container.id, 'stop');
         if (restartBtn) restartBtn.onclick = () => actionContainer(container.id, 'restart');
         if (terminalBtn) terminalBtn.onclick = () => openTerminal(container.id);
         if (settingsBtn) settingsBtn.onclick = () => openResourceModal(container.id);
+        if (inspectBtn) inspectBtn.onclick = () => window.location.href = `/inspect/${container.id}`;
 
-        // Visibility Logic
-        if (container.status === 'running') {
-            if (startBtn) startBtn.style.display = 'none';
-            if (stopBtn) stopBtn.style.display = 'inline-block';
-            if (restartBtn) restartBtn.style.display = 'inline-block';
-            if (terminalBtn) terminalBtn.style.display = 'inline-block';
-            if (settingsBtn) settingsBtn.style.display = 'inline-block';
-        } else {
-            if (startBtn) startBtn.style.display = 'inline-block';
-            if (stopBtn) stopBtn.style.display = 'none';
-            if (restartBtn) restartBtn.style.display = 'none';
-            if (terminalBtn) terminalBtn.style.display = 'none';
-            if (settingsBtn) settingsBtn.style.display = 'inline-block';
-        }
+        // Visibility
+        setButtonVisibility(card, container.status === 'running');
 
         containerList.appendChild(card);
     });
@@ -393,28 +442,7 @@ function updateStats(stats, containers) {
     containers.forEach(c => {
         const card = document.querySelector(`.container-card[data-id="${c.id}"]`);
         if (card) {
-            const indicator = card.querySelector('.status-dot');
-            const startBtn = card.querySelector('.start-btn');
-            const stopBtn = card.querySelector('.stop-btn');
-            const restartBtn = card.querySelector('.restart-btn');
-            const terminalBtn = card.querySelector('.terminal-btn');
-            const settingsBtn = card.querySelector('.settings-btn');
-
-            if (c.status === 'running') {
-                if (indicator) indicator.classList.add('running');
-                if (startBtn) startBtn.style.display = 'none';
-                if (stopBtn) stopBtn.style.display = 'inline-block';
-                if (restartBtn) restartBtn.style.display = 'inline-block';
-                if (terminalBtn) terminalBtn.style.display = 'inline-block';
-                if (settingsBtn) settingsBtn.style.display = 'inline-block';
-            } else {
-                if (indicator) indicator.classList.remove('running');
-                if (startBtn) startBtn.style.display = 'inline-block';
-                if (stopBtn) stopBtn.style.display = 'none';
-                if (restartBtn) restartBtn.style.display = 'none';
-                if (terminalBtn) terminalBtn.style.display = 'none';
-                if (settingsBtn) settingsBtn.style.display = 'inline-block';
-            }
+            setButtonVisibility(card, c.status === 'running');
         }
     });
 }

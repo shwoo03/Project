@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+
+{% block title %}WSunghun / Docker - Inspect{% endblock %}
+
+{% block head %}
+<style>
+    .inspect-header {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        margin-bottom: 25px;
+    }
+
+    .inspect-header .back-link {
+        color: var(--accent);
+        text-decoration: none;
+        font-size: 1.2rem;
+    }
+
+    .inspect-status {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .inspect-status.running {
+        background: rgba(16, 185, 129, 0.15);
+        color: #10b981;
+    }
+
+    .inspect-status.exited {
+        background: rgba(239, 68, 68, 0.15);
+        color: #ef4444;
+    }
+
+    .detail-section {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+
+    .detail-section h3 {
+        margin: 0 0 15px 0;
+        font-size: 1rem;
+        color: var(--accent);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .detail-grid {
+        display: grid;
+        grid-template-columns: 180px 1fr;
+        gap: 8px 15px;
+        font-size: 0.9rem;
+    }
+
+    .detail-grid .label {
+        color: var(--text-muted);
+        font-weight: 500;
+    }
+
+    .detail-grid .value {
+        font-family: 'JetBrains Mono', monospace;
+        word-break: break-all;
+        font-size: 0.85rem;
+    }
+
+    .env-list,
+    .mount-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .env-list li,
+    .mount-list li {
+        padding: 6px 10px;
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 6px;
+        margin-bottom: 4px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.82rem;
+        word-break: break-all;
+    }
+
+    .env-list li:nth-child(even),
+    .mount-list li:nth-child(even) {
+        background: rgba(255, 255, 255, 0.06);
+    }
+
+    .net-card {
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 8px;
+    }
+
+    .net-card .net-name {
+        font-weight: 600;
+        margin-bottom: 8px;
+        color: var(--accent);
+    }
+
+    .port-badge {
+        display: inline-block;
+        background: rgba(59, 130, 246, 0.15);
+        color: #3b82f6;
+        padding: 3px 10px;
+        border-radius: 6px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.82rem;
+        margin: 2px 4px 2px 0;
+    }
+
+    .label-badge {
+        display: inline-block;
+        background: rgba(139, 92, 246, 0.12);
+        color: #a78bfa;
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-size: 0.78rem;
+        margin: 2px 4px 2px 0;
+        max-width: 100%;
+        word-break: break-all;
+    }
+
+    .section-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+    }
+
+    @media (max-width: 768px) {
+        .section-row {
+            grid-template-columns: 1fr;
+        }
+
+        .detail-grid {
+            grid-template-columns: 120px 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="inspect-header">
+    <a href="/" class="back-link"><i class="fas fa-arrow-left"></i></a>
+    <h1 class="dashboard-title" style="margin:0" id="container-name">Loading...</h1>
+    <span class="inspect-status" id="container-status"></span>
+</div>
+
+<div id="inspect-content">
+    <div style="text-align:center; padding:40px; color:#888;">Loading container details...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const containerId = '{{ container_id }}';
+
+    async function loadInspect() {
+        try {
+            const res = await fetch(`/api/containers/${containerId}/inspect`);
+            const result = await res.json();
+            if (!result.success) throw new Error(result.message);
+            render(result.data);
+        } catch (e) {
+            document.getElementById('inspect-content').innerHTML =
+                `<div style="text-align:center;color:#ef4444;padding:40px;">Failed to load: ${e.message}</div>`;
+        }
+    }
+
+    function render(d) {
+        document.getElementById('container-name').textContent = d.name;
+        const statusEl = document.getElementById('container-status');
+        statusEl.textContent = d.status;
+        statusEl.className = `inspect-status ${d.status}`;
+
+        const fmtBytes = (b) => {
+            if (!b) return '0 B';
+            const k = 1024, s = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(b) / Math.log(k));
+            return `${(b / Math.pow(k, i)).toFixed(1)} ${s[i]}`;
+        };
+
+        // Ports HTML
+        let portsHtml = '';
+        for (const [k, v] of Object.entries(d.ports || {})) {
+            if (v && v.length) {
+                portsHtml += v.map(h => `<span class="port-badge">${h} → ${k}</span>`).join('');
+            } else {
+                portsHtml += `<span class="port-badge" style="opacity:0.5">${k} (not bound)</span>`;
+            }
+        }
+        if (!portsHtml) portsHtml = '<span style="color:#666">None</span>';
+
+        // Labels HTML
+        let labelsHtml = '';
+        for (const [k, v] of Object.entries(d.labels || {})) {
+            labelsHtml += `<span class="label-badge">${k}=${v}</span>`;
+        }
+        if (!labelsHtml) labelsHtml = '<span style="color:#666">None</span>';
+
+        document.getElementById('inspect-content').innerHTML = `
+        <div class="section-row">
+            <div class="detail-section">
+                <h3><i class="fas fa-info-circle"></i> General</h3>
+                <div class="detail-grid">
+                    <span class="label">Container ID</span><span class="value">${d.full_id}</span>
+                    <span class="label">Image</span><span class="value">${d.image}</span>
+                    <span class="label">Created</span><span class="value">${new Date(d.created).toLocaleString()}</span>
+                    <span class="label">Started At</span><span class="value">${d.started_at ? new Date(d.started_at).toLocaleString() : '-'}</span>
+                    <span class="label">Working Dir</span><span class="value">${d.working_dir || '/'}</span>
+                    <span class="label">CMD</span><span class="value">${(d.cmd || []).join(' ') || '-'}</span>
+                    <span class="label">Entrypoint</span><span class="value">${(d.entrypoint || []).join(' ') || '-'}</span>
+                    <span class="label">Restart Policy</span><span class="value">${d.restart_policy?.name || 'no'} (max: ${d.restart_policy?.max_retry || 0})</span>
+                    <span class="label">Restart Count</span><span class="value">${d.restart_count}</span>
+                </div>
+            </div>
+            <div class="detail-section">
+                <h3><i class="fas fa-microchip"></i> Resources</h3>
+                <div class="detail-grid">
+                    <span class="label">CPU Shares</span><span class="value">${d.resources?.cpu_shares || 0}</span>
+                    <span class="label">CPU Quota</span><span class="value">${d.resources?.cpu_quota || 'No limit'}</span>
+                    <span class="label">Memory</span><span class="value">${d.resources?.memory ? fmtBytes(d.resources.memory) : 'No limit'}</span>
+                    <span class="label">Memory Swap</span><span class="value">${d.resources?.memory_swap ? fmtBytes(d.resources.memory_swap) : 'No limit'}</span>
+                </div>
+                <h3 style="margin-top:20px"><i class="fas fa-network-wired"></i> Ports</h3>
+                <div>${portsHtml}</div>
+            </div>
+        </div>
+
+        <div class="detail-section">
+            <h3><i class="fas fa-tags"></i> Labels</h3>
+            <div>${labelsHtml}</div>
+        </div>
+
+        <div class="section-row">
+            <div class="detail-section">
+                <h3><i class="fas fa-key"></i> Environment Variables (${(d.env || []).length})</h3>
+                <ul class="env-list">
+                    ${(d.env || []).map(e => `<li>${e}</li>`).join('')}
+                </ul>
+                ${(d.env || []).length === 0 ? '<span style="color:#666">None</span>' : ''}
+            </div>
+            <div class="detail-section">
+                <h3><i class="fas fa-hdd"></i> Mounts (${(d.mounts || []).length})</h3>
+                <ul class="mount-list">
+                    ${(d.mounts || []).map(m => `<li><strong>${m.type}</strong> ${m.source} → ${m.destination} <span style="color:${m.rw ? '#10b981' : '#ef4444'}">[${m.rw ? 'RW' : 'RO'}]</span></li>`).join('')}
+                </ul>
+                ${(d.mounts || []).length === 0 ? '<span style="color:#666">None</span>' : ''}
+            </div>
+        </div>
+
+        <div class="detail-section">
+            <h3><i class="fas fa-project-diagram"></i> Networks</h3>
+            ${Object.entries(d.networks || {}).map(([name, net]) => `
+                <div class="net-card">
+                    <div class="net-name">${name}</div>
+                    <div class="detail-grid">
+                        <span class="label">IP Address</span><span class="value">${net.ip_address || '-'}</span>
+                        <span class="label">Gateway</span><span class="value">${net.gateway || '-'}</span>
+                        <span class="label">MAC Address</span><span class="value">${net.mac_address || '-'}</span>
+                        <span class="label">Network ID</span><span class="value">${net.network_id}</span>
+                    </div>
+                </div>
+            `).join('')}
+            ${Object.keys(d.networks || {}).length === 0 ? '<span style="color:#666">None</span>' : ''}
+        </div>
+        `;
+    }
+
+    document.addEventListener('DOMContentLoaded', loadInspect);
+</script>
+{% endblock %}

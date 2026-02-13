@@ -5,21 +5,13 @@ import hashlib
 import hmac
 import base64
 import datetime
-import os
+import logging
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-# 허용된 이메일 목록
-ALLOWED_EMAILS = ["dntmdgns03@naver.com"]
+from core.config import ALLOWED_EMAILS, TOKEN_SECRET, SHWOO_URL, TOKEN_EXPIRY_SECONDS
 
-# 토큰 시크릿 (shwoo_server와 동일해야 함)
-TOKEN_SECRET = os.getenv("DOCKER_TOKEN_SECRET", "shwoo-docker-secret-2026")
-
-# Shwoo 서버 URL
-SHWOO_URL = os.getenv("SHWOO_URL", "https://xn--9t4ba122aba.site")
-
-# 토큰 유효 시간 (5분)
-TOKEN_EXPIRY_SECONDS = 300
+logger = logging.getLogger(__name__)
 
 
 def verify_token(token: str) -> str | None:
@@ -63,7 +55,7 @@ def verify_token(token: str) -> str | None:
         
         return email
     except Exception as e:
-        print(f"Token verification error: {e}")
+        logger.warning(f"Token verification error: {e}")
         return None
 
 

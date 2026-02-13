@@ -77,6 +77,19 @@
 <h1 class="dashboard-title">Images.</h1>
 <p class="dashboard-desc">Manage local Docker images.</p>
 
+<div class="detail-section"
+    style="background:var(--card-bg); border:1px solid var(--border); border-radius:12px; padding:20px; margin-bottom:25px;">
+    <h3 style="margin:0 0 12px 0; font-size:1rem; color:var(--accent)"><i class="fas fa-download"></i> Pull Image</h3>
+    <div style="display:flex; gap:10px;">
+        <input type="text" id="pull-image-input" placeholder="e.g. nginx:latest, python:3.12-slim"
+            style="flex:1; padding:10px; background:rgba(255,255,255,0.05); border:1px solid var(--border); color:#fff; border-radius:8px; font-size:0.9rem;">
+        <button class="btn-mini" onclick="pullImage()" id="pull-btn" style="padding:8px 20px; font-size:0.9rem;">
+            <i class="fas fa-download"></i> Pull
+        </button>
+    </div>
+    <div id="pull-status" style="margin-top:8px; font-size:0.85rem; color:var(--text-muted);"></div>
+</div>
+
 <div class="section-header">
     <h2>Local Images</h2>
     <button class="btn-mini" onclick="loadImages()">
@@ -173,6 +186,45 @@
             } else {
                 alert(`Error: ${e.message}`);
             }
+        }
+    }
+
+    async function pullImage() {
+        const input = document.getElementById('pull-image-input');
+        const btn = document.getElementById('pull-btn');
+        const status = document.getElementById('pull-status');
+        const imageName = input.value.trim();
+        if (!imageName) {
+            if (typeof showToast === 'function') showToast('Please enter an image name', 'warning');
+            return;
+        }
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Pulling...';
+        status.textContent = `Pulling ${imageName}... this may take a while.`;
+        status.style.color = 'var(--accent)';
+        try {
+            const res = await fetch('/api/images/pull', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: imageName })
+            });
+            const result = await res.json();
+            if (result.success) {
+                status.textContent = `✅ Pulled: ${(result.data.tags || []).join(', ')} (${result.data.size})`;
+                status.style.color = '#10b981';
+                if (typeof showToast === 'function') showToast('Image pulled successfully', 'success');
+                input.value = '';
+                loadImages();
+            } else {
+                status.textContent = `❌ ${result.message}`;
+                status.style.color = '#ef4444';
+            }
+        } catch (e) {
+            status.textContent = `❌ Error: ${e.message}`;
+            status.style.color = '#ef4444';
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-download"></i> Pull';
         }
     }
 

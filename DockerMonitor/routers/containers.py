@@ -1,7 +1,8 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from core.docker_client import docker_manager
+from services import container_service
+from core import connection
 from core.schemas import success_response
 from core.exceptions import InvalidActionError, ContainerActionError
 
@@ -15,7 +16,7 @@ class ActionRequest(BaseModel):
 @router.get("")
 async def list_containers():
     """컨테이너 목록 API"""
-    containers = await docker_manager.list_containers()
+    containers = await container_service.list_containers()
     return success_response(data=containers)
 
 
@@ -30,18 +31,18 @@ async def container_action(container_id: str, req: ActionRequest):
     valid_actions = ["start", "stop", "restart"]
     if req.action not in valid_actions:
         raise InvalidActionError(action=req.action, valid_actions=valid_actions)
-    
-    success = await docker_manager.action_container(container_id, req.action)
+
+    success = await container_service.perform_action(container_id, req.action)
     if success:
         return success_response(data={"container_id": container_id, "action": req.action})
-    
+
     raise ContainerActionError(container_id=container_id, action=req.action)
 
 
 @router.get("/{container_id}/logs")
 async def get_container_logs(container_id: str, tail: int = 100):
     """컨테이너 로그 조회 API"""
-    logs = await docker_manager.get_container_logs(container_id, tail=tail)
+    logs = await container_service.get_logs(container_id, tail=tail)
     return success_response(data={"container_id": container_id, "logs": logs})
 
 
@@ -50,21 +51,28 @@ async def update_container_resources(container_id: str, req: UpdateResourceReque
     """컨테이너 리소스 제한 업데이트 API"""
     if req.cpu_quota is None and req.memory_limit is None:
         raise InvalidActionError("No resources specified for update")
-        
-    success = await docker_manager.update_container_resources(
-        container_id, 
-        cpu_quota=req.cpu_quota, 
-        memory_limit=req.memory_limit
+
+    success = await container_service.update_container_resources(
+        container_id,
+        cpu_quota=req.cpu_quota,
+        memory_limit=req.memory_limit,
     )
-    
+
     if success:
         return success_response(data={"container_id": container_id, "updated": req.dict()})
-        
+
     raise ContainerActionError(container_id=container_id, action="update_resources")
 
 
 @router.get("/status")
 async def get_docker_status():
     """Docker 데몬 상태 API"""
-    status = await docker_manager.get_status()
+    status = await connection.get_status()
     return success_response(data=status)
+
+
+@router.get("/{container_id}/inspect")
+async def inspect_container(container_id: str):
+    """컨테이너 상세 Inspect API"""
+    data = await container_service.inspect_container(container_id)
+    return success_response(data=data)

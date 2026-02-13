@@ -4,6 +4,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
 <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <style>
     .terminal-modal {
         display: none;
@@ -68,6 +69,63 @@
     .btn-mini.terminal-btn:hover {
         background: rgba(16, 185, 129, 0.2);
     }
+
+    .btn-mini.inspect-btn {
+        background: rgba(59, 130, 246, 0.1);
+        color: #3b82f6;
+        border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
+    .btn-mini.inspect-btn:hover {
+        background: rgba(59, 130, 246, 0.2);
+    }
+
+    .search-bar {
+        width: 100%;
+        padding: 10px 15px;
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        color: var(--text);
+        font-size: 0.95rem;
+        margin-bottom: 20px;
+        outline: none;
+        transition: border-color 0.3s;
+    }
+
+    .search-bar:focus {
+        border-color: var(--accent);
+    }
+
+    .search-bar::placeholder {
+        color: var(--text-muted);
+    }
+
+    .charts-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        margin-bottom: 25px;
+    }
+
+    .chart-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 15px;
+    }
+
+    .chart-card h3 {
+        margin: 0 0 10px 0;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+    }
+
+    @media (max-width: 768px) {
+        .charts-row {
+            grid-template-columns: 1fr;
+        }
+    }
 </style>
 {% endblock %}
 
@@ -129,10 +187,24 @@
     </div>
 </div>
 
+<div class="charts-row">
+    <div class="chart-card">
+        <h3><i class="fas fa-microchip"></i> CPU Usage (%)</h3>
+        <canvas id="cpu-chart" height="120"></canvas>
+    </div>
+    <div class="chart-card">
+        <h3><i class="fas fa-memory"></i> Memory Usage (MB)</h3>
+        <canvas id="mem-chart" height="120"></canvas>
+    </div>
+</div>
+
 <div class="section-header">
     <h2>Containers</h2>
     <span class="section-time" id="last-updated">Last updated: --:--:--</span>
 </div>
+
+<input type="text" class="search-bar" id="container-search" placeholder="Search containers by name, image, or ID..."
+    oninput="filterContainers()">
 
 <div class="container-list" id="container-list">
     <!-- Javascript will inject list here -->
@@ -158,6 +230,7 @@
         </div>
 
         <div class="card-actions">
+            <button class="btn-mini inspect-btn" title="Inspect"><i class="fas fa-search"></i></button>
             <button class="btn-mini settings-btn" title="Resources"><i class="fas fa-cog"></i></button>
             <button class="btn-mini terminal-btn"><i class="fas fa-terminal"></i> TERM</button>
             <button class="btn-mini start-btn">START</button>
@@ -175,5 +248,90 @@
         const now = new Date();
         document.getElementById('last-updated').textContent = `Last updated: ${now.toLocaleTimeString()}`;
     }, 1000);
+
+    // --- Chart.js Setup ---
+    const MAX_POINTS = 30;
+    const chartLabels = [];
+    const chartDatasets = {};  // containerId -> { cpu: [], mem: [] }
+    const chartColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
+    let colorIdx = 0;
+    function getColor(id) {
+        if (!chartDatasets[id]) {
+            chartDatasets[id] = { cpu: [], mem: [], color: chartColors[colorIdx % chartColors.length] };
+            colorIdx++;
+        }
+        return chartDatasets[id].color;
+    }
+
+    const cpuCtx = document.getElementById('cpu-chart');
+    const memCtx = document.getElementById('mem-chart');
+    const chartOpts = {
+        responsive: true,
+        animation: { duration: 300 },
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { labels: { color: '#888', boxWidth: 12, font: { size: 11 } } } },
+        scales: {
+            x: { display: false },
+            y: { ticks: { color: '#666' }, grid: { color: 'rgba(255,255,255,0.05)' }, beginAtZero: true }
+        }
+    };
+
+    let cpuChart = null, memChart = null;
+    if (cpuCtx && typeof Chart !== 'undefined') {
+        cpuChart = new Chart(cpuCtx, { type: 'line', data: { labels: [], datasets: [] }, options: chartOpts });
+        memChart = new Chart(memCtx, { type: 'line', data: { labels: [], datasets: [] }, options: chartOpts });
+    }
+
+    // Hook into stats updates from app.js
+    const _origUpdateStats = typeof updateStats !== 'undefined' ? updateStats : null;
+    window.updateStatsWithCharts = function (stats, containers) {
+        if (_origUpdateStats) _origUpdateStats(stats, containers);
+        if (!cpuChart) return;
+
+        const now = new Date().toLocaleTimeString();
+        chartLabels.push(now);
+        if (chartLabels.length > MAX_POINTS) chartLabels.shift();
+
+        const activeIds = new Set();
+        stats.forEach(s => {
+            activeIds.add(s.id);
+            getColor(s.id);
+            chartDatasets[s.id].cpu.push(s.cpu_percent);
+            chartDatasets[s.id].mem.push(+(s.memory_usage / (1024 * 1024)).toFixed(1));
+            if (chartDatasets[s.id].cpu.length > MAX_POINTS) chartDatasets[s.id].cpu.shift();
+            if (chartDatasets[s.id].mem.length > MAX_POINTS) chartDatasets[s.id].mem.shift();
+        });
+
+        // Build datasets
+        const nameMap = {};
+        containers.forEach(c => nameMap[c.id] = c.name);
+
+        const cpuDS = [], memDS = [];
+        for (const [id, d] of Object.entries(chartDatasets)) {
+            if (!activeIds.has(id)) continue;
+            const base = { borderColor: d.color, backgroundColor: d.color + '20', borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: false, label: nameMap[id] || id };
+            cpuDS.push({ ...base, data: [...d.cpu] });
+            memDS.push({ ...base, data: [...d.mem] });
+        }
+
+        cpuChart.data.labels = [...chartLabels];
+        cpuChart.data.datasets = cpuDS;
+        cpuChart.update('none');
+
+        memChart.data.labels = [...chartLabels];
+        memChart.data.datasets = memDS;
+        memChart.update('none');
+    };
+
+    // --- Container Search/Filter ---
+    function filterContainers() {
+        const query = document.getElementById('container-search').value.toLowerCase();
+        document.querySelectorAll('.container-card').forEach(card => {
+            const name = (card.querySelector('.name-text')?.textContent || '').toLowerCase();
+            const image = (card.querySelector('.image-text')?.textContent || '').toLowerCase();
+            const id = (card.querySelector('.id-text')?.textContent || '').toLowerCase();
+            card.style.display = (name.includes(query) || image.includes(query) || id.includes(query)) ? '' : 'none';
+        });
+    }
 </script>
 {% endblock %}

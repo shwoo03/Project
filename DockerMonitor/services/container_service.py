@@ -175,3 +175,83 @@ class ContainerService(BaseService):
         except Exception as e:
             logger.error(f"Error getting stats for {container_id}: {e}")
             return {}
+
+    def _inspect_container_sync(self, container_id: str) -> Dict[str, Any]:
+        """컨테이너 상세 정보 조회"""
+        try:
+            container = self.client.containers.get(container_id)
+            attrs = container.attrs
+            config = attrs.get("Config", {})
+            host_config = attrs.get("HostConfig", {})
+            network_settings = attrs.get("NetworkSettings", {})
+            state = attrs.get("State", {})
+
+            # Mounts 파싱
+            mounts = []
+            for m in attrs.get("Mounts", []):
+                mounts.append({
+                    "type": m.get("Type", ""),
+                    "source": m.get("Source", ""),
+                    "destination": m.get("Destination", ""),
+                    "mode": m.get("Mode", ""),
+                    "rw": m.get("RW", False),
+                })
+
+            # Networks 파싱
+            networks = {}
+            for name, net in network_settings.get("Networks", {}).items():
+                networks[name] = {
+                    "ip_address": net.get("IPAddress", ""),
+                    "gateway": net.get("Gateway", ""),
+                    "mac_address": net.get("MacAddress", ""),
+                    "network_id": net.get("NetworkID", "")[:12],
+                }
+
+            # Ports 파싱
+            ports = {}
+            for k, v in (network_settings.get("Ports") or {}).items():
+                if v:
+                    ports[k] = [f"{b['HostIp']}:{b['HostPort']}" for b in v]
+                else:
+                    ports[k] = []
+
+            return {
+                "id": container.id[:12],
+                "full_id": container.id,
+                "name": container.name,
+                "image": config.get("Image", ""),
+                "status": container.status,
+                "created": attrs.get("Created", ""),
+                "started_at": state.get("StartedAt", ""),
+                "finished_at": state.get("FinishedAt", ""),
+                "restart_count": attrs.get("RestartCount", 0),
+                "platform": attrs.get("Platform", ""),
+                "env": config.get("Env", []),
+                "cmd": config.get("Cmd", []),
+                "entrypoint": config.get("Entrypoint", []),
+                "working_dir": config.get("WorkingDir", ""),
+                "labels": config.get("Labels", {}),
+                "mounts": mounts,
+                "networks": networks,
+                "ports": ports,
+                "restart_policy": {
+                    "name": host_config.get("RestartPolicy", {}).get("Name", ""),
+                    "max_retry": host_config.get("RestartPolicy", {}).get("MaximumRetryCount", 0),
+                },
+                "resources": {
+                    "cpu_shares": host_config.get("CpuShares", 0),
+                    "cpu_quota": host_config.get("CpuQuota", 0),
+                    "memory": host_config.get("Memory", 0),
+                    "memory_swap": host_config.get("MemorySwap", 0),
+                },
+            }
+        except Exception as e:
+            if "No such container" in str(e) or "404" in str(e):
+                raise ContainerNotFoundError(container_id)
+            raise e
+
+    async def inspect_container(self, container_id: str) -> Dict[str, Any]:
+        """컨테이너 상세 Inspect"""
+        if not await self.ensure_connected():
+            return {}
+        return await self.run_sync(self._inspect_container_sync, container_id)

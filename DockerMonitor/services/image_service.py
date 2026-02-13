@@ -63,3 +63,23 @@ class ImageService(BaseService):
         except Exception as e:
             logger.error(f"Error removing image {image_id}: {e}")
             raise e
+
+    def _pull_image_sync(self, repository: str, tag: str) -> Dict[str, Any]:
+        """이미지 Pull"""
+        try:
+            logger.info(f"Pulling image {repository}:{tag}...")
+            image = self.client.images.pull(repository, tag=tag)
+            return {
+                "id": image.short_id,
+                "tags": image.tags,
+                "size": f"{image.attrs.get('Size', 0) / (1024 * 1024):.2f} MB",
+            }
+        except Exception as e:
+            logger.error(f"Error pulling image {repository}:{tag}: {e}")
+            raise e
+
+    async def pull_image(self, repository: str, tag: str = "latest") -> Dict[str, Any]:
+        """이미지 Pull (비동기)"""
+        if not await self.ensure_connected():
+            return {}
+        return await self.run_sync(self._pull_image_sync, repository, tag)

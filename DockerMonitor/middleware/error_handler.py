@@ -16,16 +16,14 @@ from core.schemas import error_response
 logger = logging.getLogger("middleware.error_handler")
 
 def register_error_handlers(app: FastAPI):
-    """Register all exception handlers to the application"""
+    """Register all exception handlers to the application
+    
+    중요: 자식 예외를 먼저 등록해야 FastAPI가 올바른 핸들러를 매칭함.
+    부모 클래스 핸들러(DockerMonitorException)를 먼저 등록하면
+    자식 예외(DockerConnectionError 등)가 부모 핸들러에 잡힐 수 있음.
+    """
 
-    @app.exception_handler(DockerMonitorException)
-    async def docker_monitor_exception_handler(request: Request, exc: DockerMonitorException):
-        """커스텀 예외 핸들러"""
-        logger.error(f"DockerMonitorException: {exc.code} - {exc.message}")
-        return JSONResponse(
-            status_code=400,
-            content=error_response(code=exc.code, message=exc.message)
-        )
+    # === 자식 예외 핸들러 (먼저 등록) ===
 
     @app.exception_handler(DockerConnectionError)
     async def docker_connection_exception_handler(request: Request, exc: DockerConnectionError):
@@ -75,6 +73,19 @@ def register_error_handlers(app: FastAPI):
             status_code=400,
             content=error_response(code=exc.code, message=exc.message)
         )
+
+    # === 부모 예외 핸들러 (자식 다음에 등록) ===
+
+    @app.exception_handler(DockerMonitorException)
+    async def docker_monitor_exception_handler(request: Request, exc: DockerMonitorException):
+        """커스텀 예외 핸들러 (catch-all for DockerMonitorException subclasses)"""
+        logger.error(f"DockerMonitorException: {exc.code} - {exc.message}")
+        return JSONResponse(
+            status_code=400,
+            content=error_response(code=exc.code, message=exc.message)
+        )
+
+    # === 일반 예외 핸들러 ===
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException):

@@ -3,7 +3,7 @@ import datetime
 from typing import List, Dict, Any, Optional
 from .base import BaseRepository
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"instagram.{__name__}")
 
 class LogRepository(BaseRepository):
     def __init__(self, mongo_uri: str):

@@ -12,8 +12,10 @@ services:
       - USER_PASSWORD=${USER_PASSWORD}
       - MONGO_URI=${MONGO_URI:-mongodb://mongo:27017/}
       - DISCORD_WEBHOOK=${DISCORD_WEBHOOK:-}
-      - ACCESS_PASSWORD=${ACCESS_PASSWORD:-shwoo2026}
-      - SHWOO_URL=${SHWOO_URL:-https://shwoo.site}
+      - ACCESS_PASSWORD=${ACCESS_PASSWORD}
+      - INSTAGRAM_TOKEN_SECRET=${INSTAGRAM_TOKEN_SECRET}
+      - ALLOWED_EMAILS=${ALLOWED_EMAILS:-[]}
+      - SHWOO_URL=${SHWOO_URL:-https://xn--9t4ba122aba.site}
     volumes:
       - ./cookies.json:/app/cookies.json
     depends_on:

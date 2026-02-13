@@ -9,7 +9,7 @@ from notification import send_discord_webhook, send_change_notification
 from services.auth_service import AuthService
 from services.instagram_service import InstagramService
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"instagram.{__name__}")
 
 class TaskService:
     @staticmethod
@@ -68,9 +68,9 @@ class TaskService:
             await state.broadcast_progress(85, "Discord 알림 전송 중...")
             
             if settings.discord_webhook and settings.discord_webhook.lower() not in ["none", ""]:
-                send_discord_webhook(results, settings.discord_webhook)
+                await send_discord_webhook(results, settings.discord_webhook)
                 if new_followers or lost_followers:
-                    send_change_notification(new_followers, lost_followers, settings.discord_webhook)
+                    await send_change_notification(new_followers, lost_followers, settings.discord_webhook)
                 await state.broadcast_log("📨 Discord 전송 완료!")
             else:
                 await state.broadcast_log("ℹ️ Discord Webhook 미설정")

@@ -26,7 +26,7 @@ RUN apt-get update && apt-get install -y \
 # 작업 디렉토리 설정
 WORKDIR /app
 
-# Python 의존성 설치
+# Python 의존성 설치 (캐시 레이어)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -34,19 +34,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN playwright install chromium
 RUN playwright install-deps chromium
 
-# 애플리케이션 코드 복사
-COPY *.py ./
-COPY routers/ ./routers/
-COPY repositories/ ./repositories/
-COPY templates/ ./templates/
-COPY static/ ./static/
-COPY services/ ./services/
-COPY tests/ ./tests/
+# 애플리케이션 코드 복사 (.dockerignore가 불필요 파일 제외)
+COPY . .
 
 # 포트 노출
 EXPOSE 10000
 
-# 환경 변수 (런타임에 오버라이드)
+# 환경 변수
 ENV PYTHONUNBUFFERED=1
 
 # 대시보드 서버 실행

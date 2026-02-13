@@ -21,28 +21,28 @@ from state_manager import state
 from config import get_settings
 
 # 로깅 설정
-# 기존 파일 핸들러 유지 + MongoDB 핸들러 추가
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+# 앱 전용 로거 ('instagram' 네임스페이스) — 라이브러리 로그 분리
+app_logger = logging.getLogger("instagram")
+app_logger.setLevel(logging.INFO)
 
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # 파일 핸들러
 file_handler = logging.FileHandler('instagram_tracker.log', encoding='utf-8')
 file_handler.setFormatter(formatter)
-logger.addHandler(file_handler)
+app_logger.addHandler(file_handler)
 
 # 스트림 핸들러
 stream_handler = logging.StreamHandler()
 stream_handler.setFormatter(formatter)
-logger.addHandler(stream_handler)
+app_logger.addHandler(stream_handler)
 
 # MongoDB 핸들러
 mongo_handler = MongoHandler()
 mongo_handler.setFormatter(formatter)
-logger.addHandler(mongo_handler)
+app_logger.addHandler(mongo_handler)
 
-local_logger = logging.getLogger(__name__)
+local_logger = logging.getLogger(f"instagram.{__name__}")
 
 
 class AuthMiddleware(BaseHTTPMiddleware):

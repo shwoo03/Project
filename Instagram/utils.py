@@ -7,7 +7,7 @@ from typing import Optional
 from config import get_settings
 from repositories.user_repository import UserRepository
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"instagram.{__name__}")
 
 
 def get_db_data() -> Optional[dict]:

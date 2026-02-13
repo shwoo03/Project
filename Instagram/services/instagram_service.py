@@ -9,7 +9,7 @@ import httpx
 from retry import async_api_retry
 from config import get_settings
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"instagram.{__name__}")
 
 class InstagramService:
     def __init__(self, cookies_dict: Dict[str, str]):

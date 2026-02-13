@@ -130,8 +130,8 @@ export function ControlBar({
                 <button
                     onClick={onToggleStreaming}
                     className={`px-4 py-2 rounded-lg border transition-all font-bold flex items-center gap-2 ${useStreaming
-                            ? 'bg-green-500/20 text-green-400 border-green-500/50'
-                            : 'bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10'
+                        ? 'bg-green-500/20 text-green-400 border-green-500/50'
+                        : 'bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10'
                         }`}
                     title="스트리밍 모드: 대규모 프로젝트에서 실시간 진행률 표시"
                 >
@@ -165,7 +165,7 @@ export function ControlBar({
                             const btn = document.getElementById('upload-btn');
                             if (btn) btn.innerText = 'Uploading...';
 
-                            const API_BASE = 'http://localhost:10008'; // Hardcoded for now, should use env or prop
+                            const API_BASE = ''; // Use relative URL via Next.js proxy
                             const res = await fetch(`${API_BASE}/api/upload`, {
                                 method: 'POST',
                                 body: formData,

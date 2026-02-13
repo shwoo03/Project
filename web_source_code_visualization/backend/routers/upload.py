@@ -10,7 +10,9 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
 router = APIRouter(prefix="/api", tags=["upload"])
 
 # Directory to store uploaded projects
-PROJECTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "projects")
+# In Docker: mounted at /projects via docker-compose volume
+# Locally: fallback to ../projects relative to backend dir
+PROJECTS_DIR = os.environ.get("PROJECTS_DIR", "/projects")
 
 
 def safe_extract(zip_ref, extract_path):

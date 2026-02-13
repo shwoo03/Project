@@ -9,7 +9,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED, EVENT_JOB_MAX_INSTANCES
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"instagram.{__name__}")
 
 # 글로벌 스케줄러 인스턴스
 _scheduler: Optional[AsyncIOScheduler] = None

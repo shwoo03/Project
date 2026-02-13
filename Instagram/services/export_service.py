@@ -6,7 +6,7 @@ import logging
 from io import BytesIO, StringIO
 from typing import List, Any, Union
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"instagram.{__name__}")
 
 class ExportService:
     @staticmethod

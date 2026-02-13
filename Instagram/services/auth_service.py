@@ -9,7 +9,7 @@ import logging
 from typing import Dict, Any, Optional
 from playwright.async_api import async_playwright, BrowserContext
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"instagram.{__name__}")
 
 class AuthService:
     @staticmethod

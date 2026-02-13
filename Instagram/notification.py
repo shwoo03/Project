@@ -1,16 +1,16 @@
 """
-Discord Webhook 알림
+Discord Webhook 알림 (비동기 httpx 사용)
 """
 import json
 import logging
 import datetime
-import requests
+import httpx
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"instagram.{__name__}")
 
 
-def send_discord_webhook(data, webhook_url):
-    """수집 결과를 디스코드 웹훅으로 전송"""
+async def send_discord_webhook(data, webhook_url):
+    """수집 결과를 디스코드 웹훅으로 전송 (비동기)"""
     logger.info("[Discord] 리포트 전송 중...")
     
     followers_set = {u['username'] for u in data['followers']}
@@ -71,32 +71,32 @@ def send_discord_webhook(data, webhook_url):
                     }
                 ],
                 "footer": {
-                    "text": "Automated by Python Playwright & Requests"
+                    "text": "Automated by Python Playwright & httpx"
                 }
             }
         ]
     }
 
     try:
-        response = requests.post(
-            webhook_url, 
-            data=json.dumps(payload), 
-            headers={"Content-Type": "application/json"},
-            timeout=30
-        )
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                webhook_url,
+                json=payload,
+                timeout=30
+            )
         if response.status_code == 204:
             logger.info("디스코드 전송 완료")
         else:
             logger.error(f"디스코드 에러 코드: {response.status_code}")
             logger.debug(response.text)
-    except requests.Timeout:
+    except httpx.TimeoutException:
         logger.error("디스코드 전송 타임아웃")
-    except requests.RequestException as e:
+    except httpx.RequestError as e:
         logger.error(f"전송 중 예외 발생: {e}")
 
 
-def send_change_notification(new_followers, lost_followers, webhook_url):
-    """팔로워 변동 즉시 알림"""
+async def send_change_notification(new_followers, lost_followers, webhook_url):
+    """팔로워 변동 즉시 알림 (비동기)"""
     if not webhook_url or webhook_url.lower() in ["none", ""]:
         return
     
@@ -144,16 +144,15 @@ def send_change_notification(new_followers, lost_followers, webhook_url):
     }
     
     try:
-        response = requests.post(
-            webhook_url, 
-            data=json.dumps(payload), 
-            headers={"Content-Type": "application/json"},
-            timeout=30
-        )
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                webhook_url,
+                json=payload,
+                timeout=30
+            )
         if response.status_code == 204:
             logger.info("변동 알림 전송 완료")
         else:
             logger.error(f"변동 알림 에러: {response.status_code}")
-    except requests.RequestException as e:
+    except httpx.RequestError as e:
         logger.error(f"변동 알림 전송 실패: {e}")
-

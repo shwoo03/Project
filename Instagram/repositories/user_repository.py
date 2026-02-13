@@ -3,7 +3,7 @@ import logging
 from typing import Optional, Dict, List, Any
 from .base import BaseRepository
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"instagram.{__name__}")
 
 class UserRepository(BaseRepository):
     def __init__(self, mongo_uri: str):

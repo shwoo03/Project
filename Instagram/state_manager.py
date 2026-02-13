@@ -1,10 +1,17 @@
+import logging
 from fastapi import WebSocket
 
+logger = logging.getLogger(f"instagram.{__name__}")
+
+
 class AppState:
-    is_running: bool = False
-    last_log: str = ""
-    progress: int = 0
-    websocket_clients: list[WebSocket] = []
+    """애플리케이션 상태 관리 (싱글톤 인스턴스로 사용)"""
+
+    def __init__(self):
+        self.is_running: bool = False
+        self.last_log: str = ""
+        self.progress: int = 0
+        self.websocket_clients: list[WebSocket] = []
 
     async def broadcast_log(self, message: str):
         self.last_log = message
@@ -12,7 +19,7 @@ class AppState:
         for client in self.websocket_clients:
             try:
                 await client.send_json({"type": "log", "message": message})
-            except:
+            except Exception:
                 cleanup_list.append(client)
         
         for client in cleanup_list:
@@ -25,7 +32,7 @@ class AppState:
         for client in self.websocket_clients:
             try:
                 await client.send_json({"type": "progress", "progress": progress, "status": status})
-            except:
+            except Exception:
                 cleanup_list.append(client)
                 
         for client in cleanup_list:

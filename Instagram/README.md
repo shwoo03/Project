@@ -1,83 +1,110 @@
-# 인스타그램 팔로워 추적기
+# Instagram Follower Tracker
 
-## 1. 프로젝트 개요
-인스타그램 팔로워 및 팔로잉 목록의 변경 사항을 추적하는 Python 자동화 도구입니다.
+인스타그램 팔로워/팔로잉 변동을 자동으로 추적하고 Discord로 알림을 보내는 대시보드 앱.
 
-## 2. 주요 기능
-- **자동 로그인**: Playwright로 브라우저 로그인 및 쿠키 관리
-- **데이터 수집**: 인스타그램 API로 팔로워/팔로잉 수집
-- **변경 감지**: MongoDB에서 이전 데이터와 비교
-- **알림**: Discord Webhook으로 리포트 전송
-- **웹 대시보드**: FastAPI 기반 현황 조회 UI
+## 주요 기능
 
-## 3. 프로젝트 구조
+- **자동 크롤링**: Playwright + httpx로 팔로워/팔로잉 데이터 수집
+- **변동 감지**: 새 팔로워, 언팔로우 자동 비교
+- **Discord 알림**: 일일 리포트 + 변동 즉시 알림
+- **대시보드**: 실시간 WebSocket 진행 상태 + 분석 결과 표시
+- **스케줄러**: APScheduler 기반 매일 자동 실행
+- **CSV 내보내기**: 팔로워/팔로잉/맞팔 안 함/팬 데이터 다운로드
+- **SSO 인증**: shwoo_server 토큰 기반 접근 제어
+
+## 프로젝트 구조
 
 ```
-📁 instagram_tracker/
-├── main.py           # 동기 진입점
-├── main_async.py     # 비동기 진입점 ⚡
-├── config.py         # 환경 변수
-├── auth.py           # 동기 로그인
-├── auth_async.py     # 비동기 로그인 ⚡
-├── api.py            # 동기 API
-├── api_async.py      # 비동기 API ⚡
-├── database.py       # MongoDB 연동
-├── notification.py   # Discord 알림
-├── retry.py          # 재시도 로직 🔄
-├── dashboard.py      # 웹 대시보드 🌐
-└── requirements.txt
+Instagram/
+├── dashboard.py          # FastAPI 메인 앱 (lifespan, 미들웨어, WebSocket)
+├── config.py             # Pydantic Settings 환경 변수 관리
+├── scheduler.py          # APScheduler 스케줄 관리
+├── state_manager.py      # WebSocket 브로드캐스트 상태 관리
+├── dependencies.py       # FastAPI Depends 의존성 주입
+├── notification.py       # Discord Webhook 알림 (async httpx)
+├── retry.py              # tenacity 재시도 데코레이터
+├── schemas.py            # Pydantic API 응답 스키마
+├── utils.py              # 공통 유틸리티
+├── log_handler.py        # MongoDB 로그 핸들러
+│
+├── services/
+│   ├── auth_service.py       # Playwright 로그인 + 쿠키 관리
+│   ├── instagram_service.py  # httpx 팔로워/팔로잉 API 크롤링
+│   ├── task_service.py       # 추적 작업 오케스트레이션
+│   └── export_service.py     # CSV 내보내기
+│
+├── repositories/
+│   ├── base.py               # MongoDB 싱글톤 클라이언트
+│   ├── user_repository.py    # 팔로워 데이터 CRUD + 분석
+│   └── log_repository.py     # 로그 조회
+│
+├── routers/
+│   ├── api.py                # REST API 엔드포인트
+│   └── views.py              # HTML 뷰 + SSO 인증
+│
+├── templates/                # Jinja2 HTML 템플릿
+├── static/                   # CSS/JS 정적 파일
+├── tests/                    # pytest 테스트
+│
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+└── .env                      # 환경 변수 (git 미포함)
 ```
 
-## 4. 설치
+## 환경 변수 (.env)
+
+| 변수 | 필수 | 설명 |
+|------|:----:|------|
+| `USER_ID` | ✅ | 인스타그램 아이디 |
+| `USER_PASSWORD` | ✅ | 인스타그램 비밀번호 |
+| `MONGO_URI` | ✅ | MongoDB 연결 URI |
+| `ACCESS_PASSWORD` | ✅ | 대시보드 접근 비밀번호 |
+| `INSTAGRAM_TOKEN_SECRET` | ✅ | SSO 토큰 서명 시크릿 |
+| `ALLOWED_EMAILS` | ❌ | SSO 허용 이메일 (JSON 배열) |
+| `DISCORD_WEBHOOK` | ❌ | Discord Webhook URL |
+| `SHWOO_URL` | ❌ | SSO 리다이렉트 URL |
+
+## API 엔드포인트
+
+| Method | Path | 설명 |
+|--------|------|------|
+| `POST` | `/api/run` | 팔로워 추적 실행 |
+| `GET` | `/api/status` | 현재 상태 조회 |
+| `GET` | `/api/latest` | 최신 데이터 조회 |
+| `GET` | `/api/history?days=30` | 히스토리 조회 |
+| `GET` | `/api/changes` | 변동 요약 |
+| `GET` | `/api/logs?limit=100` | 로그 조회 |
+| `GET/POST/DELETE` | `/api/schedule` | 스케줄 관리 |
+| `GET` | `/api/export/{type}` | CSV 내보내기 |
+| `GET` | `/auth?token=...` | SSO 인증 콜백 |
+| `GET` | `/` | 대시보드 HTML |
+| `WebSocket` | `/ws` | 실시간 로그/진행 상태 |
+
+## 실행
+
+### Docker (권장)
 
 ```bash
-# 1. 의존성 설치
+# .env 파일 설정 후
+docker-compose up -d --build
+# http://localhost:10000 접속
+```
+
+### 로컬 개발
+
+```bash
 pip install -r requirements.txt
-
-# 2. Playwright 브라우저 설치
 playwright install chromium
-```
-
-## 5. 구성 (.env)
-
-| 변수명 | 설명 |
-|--------|------|
-| `USER_ID` | 인스타그램 사용자명 |
-| `USER_PASSWORD` | 비밀번호 |
-| `MONGO_URI` | MongoDB 연결 문자열 |
-| `DISCORD_WEBHOOK` | Discord Webhook URL |
-
-## 6. 사용법
-
-### 동기 실행 (기존)
-```bash
-python main.py
-```
-
-### 비동기 실행 (권장 ⚡)
-```bash
-python main_async.py
-```
-
-### 웹 대시보드 🌐
-```bash
 python dashboard.py
-# → http://localhost:8000
 ```
 
-또는
-```bash
-uvicorn dashboard:app --host 0.0.0.0 --port 8000
-```
+## 기술 스택
 
-## 7. API 엔드포인트
-
-| 엔드포인트 | 설명 |
-|------------|------|
-| `GET /` | HTML 대시보드 |
-| `GET /api/status` | 상태 JSON |
-| `GET /api/latest` | 최신 데이터 JSON |
-
-## 8. 로깅
-- 로그 파일: `instagram_tracker.log`
-- 콘솔 + 파일 동시 출력
+- **Backend**: FastAPI, Uvicorn, Pydantic Settings
+- **크롤링**: Playwright (로그인), httpx (API)
+- **DB**: MongoDB (pymongo)
+- **스케줄러**: APScheduler
+- **알림**: Discord Webhook (httpx async)
+- **재시도**: tenacity
+- **테스트**: pytest, pytest-asyncio

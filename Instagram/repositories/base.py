@@ -2,7 +2,7 @@ import logging
 import pymongo
 from typing import Optional
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"instagram.{__name__}")
 
 class BaseRepository:
     _client_instance = None

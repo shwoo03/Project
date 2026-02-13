@@ -1,23 +1,24 @@
 """
 API 라우터 - RESTful API 엔드포인트
 """
-from fastapi import APIRouter, BackgroundTasks
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi.responses import JSONResponse, StreamingResponse
 import datetime
 import logging
 
 from config import get_settings
-from config import get_settings
 from scheduler import schedule_daily_run, remove_schedule, get_schedule_info
 from state_manager import state
 from services.task_service import TaskService
+from services.export_service import ExportService
 from schemas import APIResponse
 from utils import get_db_data
+from dependencies import get_user_repo, get_log_repo
 from repositories.user_repository import UserRepository
 from repositories.log_repository import LogRepository
 
 router = APIRouter(prefix="/api")
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"instagram.{__name__}")
 
 
 @router.post("/run")
@@ -77,34 +78,35 @@ async def api_status():
 
 
 @router.get("/logs")
-async def api_get_logs(limit: int = 100, level: str = None):
+async def api_get_logs(
+    limit: int = 100,
+    level: str = None,
+    repo: LogRepository = Depends(get_log_repo)
+):
     """로그 조회 API"""
     settings = get_settings()
-    if not settings.mongo_uri or not settings.user_id:
+    if not settings.user_id:
         return APIResponse.fail("환경 변수 로드 실패")
 
-    repo = LogRepository(settings.mongo_uri)
     logs = repo.get_logs(settings.user_id, limit, level)
     return APIResponse.ok("로그 조회 성공", data={"logs": logs})
 
 
 @router.get("/export/{export_type}")
-async def api_export_csv(export_type: str):
+async def api_export_csv(
+    export_type: str,
+    repo: UserRepository = Depends(get_user_repo)
+):
     """데이터 CSV 내보내기 (followers, following, non_followers, fans)"""
     try:
-        from starlette.responses import StreamingResponse
-        from services.export_service import ExportService
-        
         settings = get_settings()
-        if not settings.mongo_uri or not settings.user_id:
+        if not settings.user_id:
             return APIResponse.fail("환경 변수 설정 오류")
 
-        repo = UserRepository(settings.mongo_uri)
         data = repo.get_analysis(settings.user_id)
         
         target_list = data.get(export_type, [])
         
-        # ExportService를 사용하여 CSV 스트림 생성
         stream = ExportService.create_csv(target_list)
         
         filename = f"instagram_{export_type}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
@@ -142,13 +144,15 @@ async def api_latest():
 
 
 @router.get("/history")
-async def api_history(days: int = 30):
+async def api_history(
+    days: int = 30,
+    repo: UserRepository = Depends(get_user_repo)
+):
     """히스토리 데이터 API"""
     settings = get_settings()
-    if not settings.mongo_uri or not settings.user_id:
+    if not settings.user_id:
         return APIResponse.fail("환경 변수 로드 실패")
 
-    repo = UserRepository(settings.mongo_uri)
     history = repo.get_history(settings.user_id, days)
 
     formatted = []
@@ -163,13 +167,12 @@ async def api_history(days: int = 30):
 
 
 @router.get("/changes")
-async def api_changes():
+async def api_changes(repo: UserRepository = Depends(get_user_repo)):
     """변동 요약 API"""
     settings = get_settings()
-    if not settings.mongo_uri or not settings.user_id:
+    if not settings.user_id:
         return APIResponse.fail("환경 변수 로드 실패")
 
-    repo = UserRepository(settings.mongo_uri)
     summary = repo.get_change_summary(settings.user_id)
     
     if summary:

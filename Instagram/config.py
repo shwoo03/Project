@@ -7,7 +7,7 @@ from typing import Optional
 
 from pydantic_settings import BaseSettings
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"instagram.{__name__}")
 
 
 class Settings(BaseSettings):
@@ -16,12 +16,12 @@ class Settings(BaseSettings):
     user_password: str
     mongo_uri: str
     discord_webhook: Optional[str] = None
-    access_password: str = "shwoo2026"
+    access_password: str  # .env 필수
     shwoo_url: str = "https://xn--9t4ba122aba.site"
 
     # SSO 인증 관련 설정
-    instagram_token_secret: str = "shwoo-instagram-secret-2026"
-    allowed_emails: list[str] = ["dntmdgns03@naver.com"]
+    instagram_token_secret: str  # .env 필수
+    allowed_emails: list[str] = []
     token_expiry_seconds: int = 300  # 5분
 
     # API 설정

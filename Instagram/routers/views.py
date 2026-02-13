@@ -7,14 +7,15 @@ import hashlib
 import hmac
 import base64
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from config import get_settings
+from dependencies import get_user_repo
 from repositories.user_repository import UserRepository
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"instagram.{__name__}")
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -120,14 +121,13 @@ async def login_redirect(request: Request):
 
 
 @router.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request):
+async def dashboard(request: Request, repo: UserRepository = Depends(get_user_repo)):
     """메인 대시보드 HTML"""
     settings = get_settings()
     data = None
     
-    if settings.mongo_uri and settings.user_id:
+    if settings.user_id:
         try:
-            repo = UserRepository(settings.mongo_uri)
             data = repo.get_analysis(settings.user_id)
         except Exception as e:
             logger.error(f"Dashboard data error: {e}")

@@ -1,40 +1,13 @@
-# Git
 .git
 .gitignore
-
-# Python
+.env
+cookies.json
 __pycache__
+**/__pycache__
 *.pyc
-*.pyo
-*.pyd
-.Python
-*.egg-info
-.eggs
-dist
-build
-*.egg
-
-# Virtual environment
-venv
-.venv
-env
-.env.local
-
-# IDE
-.vscode
-.idea
-*.swp
-*.swo
-
-# Logs (optional - you may want to include)
-# *.log
-
-# Debug screenshots
-*.png
-
-# Agent skills (not needed in container)
-.agent
-
-# Documentation
+*.log
+instagram_tracker.log
+tests/
 *.md
-!README.md
+docker-compose.yml
+.dockerignore

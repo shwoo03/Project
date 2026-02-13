@@ -406,11 +406,8 @@ def list_projects():
     Returns a list of directory names that can be analyzed.
     """
     try:
-        # Get the backend directory path
-        backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        # Go up one level to workspace root
-        workspace_root = os.path.dirname(backend_dir)
-        projects_dir = os.path.join(workspace_root, "projects")
+        # Use same path as upload router (Docker: /projects, set via env)
+        projects_dir = os.environ.get("PROJECTS_DIR", "/projects")
         
         if not os.path.exists(projects_dir):
             return {"projects": [], "projects_path": projects_dir}

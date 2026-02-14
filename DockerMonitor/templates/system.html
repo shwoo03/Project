@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block title %}System Info — Docker Monitor{% endblock %}
+
+{% block content %}
+<h1 class="dashboard-title">System Info</h1>
+<p class="dashboard-desc">Docker 호스트 디스크 사용량 및 시스템 정보</p>
+
+<div id="system-loading" class="empty-state">
+    <i class="fas fa-spinner fa-spin"></i>
+    <h3>Loading system info...</h3>
+</div>
+
+<div id="system-content" style="display:none;">
+    <!-- Disk Usage Cards -->
+    <div class="stats-row" style="flex-wrap:wrap; gap:30px;">
+        <div class="stat-item">
+            <span class="stat-label">Images</span>
+            <span class="stat-value" id="images-size">—</span>
+            <span class="stat-label" style="margin-top:4px;font-size:0.75rem;" id="images-detail"></span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-label">Containers</span>
+            <span class="stat-value" id="containers-size">—</span>
+            <span class="stat-label" style="margin-top:4px;font-size:0.75rem;" id="containers-detail"></span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-label">Volumes</span>
+            <span class="stat-value" id="volumes-size">—</span>
+            <span class="stat-label" style="margin-top:4px;font-size:0.75rem;" id="volumes-detail"></span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-label">Build Cache</span>
+            <span class="stat-value" id="cache-size">—</span>
+            <span class="stat-label" style="margin-top:4px;font-size:0.75rem;" id="cache-detail"></span>
+        </div>
+    </div>
+
+    <!-- Reclaimable Space -->
+    <div style="margin-bottom:50px; padding-bottom:20px; border-bottom:1px dashed var(--border);">
+        <div class="section-header">
+            <h2 style="font-size:1.2rem; font-weight:600;">Reclaimable Space</h2>
+        </div>
+        <div class="container-list">
+            <div class="container-card" style="border-bottom:1px solid var(--border);">
+                <div class="card-left">
+                    <span class="container-name"><i class="fas fa-layer-group"
+                            style="color:var(--accent);font-size:0.9rem;"></i> Images</span>
+                    <span class="container-meta" id="images-reclaim">—</span>
+                </div>
+                <div class="card-stats"><span class="stat-unit" id="images-reclaim-size">—</span></div>
+            </div>
+            <div class="container-card" style="border-bottom:1px solid var(--border);">
+                <div class="card-left">
+                    <span class="container-name"><i class="fas fa-database"
+                            style="color:var(--accent);font-size:0.9rem;"></i> Volumes</span>
+                    <span class="container-meta" id="volumes-reclaim">—</span>
+                </div>
+                <div class="card-stats"><span class="stat-unit" id="volumes-reclaim-size">—</span></div>
+            </div>
+            <div class="container-card">
+                <div class="card-left">
+                    <span class="container-name"><i class="fas fa-hammer"
+                            style="color:var(--accent);font-size:0.9rem;"></i> Build Cache</span>
+                    <span class="container-meta" id="cache-reclaim">—</span>
+                </div>
+                <div class="card-stats"><span class="stat-unit" id="cache-reclaim-size">—</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Host Information -->
+    <div>
+        <div class="section-header">
+            <h2 style="font-size:1.2rem; font-weight:600;">Host Information</h2>
+        </div>
+        <div class="container-list" id="host-info">
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function loadSystemInfo() {
+        try {
+            const resp = await fetch('/api/system');
+            const json = await resp.json();
+            if (!json.success || !json.data) {
+                document.getElementById('system-loading').innerHTML = '<i class="fas fa-exclamation-triangle"></i><h3>Failed to load system info</h3>';
+                return;
+            }
+            const d = json.data;
+
+            // Top stats
+            document.getElementById('images-size').textContent = d.images.total_size_human;
+            document.getElementById('images-detail').textContent = `${d.images.total} total · ${d.images.active} active`;
+
+            document.getElementById('containers-size').textContent = d.containers.total_size_human;
+            document.getElementById('containers-detail').textContent = `${d.containers.running} running · ${d.containers.stopped} stopped`;
+
+            document.getElementById('volumes-size').textContent = d.volumes.total_size_human;
+            document.getElementById('volumes-detail').textContent = `${d.volumes.total} total · ${d.volumes.active} active`;
+
+            document.getElementById('cache-size').textContent = d.build_cache.total_size_human;
+            document.getElementById('cache-detail').textContent = `${d.build_cache.total} entries`;
+
+            // Reclaimable
+            document.getElementById('images-reclaim').textContent = `${d.images.total - d.images.active} unused images`;
+            document.getElementById('images-reclaim-size').textContent = d.images.reclaimable_human;
+
+            document.getElementById('volumes-reclaim').textContent = `${d.volumes.total - d.volumes.active} unused volumes`;
+            document.getElementById('volumes-reclaim-size').textContent = d.volumes.reclaimable_human;
+
+            document.getElementById('cache-reclaim').textContent = `reclaimable cache entries`;
+            document.getElementById('cache-reclaim-size').textContent = d.build_cache.reclaimable_human;
+
+            // Host info
+            const host = d.host;
+            const hostItems = [
+                { icon: 'fa-server', label: 'OS', value: host.os },
+                { icon: 'fa-microchip', label: 'Architecture', value: host.architecture },
+                { icon: 'fa-code-branch', label: 'Kernel', value: host.kernel },
+                { icon: 'fa-microchip', label: 'CPUs', value: host.cpus },
+                { icon: 'fa-memory', label: 'Memory', value: host.memory_total_human },
+                { icon: 'fab fa-docker', label: 'Docker', value: `v${host.docker_version} (API ${host.api_version})` },
+                { icon: 'fa-hdd', label: 'Storage Driver', value: host.storage_driver },
+                { icon: 'fa-folder', label: 'Docker Root', value: host.docker_root_dir },
+            ];
+            const hostEl = document.getElementById('host-info');
+            hostEl.innerHTML = hostItems.map(item => `
+            <div class="container-card">
+                <div class="card-left">
+                    <span class="container-name">
+                        <i class="fas ${item.icon}" style="color:var(--text-muted);font-size:0.85rem;width:16px;text-align:center;"></i>
+                        ${item.label}
+                    </span>
+                </div>
+                <div class="card-stats">
+                    <span class="stat-unit" style="font-family:'JetBrains Mono',monospace;font-size:0.85rem;">${item.value}</span>
+                </div>
+            </div>
+        `).join('');
+
+            // Show content
+            document.getElementById('system-loading').style.display = 'none';
+            document.getElementById('system-content').style.display = 'block';
+        } catch (err) {
+            console.error('Error loading system info:', err);
+            document.getElementById('system-loading').innerHTML = '<i class="fas fa-exclamation-triangle"></i><h3>Error loading system info</h3>';
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', loadSystemInfo);
+</script>
+{% endblock %}

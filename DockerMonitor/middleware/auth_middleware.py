@@ -1,12 +1,12 @@
 """
 인증 미들웨어 - shwoo_server SSO 연동
 """
-import hashlib
 from fastapi import Request
 from fastapi.responses import RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from core.config import ALLOWED_EMAILS, TOKEN_SECRET
+from core.config import settings
+from core.auth import hash_email
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -30,8 +30,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
         
         # 허용된 이메일 중 하나와 일치하는지 확인
         valid_session = False
-        for email in ALLOWED_EMAILS:
-            expected_token = hashlib.sha256(f"{email}:{TOKEN_SECRET}".encode()).hexdigest()
+        for email in settings.allowed_email_list:
+            expected_token = hash_email(email)
             if session_token == expected_token:
                 valid_session = True
                 break

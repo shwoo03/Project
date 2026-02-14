@@ -1,14 +1,13 @@
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 import logging
 
 from core import connection
 from core.monitor import monitor
 from core.auth import auth_callback, login_redirect
-from routers import containers, websocket, networks, images, terminal, volumes, compose
+from routers import containers, websocket, networks, images, terminal, volumes, compose, system
+from routers.pages import router as pages_router
 from middleware.error_handler import register_error_handlers
 from middleware.auth_middleware import AuthMiddleware
 
@@ -41,13 +40,14 @@ app.add_middleware(AuthMiddleware)
 # Register Exception Handlers
 register_error_handlers(app)
 
-# ============ Static Files & Templates ============
+# ============ Static Files ============
 
-# 정적 파일 및 템플릿 마운트
+# 정적 파일 마운트
 app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
 
-# 라우터 등록
+# ============ Routers ============
+
+# API 라우터 등록
 app.include_router(containers.router)
 app.include_router(websocket.router)
 app.include_router(networks.router)
@@ -55,52 +55,14 @@ app.include_router(images.router)
 app.include_router(terminal.router)
 app.include_router(volumes.router)
 app.include_router(compose.router)
+app.include_router(system.router)
+
+# 페이지 라우터 등록
+app.include_router(pages_router)
 
 # 인증 라우트 등록
 app.get("/auth")(auth_callback)
 app.get("/login")(login_redirect)
-
-
-@app.get("/", response_class=HTMLResponse)
-async def get_dashboard(request: Request):
-    """메인 대시보드 페이지"""
-    return templates.TemplateResponse("index.html", {"request": request})
-
-
-@app.get("/networks", response_class=HTMLResponse)
-async def get_networks_page(request: Request):
-    """Networks 페이지"""
-    return templates.TemplateResponse("networks.html", {"request": request})
-
-
-@app.get("/images", response_class=HTMLResponse)
-async def get_images_page(request: Request):
-    """Images 페이지"""
-    return templates.TemplateResponse("images.html", {"request": request})
-
-
-@app.get("/volumes", response_class=HTMLResponse)
-async def get_volumes_page(request: Request):
-    """Volumes 페이지"""
-    return templates.TemplateResponse("volumes.html", {"request": request})
-
-
-@app.get("/logs", response_class=HTMLResponse)
-async def get_logs_page(request: Request):
-    """Logs 페이지"""
-    return templates.TemplateResponse("logs.html", {"request": request})
-
-
-@app.get("/compose", response_class=HTMLResponse)
-async def get_compose_page(request: Request):
-    """Compose 관리 페이지"""
-    return templates.TemplateResponse("compose.html", {"request": request})
-
-
-@app.get("/inspect/{container_id}", response_class=HTMLResponse)
-async def get_inspect_page(request: Request, container_id: str):
-    """컨테이너 상세 Inspect 페이지"""
-    return templates.TemplateResponse("inspect.html", {"request": request, "container_id": container_id})
 
 
 if __name__ == "__main__":

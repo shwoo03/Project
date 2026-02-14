@@ -5,7 +5,7 @@ from typing import Dict, Any
 from services import container_service
 from core.websocket_manager import manager as ws_manager
 from core import connection
-from core.config import MONITOR_INTERVAL
+from core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +133,7 @@ class DockerMonitor:
             except Exception as e:
                 logger.error(f"Monitor loop error: {e}")
 
-            await asyncio.sleep(MONITOR_INTERVAL)
+            await asyncio.sleep(settings.monitor_interval)
 
 
 monitor = DockerMonitor()

@@ -24,14 +24,14 @@ def test_allowed_email_list():
     assert all("@" in e for e in emails)
 
 
-def test_backward_compat_aliases():
-    """하위 호환 alias가 정상 동작하는지 확인"""
-    from core.config import ALLOWED_EMAILS, TOKEN_SECRET, SHWOO_URL, TOKEN_EXPIRY_SECONDS, MONITOR_INTERVAL
-    assert isinstance(ALLOWED_EMAILS, list)
-    assert isinstance(TOKEN_SECRET, str)
-    assert isinstance(SHWOO_URL, str)
-    assert isinstance(TOKEN_EXPIRY_SECONDS, int)
-    assert isinstance(MONITOR_INTERVAL, int)
+def test_settings_direct_access():
+    """settings 인스턴스에서 직접 접근이 정상 동작하는지 확인"""
+    from core.config import settings
+    assert isinstance(settings.allowed_email_list, list)
+    assert isinstance(settings.docker_token_secret, str)
+    assert isinstance(settings.shwoo_url, str)
+    assert isinstance(settings.token_expiry_seconds, int)
+    assert isinstance(settings.monitor_interval, int)
 
 
 def test_config_env_override():

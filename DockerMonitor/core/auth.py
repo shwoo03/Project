@@ -9,7 +9,7 @@ import logging
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from core.config import ALLOWED_EMAILS, TOKEN_SECRET, SHWOO_URL, TOKEN_EXPIRY_SECONDS
+from core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ def verify_token(token: str) -> str | None:
         # 서명 검증
         data = f"{email}:{timestamp_str}"
         expected_signature = hmac.new(
-            TOKEN_SECRET.encode(),
+            settings.docker_token_secret.encode(),
             data.encode(),
             hashlib.sha256
         ).hexdigest()
@@ -46,11 +46,11 @@ def verify_token(token: str) -> str | None:
         current_time = datetime.datetime.now().timestamp() * 1000
         time_diff = current_time - timestamp
         
-        if time_diff > TOKEN_EXPIRY_SECONDS * 1000:
+        if time_diff > settings.token_expiry_seconds * 1000:
             return None
         
         # 허용된 이메일인지 확인
-        if email not in ALLOWED_EMAILS:
+        if email not in settings.allowed_email_list:
             return None
         
         return email
@@ -61,18 +61,19 @@ def verify_token(token: str) -> str | None:
 
 def hash_email(email: str) -> str:
     """이메일 해시 생성 - 세션 토큰용"""
-    return hashlib.sha256(f"{email}:{TOKEN_SECRET}".encode()).hexdigest()
+    return hashlib.sha256(f"{email}:{settings.docker_token_secret}".encode()).hexdigest()
 
 
 async def auth_callback(request: Request, token: str = None):
     """토큰 기반 인증 콜백 - shwoo_server에서 리다이렉트됨"""
     if not token:
-        return RedirectResponse(SHWOO_URL, status_code=302)
+        return RedirectResponse(settings.shwoo_url, status_code=302)
     
     email = verify_token(token)
     
     if not email:
         # 토큰이 유효하지 않음 - 접근 거부 페이지 표시
+        shwoo_url = settings.shwoo_url
         html = f'''
 <!DOCTYPE html>
 <html lang="ko" class="dark">
@@ -98,7 +99,7 @@ async def auth_callback(request: Request, token: str = None):
         <div class="text-6xl mb-4">🔒</div>
         <h1 class="text-2xl font-bold text-red-400 mb-4">접근이 거부되었습니다</h1>
         <p class="text-gray-400 mb-6">유효하지 않거나 만료된 인증 토큰입니다.</p>
-        <a href="{SHWOO_URL}" 
+        <a href="{shwoo_url}" 
            class="inline-block px-6 py-3 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 text-white font-medium hover:opacity-90 transition-opacity">
             Shwoo 사이트로 돌아가기
         </a>
@@ -122,4 +123,4 @@ async def auth_callback(request: Request, token: str = None):
 
 async def login_redirect(request: Request):
     """로그인 페이지 - shwoo_server로 리다이렉트"""
-    return RedirectResponse(SHWOO_URL, status_code=302)
+    return RedirectResponse(settings.shwoo_url, status_code=302)

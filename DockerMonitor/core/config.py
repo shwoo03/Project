@@ -37,10 +37,3 @@ class Settings(BaseSettings):
 
 # 싱글턴 인스턴스
 settings = Settings()
-
-# 하위 호환 alias
-ALLOWED_EMAILS = settings.allowed_email_list
-TOKEN_SECRET = settings.docker_token_secret
-SHWOO_URL = settings.shwoo_url
-TOKEN_EXPIRY_SECONDS = settings.token_expiry_seconds
-MONITOR_INTERVAL = settings.monitor_interval

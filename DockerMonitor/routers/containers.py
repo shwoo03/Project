@@ -59,7 +59,7 @@ async def update_container_resources(container_id: str, req: UpdateResourceReque
     )
 
     if success:
-        return success_response(data={"container_id": container_id, "updated": req.dict()})
+        return success_response(data={"container_id": container_id, "updated": req.model_dump()})
 
     raise ContainerActionError(container_id=container_id, action="update_resources")
 

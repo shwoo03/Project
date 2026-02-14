@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from services.compose_service import compose_service
+from services import compose_service
 from core.schemas import success_response, error_response
 
 router = APIRouter(prefix="/api/compose", tags=["compose"])

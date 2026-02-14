@@ -32,7 +32,7 @@
             <div class="text-sm text-muted font-medium">Following</div>
         </div>
     </div>
-    <div class="glass-card rounded-2xl p-6 col-span-2 flex items-center justify-between group">
+    <div class="glass-card rounded-2xl p-6 flex items-center justify-between group">
         <div>
             <div class="text-sm text-muted font-medium mb-1">맞팔하지 않음</div>
             <div class="text-3xl font-bold count-up" data-target="{{ not_following_back_count }}">{{
@@ -44,6 +44,22 @@
                 <circle cx="12" cy="12" r="10"></circle>
                 <line x1="15" y1="9" x2="9" y2="15"></line>
                 <line x1="9" y1="9" x2="15" y2="15"></line>
+            </svg>
+        </div>
+    </div>
+    <div class="glass-card rounded-2xl p-6 flex items-center justify-between group">
+        <div>
+            <div class="text-sm text-muted font-medium mb-1">나를 짝사랑</div>
+            <div class="text-3xl font-bold count-up text-green-400" data-target="{{ im_not_following_count }}">{{
+                im_not_following_count }}</div>
+        </div>
+        <div
+            class="p-3 bg-green-500/10 rounded-xl text-green-400 group-hover:rotate-12 transition-transform icon-pulse">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path
+                    d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z">
+                </path>
             </svg>
         </div>
     </div>

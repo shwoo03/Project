@@ -4,6 +4,7 @@ API 라우터 - RESTful API 엔드포인트
 from fastapi import APIRouter, BackgroundTasks, Depends
 from fastapi.responses import JSONResponse, StreamingResponse
 import datetime
+import pymongo
 import logging
 
 from config import get_settings
@@ -12,7 +13,6 @@ from state_manager import state
 from services.task_service import TaskService
 from services.export_service import ExportService
 from schemas import APIResponse
-from utils import get_db_data
 from dependencies import get_user_repo, get_log_repo
 from repositories.user_repository import UserRepository
 from repositories.log_repository import LogRepository
@@ -32,6 +32,57 @@ async def api_run(background_tasks: BackgroundTasks):
 
     background_tasks.add_task(TaskService.run_tracker)
     return APIResponse.ok("🚀 팔로워 추적을 시작합니다...")
+
+
+@router.post("/cancel")
+async def api_cancel():
+    """실행 중인 작업 취소 API"""
+    if not state.is_running:
+        return APIResponse.fail("실행 중인 작업이 없습니다")
+
+    state.request_cancel()
+    return APIResponse.ok("🛑 작업 취소를 요청했습니다")
+
+
+@router.get("/health")
+async def api_health():
+    """Health Check API — MongoDB, 스케줄러, 앱 상태 확인"""
+    checks = {}
+    overall = "healthy"
+
+    # MongoDB 연결 확인
+    try:
+        settings = get_settings()
+        client = pymongo.MongoClient(settings.mongo_uri, serverSelectionTimeoutMS=3000)
+        client.admin.command('ping')
+        checks["mongodb"] = {"status": "ok"}
+        client.close()
+    except Exception as e:
+        checks["mongodb"] = {"status": "error", "detail": str(e)}
+        overall = "unhealthy"
+
+    # 스케줄러 상태
+    schedule_info = get_schedule_info()
+    checks["scheduler"] = {
+        "status": "ok",
+        "enabled": schedule_info.get("enabled", False),
+        "next_run": schedule_info.get("next_run")
+    }
+
+    # 앱 상태
+    checks["tracker"] = {
+        "status": "running" if state.is_running else "idle",
+        "progress": state.progress
+    }
+
+    status_code = 200 if overall == "healthy" else 503
+    return JSONResponse(
+        content={
+            "status": overall,
+            "checks": checks
+        },
+        status_code=status_code
+    )
 
 
 @router.get("/schedule")
@@ -63,9 +114,16 @@ async def api_delete_schedule():
 
 
 @router.get("/status")
-async def api_status():
+async def api_status(repo: UserRepository = Depends(get_user_repo)):
     """상태 API"""
-    data = get_db_data()
+    settings = get_settings()
+    data = None
+    if settings.user_id:
+        try:
+            data = repo.get_latest_data(settings.user_id)
+        except Exception:
+            pass
+
     return APIResponse.ok("상태 조회 성공", data={
         "is_running": state.is_running,
         "progress": state.progress,
@@ -123,9 +181,13 @@ async def api_export_csv(
 
 
 @router.get("/latest")
-async def api_latest():
+async def api_latest(repo: UserRepository = Depends(get_user_repo)):
     """최신 데이터 API"""
-    data = get_db_data()
+    settings = get_settings()
+    if not settings.user_id:
+        return APIResponse.fail("데이터가 없습니다")
+
+    data = repo.get_latest_data(settings.user_id)
     if not data:
         return APIResponse.fail("데이터가 없습니다")
 

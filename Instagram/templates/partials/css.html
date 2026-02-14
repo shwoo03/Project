@@ -90,7 +90,7 @@
         right: 0;
         bottom: 0;
         z-index: -2;
-        background: 
+        background:
             radial-gradient(ellipse at 20% 20%, rgba(59, 130, 246, 0.15) 0%, transparent 50%),
             radial-gradient(ellipse at 80% 30%, rgba(168, 85, 247, 0.12) 0%, transparent 50%),
             radial-gradient(ellipse at 40% 80%, rgba(236, 72, 153, 0.1) 0%, transparent 50%);
@@ -98,15 +98,22 @@
     }
 
     html.light .gradient-mesh {
-        background: 
+        background:
             radial-gradient(ellipse at 20% 20%, rgba(59, 130, 246, 0.08) 0%, transparent 50%),
             radial-gradient(ellipse at 80% 30%, rgba(168, 85, 247, 0.06) 0%, transparent 50%),
             radial-gradient(ellipse at 40% 80%, rgba(236, 72, 153, 0.05) 0%, transparent 50%);
     }
 
     @keyframes mesh-move {
-        0%, 100% { transform: scale(1) rotate(0deg); }
-        50% { transform: scale(1.1) rotate(3deg); }
+
+        0%,
+        100% {
+            transform: scale(1) rotate(0deg);
+        }
+
+        50% {
+            transform: scale(1.1) rotate(3deg);
+        }
     }
 
     /* Floating Orbs */
@@ -164,8 +171,15 @@
     }
 
     @keyframes float {
-        0%, 100% { transform: translateY(0) rotate(0deg); }
-        50% { transform: translateY(-30px) rotate(5deg); }
+
+        0%,
+        100% {
+            transform: translateY(0) rotate(0deg);
+        }
+
+        50% {
+            transform: translateY(-30px) rotate(5deg);
+        }
     }
 
     .glass {
@@ -195,12 +209,10 @@
         left: -100%;
         width: 100%;
         height: 100%;
-        background: linear-gradient(
-            90deg,
-            transparent,
-            rgba(255, 255, 255, 0.05),
-            transparent
-        );
+        background: linear-gradient(90deg,
+                transparent,
+                rgba(255, 255, 255, 0.05),
+                transparent);
         transition: left 0.5s ease-in-out;
     }
 
@@ -212,7 +224,7 @@
         background: var(--card-hover);
         border-color: rgba(255, 255, 255, 0.15);
         transform: translateY(-4px) scale(1.01);
-        box-shadow: 
+        box-shadow:
             0 20px 40px -10px rgba(0, 0, 0, 0.4),
             0 0 30px -5px rgba(59, 130, 246, 0.15);
     }
@@ -245,9 +257,18 @@
     }
 
     @keyframes count-pop {
-        0% { transform: scale(1); }
-        50% { transform: scale(1.15); color: #3b82f6; }
-        100% { transform: scale(1); }
+        0% {
+            transform: scale(1);
+        }
+
+        50% {
+            transform: scale(1.15);
+            color: #3b82f6;
+        }
+
+        100% {
+            transform: scale(1);
+        }
     }
 
     /* Icon Pulse Animation */
@@ -256,8 +277,15 @@
     }
 
     @keyframes icon-glow {
-        0%, 100% { filter: drop-shadow(0 0 0 transparent); }
-        50% { filter: drop-shadow(0 0 8px currentColor); }
+
+        0%,
+        100% {
+            filter: drop-shadow(0 0 0 transparent);
+        }
+
+        50% {
+            filter: drop-shadow(0 0 8px currentColor);
+        }
     }
 
     ::-webkit-scrollbar {
@@ -394,7 +422,7 @@
         left: 50%;
         width: 120%;
         height: 120%;
-        background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 70%);
+        background: radial-gradient(circle, rgba(255, 255, 255, 0.3) 0%, transparent 70%);
         transform: translate(-50%, -50%) scale(0);
         transition: transform 0.5s ease-out;
     }
@@ -419,5 +447,33 @@
 
     .custom-scrollbar::-webkit-scrollbar-thumb:hover {
         background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Light mode scrollbars */
+    html.light ::-webkit-scrollbar-track {
+        background: #f1f5f9;
+    }
+
+    html.light ::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 4px;
+    }
+
+    html.light ::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+    }
+
+    html.light .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: rgba(0, 0, 0, 0.1);
+    }
+
+    html.light .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: rgba(0, 0, 0, 0.2);
+    }
+
+    /* Light mode log terminal fix */
+    html.light #realtime-log {
+        background: rgba(0, 0, 0, 0.03);
+        color: #334155;
     }
 </style>

@@ -4,7 +4,6 @@
 """
 import logging
 import os
-import hashlib
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
@@ -15,67 +14,34 @@ import uvicorn
 
 # 모듈 import
 from log_handler import MongoHandler
+from logging_config import setup_logging
 from scheduler import get_scheduler, shutdown_scheduler
 from routers import views, api
 from state_manager import state
 from config import get_settings
+from services.auth_utils import verify_session_token
 
 # 로깅 설정
-# 앱 전용 로거 ('instagram' 네임스페이스) — 라이브러리 로그 분리
-app_logger = logging.getLogger("instagram")
-app_logger.setLevel(logging.INFO)
-
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
-# 파일 핸들러
-file_handler = logging.FileHandler('instagram_tracker.log', encoding='utf-8')
-file_handler.setFormatter(formatter)
-app_logger.addHandler(file_handler)
-
-# 스트림 핸들러
-stream_handler = logging.StreamHandler()
-stream_handler.setFormatter(formatter)
-app_logger.addHandler(stream_handler)
-
-# MongoDB 핸들러
-mongo_handler = MongoHandler()
-mongo_handler.setFormatter(formatter)
-app_logger.addHandler(mongo_handler)
-
-local_logger = logging.getLogger(f"instagram.{__name__}")
+local_logger = setup_logging()
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
     """인증 미들웨어 - 보호된 경로에 대한 접근 제어"""
     
-    # 인증 없이 접근 가능한 경로
-    PUBLIC_PATHS = ["/login", "/auth", "/static", "/favicon.ico"]
+    PUBLIC_PATHS = ["/login", "/auth", "/static", "/favicon.ico", "/api/health"]
     
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        settings = get_settings()
         
-        # 공개 경로는 인증 없이 허용
         if any(path.startswith(p) for p in self.PUBLIC_PATHS):
             return await call_next(request)
         
-        # 인증 확인 - 이메일 기반 세션 토큰 검증
         session_token = request.cookies.get("instagram_auth")
         
         if not session_token:
             return RedirectResponse("/login", status_code=302)
         
-        # 허용된 이메일 중 하나와 일치하는지 확인
-        valid_session = False
-        for email in settings.allowed_emails:
-            expected_token = hashlib.sha256(
-                f"{email}:{settings.instagram_token_secret}".encode()
-            ).hexdigest()
-            if session_token == expected_token:
-                valid_session = True
-                break
-        
-        if not valid_session:
+        if not verify_session_token(session_token):
             return RedirectResponse("/login", status_code=302)
         
         return await call_next(request)

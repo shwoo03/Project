@@ -1,8 +1,12 @@
+"""
+Custom Logging Handler — MongoDB에 로그 저장
+"""
 import logging
 import datetime
 import socket
 from repositories.base import BaseRepository
-from config import get_env_var
+from config import get_settings
+
 
 class MongoHandler(logging.Handler):
     """
@@ -10,27 +14,23 @@ class MongoHandler(logging.Handler):
     """
     def __init__(self, level=logging.NOTSET):
         super().__init__(level)
-        self.mongo_uri = None
-        self.username = "system"
-        self._client = None
         self._collection = None
-        self.hostname = socket.gethostname()
         self._initialized = False
+        self.hostname = socket.gethostname()
+        self.username = "system"
 
-    def _initialize_db(self):
+    def _initialize_db(self) -> bool:
         if self._initialized:
             return True
-            
-        env_vars = get_env_var()
-        if not env_vars or not env_vars.get("MONGO_URI"):
-            return False
-            
-        self.mongo_uri = env_vars["MONGO_URI"]
-        self.username = env_vars.get("USERNAME", "system")
-        
+
         try:
-            # BaseRepository를 통한 MongoDB 클라이언트 접근
-            repo = BaseRepository(self.mongo_uri)
+            settings = get_settings()
+            if not settings.mongo_uri:
+                return False
+
+            self.username = settings.user_id or "system"
+
+            repo = BaseRepository(settings.mongo_uri)
             client = repo._get_client()
             if client:
                 self._collection = client.get_database('webhook').get_collection('Instagram_Logs')
@@ -40,18 +40,15 @@ class MongoHandler(logging.Handler):
             pass
         return False
 
-    def emit(self, record):
+    def emit(self, record: logging.LogRecord) -> None:
         try:
-            # Ensure DB is connected
             if not self._initialized:
                 if not self._initialize_db():
                     return
 
-            # Skip if collection is still not available
             if self._collection is None:
                 return
 
-            # Format log message
             log_entry = {
                 "timestamp": datetime.datetime.now(),
                 "level": record.levelname,
@@ -63,7 +60,6 @@ class MongoHandler(logging.Handler):
                 "hostname": self.hostname
             }
 
-            # Insert into MongoDB
             self._collection.insert_one(log_entry)
 
         except Exception:

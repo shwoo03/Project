@@ -3,8 +3,8 @@
 """
 import logging
 import datetime
-import hashlib
 import hmac
+import hashlib
 import base64
 
 from fastapi import APIRouter, Request, Depends
@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 from config import get_settings
 from dependencies import get_user_repo
 from repositories.user_repository import UserRepository
+from services.auth_utils import hash_email
 
 logger = logging.getLogger(f"instagram.{__name__}")
 
@@ -78,10 +79,6 @@ def verify_token(token: str) -> str | None:
         return None
 
 
-def hash_email(email: str) -> str:
-    """이메일 해시 생성"""
-    settings = get_settings()
-    return hashlib.sha256(f"{email}:{settings.instagram_token_secret}".encode()).hexdigest()
 
 
 @router.get("/auth")

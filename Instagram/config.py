@@ -3,7 +3,6 @@
 """
 import logging
 from functools import lru_cache
-from typing import Optional
 
 from pydantic_settings import BaseSettings
 
@@ -15,7 +14,7 @@ class Settings(BaseSettings):
     user_id: str
     user_password: str
     mongo_uri: str
-    discord_webhook: Optional[str] = None
+    discord_webhook: str | None = None
     access_password: str  # .env 필수
     shwoo_url: str = "https://xn--9t4ba122aba.site"
 
@@ -49,25 +48,3 @@ def get_settings() -> Settings:
         raise
 
 
-def get_env_var() -> Optional[dict]:
-    """
-    하위 호환성을 위한 함수 (기존 코드와 호환)
-    
-    return: dict
-        USERNAME: str
-        PASSWORD: str 
-        DISCORD_WEBHOOK: str
-        MONGO_URI: str
-        형태로 반환 
-    """
-    try:
-        settings = get_settings()
-        return {
-            "USERNAME": settings.user_id,
-            "PASSWORD": settings.user_password,
-            "DISCORD_WEBHOOK": settings.discord_webhook,
-            "MONGO_URI": settings.mongo_uri
-        }
-    except Exception as e:
-        logger.error(f"환경 변수 로드 실패: {e}")
-        return None

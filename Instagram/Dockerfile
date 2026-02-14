@@ -4,6 +4,7 @@ FROM python:3.11-slim
 # 시스템 의존성 설치 (Playwright용)
 RUN apt-get update && apt-get install -y \
     wget \
+    curl \
     gnupg \
     ca-certificates \
     fonts-liberation \
@@ -42,6 +43,10 @@ EXPOSE 10000
 
 # 환경 변수
 ENV PYTHONUNBUFFERED=1
+
+# 헬스 체크
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:10000/api/health || exit 1
 
 # 대시보드 서버 실행
 CMD ["python", "dashboard.py"]

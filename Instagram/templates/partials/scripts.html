@@ -128,6 +128,7 @@
         loadSchedule();
         loadTrendChart();
         animateCountUp();
+        checkHealth();
     });
 
     let ws = null;
@@ -218,6 +219,7 @@
         const progressFill = document.getElementById('progressFill');
         const progressStatus = document.getElementById('progressStatus');
         const runBtn = document.getElementById('runBtn');
+        const cancelBtn = document.getElementById('cancelBtn');
 
         progressContainer.classList.remove('hidden');
         progressFill.style.width = progress + '%';
@@ -228,34 +230,45 @@
             runBtn.innerHTML = '<span class="mr-2">🎉</span> 완료됨!';
             runBtn.classList.add('bg-green-500', 'hover:bg-green-600', 'text-white');
             runBtn.classList.remove('bg-white', 'text-black');
+            if (cancelBtn) cancelBtn.classList.add('hidden');
+            cancelBtn.classList.remove('inline-flex');
 
-            // 완료 배너 표시
             showCompletionBanner();
 
-            // 진행 상태 완료 스타일로 변경
             progressFill.classList.remove('from-blue-500', 'to-purple-500');
             progressFill.classList.add('from-green-400', 'to-emerald-500');
 
-            // Running 텍스트를 완료로 변경
             const runningText = progressContainer.querySelector('span:last-child');
             if (runningText) {
                 runningText.textContent = '✅ 완료!';
                 runningText.classList.add('text-green-400');
             }
-        } else if (progress === 0 && status === '오류') {
+        } else if (progress === 0 && (status === '오류' || status === '취소됨')) {
             runBtn.disabled = false;
-            runBtn.innerHTML = '<span class="mr-2">🔄</span> 다시 시도';
-            runBtn.classList.add('bg-red-500', 'hover:bg-red-600', 'text-white');
-            runBtn.classList.remove('bg-white', 'text-black');
+            const isCancelled = status === '취소됨';
+            runBtn.innerHTML = isCancelled
+                ? '<span class="mr-2">🚀</span> 추적 실행하기'
+                : '<span class="mr-2">🔄</span> 다시 시도';
+            if (!isCancelled) {
+                runBtn.classList.add('bg-red-500', 'hover:bg-red-600', 'text-white');
+                runBtn.classList.remove('bg-white', 'text-black');
+            } else {
+                runBtn.classList.remove('bg-red-500', 'hover:bg-red-600', 'bg-green-500', 'hover:bg-green-600');
+                runBtn.classList.add('bg-white', 'text-black');
+                runBtn.className = 'btn-glow group relative inline-flex items-center justify-center rounded-full bg-white px-8 py-3 text-sm font-bold text-black transition-all hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-gray-900';
+            }
+            if (cancelBtn) cancelBtn.classList.add('hidden');
+            cancelBtn.classList.remove('inline-flex');
 
-            // 진행 상태 오류 스타일로 변경
-            progressFill.classList.remove('from-blue-500', 'to-purple-500');
-            progressFill.classList.add('from-red-400', 'to-red-500');
+            if (!isCancelled) {
+                progressFill.classList.remove('from-blue-500', 'to-purple-500');
+                progressFill.classList.add('from-red-400', 'to-red-500');
+            }
 
             const runningText = progressContainer.querySelector('span:last-child');
             if (runningText) {
-                runningText.textContent = '❌ 오류 발생';
-                runningText.classList.add('text-red-400');
+                runningText.textContent = isCancelled ? '🛑 취소됨' : '❌ 오류 발생';
+                runningText.classList.add(isCancelled ? 'text-yellow-400' : 'text-red-400');
             }
         }
     }
@@ -300,9 +313,16 @@
 
     async function runTracker() {
         const runBtn = document.getElementById('runBtn');
+        const cancelBtn = document.getElementById('cancelBtn');
         runBtn.disabled = true;
         runBtn.innerHTML = '<span class="mr-2">⌛</span> 시작 중...';
         runBtn.className = "group relative inline-flex items-center justify-center rounded-full bg-white/50 px-8 py-3 text-sm font-bold text-black cursor-wait";
+
+        // Cancel 버튼 표시
+        if (cancelBtn) {
+            cancelBtn.classList.remove('hidden');
+            cancelBtn.classList.add('inline-flex');
+        }
 
         // 진행 상태바 초기화
         const progressContainer = document.getElementById('progressContainer');
@@ -318,14 +338,13 @@
 
         if (runningText) {
             runningText.textContent = 'Running...';
-            runningText.classList.remove('text-green-400', 'text-red-400');
+            runningText.classList.remove('text-green-400', 'text-red-400', 'text-yellow-400');
         }
 
         try {
             const response = await fetch('/api/run', { method: 'POST' });
             const data = await response.json();
 
-            // APIResponse 형식 처리 (data.success 또는 직접 status 확인)
             if (data.success || data.status === 'started') {
                 showToast(data.message || '추적 작업이 시작되었습니다.');
             } else {
@@ -335,6 +354,52 @@
         } catch (error) {
             showToast('서버 연결 실패', 'error');
             updateProgress(0, '오류');
+        }
+    }
+
+    async function cancelTracker() {
+        const cancelBtn = document.getElementById('cancelBtn');
+        if (cancelBtn) {
+            cancelBtn.disabled = true;
+            cancelBtn.innerHTML = '취소 중...';
+        }
+
+        try {
+            const response = await fetch('/api/cancel', { method: 'POST' });
+            const data = await response.json();
+            showToast(data.message || '작업 취소 요청됨');
+        } catch (error) {
+            showToast('취소 요청 실패', 'error');
+        } finally {
+            if (cancelBtn) {
+                cancelBtn.disabled = false;
+                cancelBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg> 취소`;
+            }
+        }
+    }
+
+    async function checkHealth() {
+        const dot = document.getElementById('healthDot');
+        const text = document.getElementById('healthText');
+        if (!dot) return;
+
+        try {
+            const response = await fetch('/api/health');
+            const data = await response.json();
+
+            if (data.status === 'healthy') {
+                dot.className = 'w-2 h-2 rounded-full bg-green-500';
+                if (text) text.textContent = 'Healthy';
+            } else if (data.status === 'degraded') {
+                dot.className = 'w-2 h-2 rounded-full bg-yellow-500';
+                if (text) text.textContent = 'Degraded';
+            } else {
+                dot.className = 'w-2 h-2 rounded-full bg-red-500';
+                if (text) text.textContent = 'Unhealthy';
+            }
+        } catch {
+            dot.className = 'w-2 h-2 rounded-full bg-red-500 animate-pulse';
+            if (text) text.textContent = 'Error';
         }
     }
 
@@ -565,8 +630,8 @@
 
         const toast = document.createElement('div');
         toast.className = `p-4 rounded-lg shadow-lg text-white text-sm font-medium transform transition-all duration-300 translate-x-full opacity-0 flex items-center gap-3 glass-card border-l-4 ${type === 'success' ? 'border-green-500' :
-                type === 'error' ? 'border-red-500' :
-                    'border-blue-500'
+            type === 'error' ? 'border-red-500' :
+                'border-blue-500'
             }`;
 
         toast.innerHTML = `

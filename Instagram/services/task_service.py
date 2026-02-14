@@ -13,6 +13,15 @@ logger = logging.getLogger(f"instagram.{__name__}")
 
 class TaskService:
     @staticmethod
+    async def _check_cancel() -> bool:
+        """취소 요청 확인 — True이면 호출자가 return해야 함"""
+        if state.cancellation_requested:
+            await state.broadcast_log("🛑 작업이 취소되었습니다.")
+            await state.broadcast_progress(0, "취소됨")
+            return True
+        return False
+
+    @staticmethod
     async def run_tracker() -> None:
         """백그라운드에서 팔로워 추적 실행"""
         if state.is_running:
@@ -28,14 +37,23 @@ class TaskService:
                 await state.broadcast_log("❌ 환경 변수 로드 실패")
                 return
             
+            if await TaskService._check_cancel():
+                return
+
             await state.broadcast_progress(10, "오늘 실행 여부 확인 중...")
             
             await state.broadcast_progress(20, "인스타그램 로그인 중...")
             await state.broadcast_log("🔐 Playwright 로그인 시작...")
             
+            if await TaskService._check_cancel():
+                return
+
             # AuthService 사용
             cookies_dict = await AuthService.login(settings.user_id, settings.user_password)
             
+            if await TaskService._check_cancel():
+                return
+
             if not cookies_dict:
                 await state.broadcast_log("❌ 로그인 실패")
                 await state.broadcast_progress(0, "실패")
@@ -44,10 +62,16 @@ class TaskService:
             await state.broadcast_log("✅ 로그인 성공!")
             await state.broadcast_progress(40, "팔로워 데이터 수집 중...")
             
+            if await TaskService._check_cancel():
+                return
+
             # InstagramService 사용
             inst_service = InstagramService(cookies_dict)
             results = await inst_service.get_followers_and_following()
             
+            if await TaskService._check_cancel():
+                return
+
             await state.broadcast_log(f"📊 팔로워: {len(results['followers'])}명, 팔로잉: {len(results['following'])}명")
             await state.broadcast_progress(70, "데이터베이스 저장 중...")
             
@@ -58,6 +82,9 @@ class TaskService:
             
             await state.broadcast_log("💾 DB 저장 완료! (히스토리 포함)")
             
+            if await TaskService._check_cancel():
+                return
+
             # 알림 로직
             new_followers = diff_result.get("new_followers", [])
             lost_followers = diff_result.get("lost_followers", [])
@@ -84,3 +111,4 @@ class TaskService:
             logger.error(f"Tracker 실행 오류: {e}")
         finally:
             state.is_running = False
+            state.reset_cancel()

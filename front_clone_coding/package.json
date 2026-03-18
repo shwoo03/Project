@@ -1,0 +1,30 @@
+{
+  "name": "front-clone-coding",
+  "version": "3.0.0",
+  "description": "Browser-driven site mirroring with API capture, mock data, and backend handoff scaffolding.",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "front-clone": "./bin/cli.js"
+  },
+  "scripts": {
+    "start": "node bin/cli.js"
+  },
+  "keywords": [
+    "website-cloner",
+    "frontend",
+    "scraper",
+    "clone-coding"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "cheerio": "^1.0.0",
+    "commander": "^12.1.0",
+    "express": "^5.2.1",
+    "mime-types": "^2.1.35",
+    "ora": "^8.1.0",
+    "playwright": "^1.49.0",
+    "tldts": "^6.1.86"
+  }
+}

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Front Clone | Admin Console</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="background-blobs">
+        <div class="blob blob1"></div>
+        <div class="blob blob2"></div>
+    </div>
+    
+    <div class="container">
+        <header>
+            <h1><span class="highlight">Front</span> Clone Coding</h1>
+            <p>Advanced Browser-Driven Mirroring & Mocking API scaffold</p>
+        </header>
+
+        <main class="grid-layout">
+            <section class="panel control-panel glass">
+                <h2>Configuration</h2>
+                <form id="clone-form">
+                    <div class="form-group">
+                        <label for="url">Target URL</label>
+                        <input type="url" id="url" name="url" placeholder="https://example.com" required>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="form-group">
+                            <label for="maxDepth">Max Depth</label>
+                            <input type="number" id="maxDepth" name="maxDepth" value="3" min="0">
+                        </div>
+                        <div class="form-group">
+                            <label for="maxPages">Max Pages</label>
+                            <input type="number" id="maxPages" name="maxPages" value="20" min="1">
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="form-group">
+                            <label for="concurrency">Concurrency</label>
+                            <input type="number" id="concurrency" name="concurrency" value="3" min="1">
+                        </div>
+                        <div class="form-group checkbox-group">
+                            <label class="switch">
+                                <input type="checkbox" id="recursive" name="recursive" checked>
+                                <span class="slider round"></span>
+                            </label>
+                            <span class="label-text">Recursive Search</span>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="cookieFile">Cookie File Path (Optional)</label>
+                        <input type="text" id="cookieFile" name="cookieFile" placeholder="./cookies.json">
+                    </div>
+
+                    <div class="row">
+                        <div class="form-group checkbox-group">
+                            <label class="switch">
+                                <input type="checkbox" id="scaffold" name="scaffold" checked>
+                                <span class="slider round"></span>
+                            </label>
+                            <span class="label-text">Generate Express Scaffold</span>
+                        </div>
+                    </div>
+
+                    <div class="btn-row">
+                        <button type="submit" class="btn-primary" id="start-btn">
+                            <span class="btn-text">Start Cloning</span>
+                            <div class="loader hidden"></div>
+                        </button>
+                        <button type="button" class="btn-cancel hidden" id="cancel-btn">Cancel</button>
+                    </div>
+                </form>
+            </section>
+
+            <section class="panel terminal-panel glass">
+                <div class="terminal-header">
+                    <div class="dots">
+                        <span></span><span></span><span></span>
+                    </div>
+                    <div class="title">Live Execution Logs</div>
+                    <div class="status-cluster">
+                        <span class="status-badge" id="job-status" data-state="idle">idle</span>
+                    </div>
+                </div>
+                <div class="job-meta" id="job-meta">Awaiting a new clone job</div>
+                <div class="terminal-body" id="terminal-output">
+                    <div class="log line info">Awaiting clone command...</div>
+                </div>
+            </section>
+        </main>
+
+        <section class="panel output-panel glass" id="output-panel">
+            <div class="output-header">
+                <h2>Output Browser</h2>
+                <button class="btn-refresh" id="refresh-output">Refresh</button>
+            </div>
+            <div class="output-breadcrumb" id="output-breadcrumb"></div>
+            <div class="output-list" id="output-list">
+                <div class="output-empty">No output files yet. Run a clone job first.</div>
+            </div>
+        </section>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

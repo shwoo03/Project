@@ -1,0 +1,13 @@
+node_modules
+output
+.git
+.gitignore
+coverage
+playwright-report
+test-results
+tmp
+temp
+*.log
+.DS_Store
+Thumbs.db
+README.md

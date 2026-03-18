@@ -1,0 +1,12 @@
+services:
+  front-clone:
+    build: .
+    container_name: front-clone-coding
+    ports:
+      - "20000:20000"
+    volumes:
+      - ./output:/app/output
+    environment:
+      - NODE_ENV=production
+      - PORT=20000
+    restart: unless-stopped

@@ -1,0 +1,60 @@
+{
+  "topics": [
+    "anti-bot",
+    "api-capture",
+    "asset-rewrite",
+    "browser-automation",
+    "change-detection",
+    "content-extraction",
+    "crawl-budget",
+    "crawl-scope",
+    "distributed-crawling",
+    "dom-rewrite",
+    "dynamic-rendering",
+    "form-analysis",
+    "graphql",
+    "link-classification",
+    "login-gated-detection",
+    "network-observability",
+    "output-scaffolding",
+    "queue-prioritization",
+    "replay-fidelity",
+    "session-management",
+    "url-normalization",
+    "visual-analysis",
+    "websocket-capture"
+  ],
+  "evidence": [
+    "benchmark",
+    "design-note",
+    "incident",
+    "manual-test",
+    "paper",
+    "production-run",
+    "prototype",
+    "regression-test"
+  ],
+  "sourceTypes": [
+    "blog-post",
+    "conference-talk",
+    "internal-note",
+    "paper",
+    "postmortem",
+    "reference-doc",
+    "repo",
+    "test-result"
+  ],
+  "statuses": [
+    "adopted",
+    "draft",
+    "planned",
+    "rejected",
+    "researched",
+    "tested"
+  ],
+  "priorities": [
+    "high",
+    "medium",
+    "low"
+  ]
+}

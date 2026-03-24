@@ -1,21 +1,13 @@
 import path from 'path';
 import fs from 'fs/promises';
+import postcss from 'postcss';
+import postcssUrl from 'postcss-url';
+
 import { resolveUrl, getRelativePath, getAssetPathFromUrl } from '../utils/url-utils.js';
 import { saveFile, deduplicateFilename } from '../utils/file-utils.js';
 import logger from '../utils/logger.js';
 
-/**
- * CSS ??
- * ???CSS ? ????url(), @import, @font-face ??
- * ? ????? ???.
- */
 export default class CssProcessor {
-  /**
-   * @param {string} outputDir -  ??
-   * @param {string} baseUrl - ? ???URL
-   * @param {Map<string, string>} urlMap -  URL ??  
-   * @param {import('../crawler/network-interceptor.js').default} interceptor - ?? ??
-   */
   constructor(outputDir, baseUrl, urlMap, interceptor) {
     this.outputDir = outputDir;
     this.baseUrl = baseUrl;
@@ -25,20 +17,15 @@ export default class CssProcessor {
     this._usedNames = new Set();
   }
 
-  /**
-   *  CSS ???
-   * @returns {{ additionalAssets: number, importChains: number }}
-   */
   async processAll() {
     logger.start('Starting CSS processing');
 
     let additionalAssets = 0;
     let importChains = 0;
 
-    // urlMap? CSS ???
     const cssFiles = [];
     for (const [url, localPath] of this.urlMap) {
-      if (localPath.endsWith('.css') || localPath.includes('assets/css/')) {
+      if (localPath.endsWith('.css') || localPath.includes('/css/')) {
         cssFiles.push({ url, localPath });
       }
     }
@@ -52,23 +39,15 @@ export default class CssProcessor {
     }
 
     logger.succeed(`CSS processing done: ${cssFiles.length} files, +${additionalAssets} assets, ${importChains} import chains`);
-
     return { additionalAssets, importChains };
   }
 
-  /**
-   *  CSS ? 
-   * @param {string} cssUrl - CSS ???? URL
-   * @param {string} localPath -  ?? 
-   * @returns {{ additionalAssets: number, importChains: number }}
-   */
   async _processCssFile(cssUrl, localPath) {
     if (this.processedFiles.has(cssUrl)) {
       return { additionalAssets: 0, importChains: 0 };
     }
     this.processedFiles.add(cssUrl);
 
-    // css ???? ?????public/ ?
     const absolutePath = path.join(this.outputDir, 'public', localPath);
     let cssContent;
 
@@ -79,135 +58,95 @@ export default class CssProcessor {
       return { additionalAssets: 0, importChains: 0 };
     }
 
-    let additionalAssets = 0;
-    let importChains = 0;
-
-    // 1. @import 
     const importResult = await this._processImports(cssContent, cssUrl, localPath);
     cssContent = importResult.css;
-    importChains += importResult.importCount;
-    additionalAssets += importResult.additionalAssets;
 
-    // 2. url()  
-    const urlResult = await this._processUrls(cssContent, cssUrl, localPath);
+    const urlResult = await this._rewriteAssetUrls(cssContent, cssUrl, localPath);
     cssContent = urlResult.css;
-    additionalAssets += urlResult.additionalAssets;
 
-    // 3. ??CSS ? ???    await saveFile(absolutePath, cssContent);
+    await saveFile(absolutePath, cssContent);
 
-    return { additionalAssets, importChains };
+    return {
+      additionalAssets: importResult.additionalAssets + urlResult.additionalAssets,
+      importChains: importResult.importCount,
+    };
   }
 
-  /**
-   * @import  
-   * - @import url("path") ??? ? ?? ?
-   * - @import "path" ???? ?
-   */
   async _processImports(css, cssUrl, cssLocalPath) {
     let importCount = 0;
     let additionalAssets = 0;
+    const root = postcss.parse(css);
 
-    // @import url("...") ? @import "..."
-    const importRegex = /@import\s+(?:url\()?['"]?([^'"\);]+)['"]?\)?([^;]*);/g;
-    const matches = [...css.matchAll(importRegex)];
+    for (const node of root.nodes || []) {
+      if (node.type !== 'atrule' || node.name !== 'import') continue;
 
-    for (const match of matches) {
-      const importUrl = match[1].trim();
+      const importUrl = this._extractImportUrl(node.params);
       if (!importUrl || importUrl.startsWith('data:')) continue;
 
       const absoluteImportUrl = resolveUrl(importUrl, cssUrl);
-
-      // ?? ?????? ?
       let importLocalPath = this.urlMap.get(absoluteImportUrl);
 
       if (!importLocalPath) {
-        // ?? ???  ?
         const response = this.interceptor.getLatestResponse(absoluteImportUrl);
-        if (response && response.body) {
+        if (response?.body) {
           importLocalPath = await this._saveAdditionalAsset(absoluteImportUrl, response);
-          additionalAssets++;
+          additionalAssets += 1;
         }
       }
 
-      if (importLocalPath) {
-        // @import ? ?? ?
-        const relativePath = getRelativePath(cssLocalPath, importLocalPath);
-        const mediaQuery = match[2] ? match[2].trim() : '';
-        const importSrc = match[0];
-        const newImport = mediaQuery
-          ? `@import url("${relativePath}") ${mediaQuery};`
-          : `@import url("${relativePath}");`;
-        
-        // replace() ? ? ??? (???? ??
-        css = css.replace(importSrc, newImport);
+      if (!importLocalPath) continue;
 
-        // ????import??CSS??
-        await this._processCssFile(absoluteImportUrl, importLocalPath);
-        importCount++;
-      }
+      const relativePath = getRelativePath(cssLocalPath, importLocalPath);
+      node.params = node.params.replace(importUrl, relativePath);
+      await this._processCssFile(absoluteImportUrl, importLocalPath);
+      importCount += 1;
     }
 
-    return { css, importCount, additionalAssets };
+    return {
+      css: root.toString(),
+      importCount,
+      additionalAssets,
+    };
   }
 
-  /**
-   * url()  
-   * - background: url("image.png") ?? ?
-   * - @font-face src: url("font.woff2") ??? ? ?? 
-   */
-  async _processUrls(css, cssUrl, cssLocalPath) {
+  async _rewriteAssetUrls(css, cssUrl, cssLocalPath) {
     let additionalAssets = 0;
 
-    // url()  (data: URL ?, ???? ?)
-    const urlRegex = /url\((['"]?)([^)'"\r\n]+)\1\)/g;
-    const matches = [...css.matchAll(urlRegex)];
+    const result = await postcss([
+      postcssUrl({
+        url: async ({ url }) => {
+          if (!url || url.startsWith('data:') || url.startsWith('#') || url.startsWith('about:')) {
+            return url;
+          }
 
-    for (const match of matches) {
-      const quote = match[1];
-      const assetUrl = match[2].trim();
+          const absoluteAssetUrl = resolveUrl(url, cssUrl);
+          let assetLocalPath = this.urlMap.get(absoluteAssetUrl);
 
-      // data: URL, # ??? about: ?? ?
-      if (
-        assetUrl.startsWith('data:') ||
-        assetUrl.startsWith('#') ||
-        assetUrl.startsWith('about:') ||
-        assetUrl === ''
-      ) {
-        continue;
-      }
+          if (!assetLocalPath) {
+            const response = this.interceptor.getLatestResponse(absoluteAssetUrl);
+            if (response?.body) {
+              assetLocalPath = await this._saveAdditionalAsset(absoluteAssetUrl, response);
+              additionalAssets += 1;
+            }
+          }
 
-      const absoluteAssetUrl = resolveUrl(assetUrl, cssUrl);
-      let assetLocalPath = this.urlMap.get(absoluteAssetUrl);
+          if (!assetLocalPath) return url;
+          return getRelativePath(cssLocalPath, assetLocalPath);
+        },
+      }),
+    ]).process(css, {
+      from: undefined,
+      map: false,
+    });
 
-      if (!assetLocalPath) {
-        // ???  ? ?
-        const response = this.interceptor.getLatestResponse(absoluteAssetUrl);
-        if (response && response.body) {
-          assetLocalPath = await this._saveAdditionalAsset(absoluteAssetUrl, response);
-          additionalAssets++;
-        }
-      }
-
-      if (assetLocalPath) {
-        const relativePath = getRelativePath(cssLocalPath, assetLocalPath);
-        const urlSrc = match[0];
-        // g ???????  (??????escape ?, ? ????)
-        css = css.replace(
-          new RegExp(urlSrc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), 
-          `url(${quote}${relativePath}${quote})`
-        );
-      }
-    }
-
-    return { css, additionalAssets };
+    return { css: result.css, additionalAssets };
   }
 
-  /**
-   * ? ? ???(CSS ??????)
-   * @param {string} url - ? URL
-   * @param {object} response - ?? ? 
-   * @returns {string} ??  ?? 
-   */
+  _extractImportUrl(params) {
+    const match = params.match(/^(?:url\()?['"]?([^'")\s]+)['"]?\)?/i);
+    return match ? match[1] : null;
+  }
+
   async _saveAdditionalAsset(url, response) {
     const proposedPath = getAssetPathFromUrl(url, this.baseUrl, response.mimeType, response.type);
     if (!proposedPath) return null;
@@ -221,17 +160,12 @@ export default class CssProcessor {
 
     await saveFile(absolutePath, response.body);
 
-    // urlMap? ?
     const normalizedPath = relativePath.replace(/\\/g, '/');
     this.urlMap.set(url, normalizedPath);
 
     return normalizedPath;
   }
 
-  /**
-   * CSS ??(Custom Properties) 
-   * @param {string} css - CSS ?
-   * @returns {Map<string, string>} ? ???   */
   static extractCssVariables(css) {
     const variables = new Map();
     const varRegex = /--([\w-]+)\s*:\s*([^;]+);/g;
@@ -242,35 +176,22 @@ export default class CssProcessor {
     return variables;
   }
 
-  /**
-   * ??CSS ?? ? (? ?? ? ??
-   * @param {string} css - CSS ?
-   * @param {import('cheerio').CheerioAPI} $ - cheerio ??
-   * @returns {string[]} ???? 
-   */
   static findUnusedSelectors(css, $) {
     const unused = [];
-    // ????  (???? ?? ?)
     const selectorRegex = /([^{}@]+)\{[^}]*\}/g;
     let match;
     while ((match = selectorRegex.exec(css)) !== null) {
       const selector = match[1].trim();
-      // ? ??? ????? ?
       if (selector.startsWith('@') || selector.startsWith(':') || selector === '') continue;
-      //  ?? 
-      const singleSelectors = selector.split(',').map(s => s.trim());
+      const singleSelectors = selector.split(',').map((item) => item.trim());
       for (const sel of singleSelectors) {
         try {
-          // cheerio?DOM?  ?
-          if ($(sel).length === 0) {
-            unused.push(sel);
-          }
+          if ($(sel).length === 0) unused.push(sel);
         } catch {
-          // ? ?? ?? 
+          // Ignore selectors unsupported by cheerio.
         }
       }
     }
     return unused;
   }
 }
-

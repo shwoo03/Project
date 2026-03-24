@@ -1,41 +1,36 @@
 import path from 'path';
 import fs from 'fs/promises';
+import { init, parse as parseModuleImports } from 'es-module-lexer';
+import { parse } from '@babel/parser';
+import traverseModule from '@babel/traverse';
+import generateModule from '@babel/generator';
+
+import { resolveUrl, getRelativePath } from '../utils/url-utils.js';
 import logger from '../utils/logger.js';
 
-/**
- * JS ??
- * ???JavaScript ????, / ???,
- * API ? ??? ????
- */
+const traverse = traverseModule.default;
+const generate = generateModule.default;
+
 export default class JsProcessor {
-  /**
-   * @param {string} outputDir -  ??
-   * @param {string} baseUrl - ? ???URL
-   * @param {Map<string, string>} urlMap - URL ??  
-   */
   constructor(outputDir, baseUrl, urlMap) {
     this.outputDir = outputDir;
     this.baseUrl = baseUrl;
     this.urlMap = urlMap;
-
-    /** @type {{ removed: string[], kept: string[], apiCalls: object[] }} */
     this.report = {
       removed: [],
       kept: [],
       apiCalls: [],
+      rewritten: [],
     };
   }
 
-  /**
-   *  JS ? 
-   * @returns {{ removed: number, kept: number, apiCalls: number }}
-   */
   async processAll() {
     logger.start('Starting JS processing');
+    await init;
 
     const jsFiles = [];
     for (const [url, localPath] of this.urlMap) {
-      if (localPath.endsWith('.js') || localPath.includes('assets/js/')) {
+      if (localPath.endsWith('.js') || localPath.includes('/js/')) {
         jsFiles.push({ url, localPath });
       }
     }
@@ -48,19 +43,17 @@ export default class JsProcessor {
 
     logger.succeed(
       `JS processing done: ${jsFiles.length} files, ${this.report.removed.length} removed, ` +
-      `${this.report.apiCalls.length} API calls detected`
+      `${this.report.apiCalls.length} API calls detected, ${this.report.rewritten.length} rewrites`,
     );
 
     return {
       removed: this.report.removed.length,
       kept: this.report.kept.length,
       apiCalls: this.report.apiCalls.length,
+      rewritten: this.report.rewritten.length,
     };
   }
 
-  /**
-   *  JS ? 
-   */
   async _processJsFile(url, localPath) {
     const absolutePath = path.join(this.outputDir, 'public', localPath);
     let content;
@@ -72,39 +65,219 @@ export default class JsProcessor {
       return;
     }
 
-    // 1. / ? ? ??? ???? ??
     if (this._isTrackingScript(url, content)) {
       try {
         await fs.unlink(absolutePath);
-      } catch { /* ignore */ }
+      } catch {
+        // Ignore unlink failures for already-missing files.
+      }
       this.report.removed.push(localPath);
-      // urlMap? ? (HTML??? ?)
       this.urlMap.delete(url);
       logger.debug(`Tracking script removed: ${localPath}`);
       return;
     }
 
     this.report.kept.push(localPath);
+    this.report.apiCalls.push(...this._detectApiCalls(content, localPath));
 
-    // 2. API ? ? ? (?  - ???)
-    const apiCalls = this._detectApiCalls(content, localPath);
-    this.report.apiCalls.push(...apiCalls);
-
-    // 3. API ???  ? (?? ?  ????
-    if (apiCalls.length > 0) {
-      const markedContent = this._addApiMarkers(content, apiCalls);
-      await fs.writeFile(absolutePath, markedContent, 'utf-8');
+    const rewritten = await this._rewriteJsModule(content, url, localPath);
+    if (rewritten.changed) {
+      await fs.writeFile(absolutePath, rewritten.code, 'utf-8');
+      this.report.rewritten.push(localPath);
     }
   }
 
-  /**
-   * / ? ?
-   * @param {string} url - ? URL
-   * @param {string} content - ? ?
-   * @returns {boolean}
-   */
+  async _rewriteJsModule(content, fileUrl, fileLocalPath) {
+    let lexerImports = [];
+    try {
+      const [imports] = parseModuleImports(content);
+      lexerImports = imports;
+    } catch {
+      lexerImports = [];
+    }
+
+    const parserPlugins = this._detectParserPlugins(content);
+    let ast;
+    try {
+      ast = parse(content, {
+        sourceType: 'unambiguous',
+        allowReturnOutsideFunction: true,
+        errorRecovery: true,
+        plugins: parserPlugins,
+      });
+    } catch (error) {
+      logger.debug(`AST parse failed for ${fileLocalPath}: ${error.message}`);
+      return { changed: false, code: content };
+    }
+
+    let changed = false;
+    const seenRewriteTargets = new Set();
+    const rewriteLiteral = (node, usageType = 'asset') => {
+      if (!node || typeof node.value !== 'string') return;
+      const replacement = this._toLocalReference(node.value, fileUrl, fileLocalPath, usageType);
+      if (!replacement || replacement === node.value) return;
+      node.value = replacement;
+      if (typeof node.extra?.raw === 'string') {
+        node.extra.raw = JSON.stringify(replacement);
+      }
+      changed = true;
+    };
+
+    traverse(ast, {
+      ImportDeclaration: (pathRef) => {
+        rewriteLiteral(pathRef.node.source, 'module');
+      },
+      ExportAllDeclaration: (pathRef) => {
+        rewriteLiteral(pathRef.node.source, 'module');
+      },
+      ExportNamedDeclaration: (pathRef) => {
+        rewriteLiteral(pathRef.node.source, 'module');
+      },
+      ImportExpression: (pathRef) => {
+        const source = pathRef.node.source;
+        if (source?.type === 'StringLiteral') rewriteLiteral(source, 'module');
+      },
+      NewExpression: (pathRef) => {
+        const calleeName = pathRef.node.callee?.name;
+        if (calleeName === 'URL') {
+          const [firstArg, secondArg] = pathRef.node.arguments;
+          const usesImportMetaUrl = secondArg?.type === 'MemberExpression'
+            && secondArg.object?.type === 'MetaProperty'
+            && secondArg.object.meta?.name === 'import'
+            && secondArg.object.property?.name === 'meta'
+            && secondArg.property?.type === 'Identifier'
+            && secondArg.property.name === 'url';
+          if (firstArg?.type === 'StringLiteral' && usesImportMetaUrl) {
+            rewriteLiteral(firstArg, 'asset');
+          }
+        }
+        if ((calleeName === 'WebSocket' || calleeName === 'EventSource') && pathRef.node.arguments[0]?.type === 'StringLiteral') {
+          const arg = pathRef.node.arguments[0];
+          this._recordApiCall(calleeName.toLowerCase(), arg.value, fileLocalPath, arg.loc?.start?.line);
+          rewriteLiteral(arg, 'runtime-endpoint');
+        }
+      },
+      CallExpression: (pathRef) => {
+        const callee = pathRef.node.callee;
+        if (callee?.type === 'Identifier' && callee.name === 'fetch' && pathRef.node.arguments[0]?.type === 'StringLiteral') {
+          const arg = pathRef.node.arguments[0];
+          this._recordApiCall('fetch', arg.value, fileLocalPath, arg.loc?.start?.line);
+          rewriteLiteral(arg, 'runtime-endpoint');
+          return;
+        }
+
+        if (
+          callee?.type === 'MemberExpression'
+          && callee.object?.type === 'Identifier'
+          && callee.object.name === 'axios'
+          && callee.property?.type === 'Identifier'
+          && pathRef.node.arguments[0]?.type === 'StringLiteral'
+        ) {
+          const arg = pathRef.node.arguments[0];
+          this._recordApiCall('axios', arg.value, fileLocalPath, arg.loc?.start?.line);
+          rewriteLiteral(arg, 'runtime-endpoint');
+        }
+      },
+      StringLiteral: (pathRef) => {
+        const parentType = pathRef.parent?.type;
+        if (parentType === 'ImportDeclaration' || parentType === 'ExportAllDeclaration' || parentType === 'ExportNamedDeclaration') {
+          return;
+        }
+        if (pathRef.parent?.type === 'CallExpression' || pathRef.parent?.type === 'NewExpression') {
+          return;
+        }
+        if (!this._looksLikeStaticReference(pathRef.node.value)) return;
+        const key = `${pathRef.node.start}:${pathRef.node.value}`;
+        if (seenRewriteTargets.has(key)) return;
+        seenRewriteTargets.add(key);
+        rewriteLiteral(pathRef.node, 'asset');
+      },
+    });
+
+    for (const importInfo of lexerImports) {
+      if (importInfo.n > 0) {
+        // Touching lexer output keeps the fast pre-scan in the pipeline for future diagnostics.
+      }
+    }
+
+    if (!changed) {
+      return { changed: false, code: content };
+    }
+
+    const output = generate(ast, {
+      comments: true,
+      retainLines: false,
+      compact: false,
+      jsescOption: { minimal: true },
+    }, content);
+
+    return {
+      changed: true,
+      code: output.code,
+    };
+  }
+
+  _toLocalReference(rawValue, fileUrl, fileLocalPath, usageType) {
+    if (!rawValue || rawValue.startsWith('data:') || rawValue.startsWith('blob:') || rawValue.startsWith('javascript:')) {
+      return null;
+    }
+
+    const absoluteUrl = resolveUrl(rawValue, fileUrl);
+    const mapped = this.urlMap.get(absoluteUrl);
+    if (!mapped) return null;
+
+    if (usageType === 'runtime-endpoint') {
+      return this._toRuntimeEndpoint(mapped);
+    }
+
+    return getRelativePath(fileLocalPath, mapped);
+  }
+
+  _toRuntimeEndpoint(mappedPath) {
+    const normalized = mappedPath.replace(/\\/g, '/');
+    if (normalized.startsWith('views/')) {
+      return `/${normalized.replace(/^views\//, '').replace(/\.html$/, '') || ''}`;
+    }
+    return `/public/${normalized}`;
+  }
+
+  _looksLikeStaticReference(value) {
+    return /^(?:\/|\.\/|\.\.\/|https?:\/\/|\/\/)/i.test(value)
+      && /\.(?:css|js|mjs|cjs|png|jpg|jpeg|gif|svg|webp|avif|ico|woff2?|ttf|otf|mp4|webm|mp3|json)(?:[?#].*)?$/i.test(value);
+  }
+
+  _recordApiCall(type, url, file, line) {
+    this.report.apiCalls.push({
+      type,
+      url,
+      file,
+      line: line || null,
+      raw: url,
+    });
+  }
+
+  _detectParserPlugins(content) {
+    const plugins = [
+      'jsx',
+      'importMeta',
+      'dynamicImport',
+      'classProperties',
+      'classPrivateProperties',
+      'classPrivateMethods',
+      'optionalChaining',
+      'nullishCoalescingOperator',
+      'topLevelAwait',
+      'objectRestSpread',
+    ];
+
+    if (/\binterface\b|\btype\b|:\s*[A-Z_a-z][\w<>, \[\]\|&?:]*/.test(content)) {
+      plugins.push('typescript');
+    }
+
+    return plugins;
+  }
+
   _isTrackingScript(url, content) {
-    // URL  ?
     const trackingUrls = [
       'google-analytics.com',
       'googletagmanager.com',
@@ -132,11 +305,10 @@ export default class JsProcessor {
     ];
 
     const urlLower = url.toLowerCase();
-    if (trackingUrls.some(t => urlLower.includes(t))) {
+    if (trackingUrls.some((item) => urlLower.includes(item))) {
       return true;
     }
 
-    // ?  ? (?? ??  ?????)
     if (content.length < 50000) {
       const trackingPatterns = [
         /\bgoogle[_-]?analytics\b/i,
@@ -149,13 +321,10 @@ export default class JsProcessor {
         /\bamplitude\.getInstance\b/,
       ];
 
-      const matchCount = trackingPatterns.filter(p => p.test(content)).length;
-      // 3???? ????  ???
+      const matchCount = trackingPatterns.filter((pattern) => pattern.test(content)).length;
       if (matchCount >= 3) return true;
 
-      // ? ?    ??
       if (content.length < 5000 && matchCount >= 1) {
-        // UI ?? ?? ?
         const uiPatterns = [
           /document\.(getElementById|querySelector|createElement)/,
           /addEventListener\s*\(/,
@@ -164,7 +333,7 @@ export default class JsProcessor {
           /\.innerHTML\b/,
           /\.classList\b/,
         ];
-        const hasUiCode = uiPatterns.some(p => p.test(content));
+        const hasUiCode = uiPatterns.some((pattern) => pattern.test(content));
         if (!hasUiCode) return true;
       }
     }
@@ -172,67 +341,33 @@ export default class JsProcessor {
     return false;
   }
 
-  /**
-   * API ? ? ? (? )
-   * @param {string} content - JS ?
-   * @param {string} filePath - ?  (?)
-   * @returns {object[]} ???API ? 
-   */
   _detectApiCalls(content, filePath) {
     const apiCalls = [];
-    const lines = content.split('\n');
-
     const patterns = [
-      // fetch API
       {
         regex: /\bfetch\s*\(\s*(['"`])([^'"`\r\n]+)\1/g,
         type: 'fetch',
-        extract: (m) => ({ url: m[2] }),
+        extract: (match) => ({ url: match[2] }),
       },
-      {
-        regex: /\bfetch\s*\(\s*`([^`\r\n]+)`/g,
-        type: 'fetch-template',
-        extract: (m) => ({ url: m[1] }),
-      },
-      // XMLHttpRequest
       {
         regex: /\.open\s*\(\s*['"](\w+)['"]\s*,\s*['"]([^'"\r\n]+)['"]/g,
         type: 'xhr',
-        extract: (m) => ({ method: m[1], url: m[2] }),
+        extract: (match) => ({ method: match[1], url: match[2] }),
       },
-      // axios
       {
         regex: /axios\.(get|post|put|delete|patch|head|options)\s*\(\s*['"`]([^'"`\r\n]+)['"`]/g,
         type: 'axios',
-        extract: (m) => ({ method: m[1].toUpperCase(), url: m[2] }),
+        extract: (match) => ({ method: match[1].toUpperCase(), url: match[2] }),
       },
-      {
-        regex: /axios\s*\(\s*\{[^}]{0,200}url\s*:\s*['"`]([^'"`\r\n]+)['"`]/g,
-        type: 'axios-config',
-        extract: (m) => ({ url: m[1] }),
-      },
-      // jQuery AJAX
-      {
-        regex: /\$\.(ajax|get|post|getJSON)\s*\(\s*['"`]([^'"`\r\n]+)['"`]/g,
-        type: 'jquery',
-        extract: (m) => ({ method: m[1], url: m[2] }),
-      },
-      {
-        regex: /\$\.ajax\s*\(\s*\{[^}]{0,200}url\s*:\s*['"`]([^'"`\r\n]+)['"`]/g,
-        type: 'jquery-config',
-        extract: (m) => ({ url: m[1] }),
-      },
-      // WebSocket
       {
         regex: /new\s+WebSocket\s*\(\s*['"`]([^'"`\r\n]+)['"`]/g,
         type: 'websocket',
-        extract: (m) => ({ url: m[1] }),
+        extract: (match) => ({ url: match[1] }),
       },
-      // EventSource (SSE)
       {
         regex: /new\s+EventSource\s*\(\s*['"`]([^'"`\r\n]+)['"`]/g,
         type: 'sse',
-        extract: (m) => ({ url: m[1] }),
+        extract: (match) => ({ url: match[1] }),
       },
     ];
 
@@ -241,24 +376,13 @@ export default class JsProcessor {
       regex.lastIndex = 0;
       while ((match = regex.exec(content)) !== null) {
         const extracted = extract(match);
-        // ?? URL (? ???API)???
-        const urlStr = extracted.url || '';
-        // ? ? URL? ?
-        if (this._isStaticAssetUrl(urlStr)) continue;
-
-        // ?  
-        const pos = match.index;
-        let line = 1;
-        for (let i = 0; i < pos && i < content.length; i++) {
-          if (content[i] === '\n') line++;
-        }
-
+        if (this._isStaticAssetUrl(extracted.url || '')) continue;
         apiCalls.push({
           type,
           ...extracted,
           file: filePath,
-          line,
-          raw: match[0].substring(0, 200),
+          line: this._lineFromIndex(content, match.index),
+          raw: match[0].slice(0, 200),
         });
       }
     }
@@ -266,46 +390,22 @@ export default class JsProcessor {
     return apiCalls;
   }
 
-  /**
-   * ? ? URL?? ?
-   * @param {string} url
-   * @returns {boolean}
-   */
   _isStaticAssetUrl(url) {
     const staticExts = ['.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp',
       '.woff', '.woff2', '.ttf', '.eot', '.ico', '.map'];
     const lower = url.toLowerCase();
-    return staticExts.some(ext => lower.endsWith(ext));
+    return staticExts.some((ext) => lower.endsWith(ext));
   }
 
-  /**
-   * API ???  ?
-   * @param {string} content - ? JS
-   * @param {object[]} apiCalls - ???API ?
-   * @returns {string}  ???JS
-   */
-  _addApiMarkers(content, apiCalls) {
-    // ?  ?? ?? ? (??????? ??? ???
-    const sorted = [...apiCalls].sort((a, b) => b.line - a.line);
-    const lines = content.split('\n');
-
-    for (const call of sorted) {
-      const lineIdx = call.line - 1;
-      if (lineIdx >= 0 && lineIdx < lines.length) {
-        const marker = `/* [FRONT-CLONE] API CALL: ${call.type} ??${call.url || 'dynamic'} */`;
-        lines[lineIdx] = marker + '\n' + lines[lineIdx];
-      }
+  _lineFromIndex(content, index) {
+    let line = 1;
+    for (let i = 0; i < index && i < content.length; i += 1) {
+      if (content[i] === '\n') line += 1;
     }
-
-    return lines.join('\n');
+    return line;
   }
 
-  /**
-   *  ??
-   * @returns {object}
-   */
   getReport() {
     return this.report;
   }
 }
-

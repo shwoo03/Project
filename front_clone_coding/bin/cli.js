@@ -12,13 +12,15 @@ program
   .description('Clone a commercial site frontend into a backend-ready project')
   .version('3.0.0')
   .argument('<url>', 'Target page URL')
-  .option('-o, --output <dir>', 'Output parent directory (final path: <dir>/<domain>)', './output')
   .option('-w, --wait <ms>', 'Extra wait time after page load (ms)', '3000')
   .option('-v, --viewport <size>', 'Viewport size (widthxheight)', '1920x1080')
   .option('-s, --screenshot', 'Save screenshots during crawl', false)
   .option('--storage-state <path>', 'Playwright storage state JSON path', '')
   .option('--cookie-file <path>', 'Cookie JSON file path', '')
   .option('--follow-login-gated', 'Allow crawling links from login-gated pages', false)
+  .option('--crawl-profile <mode>', 'Crawl profile: accurate, balanced, lightweight, authenticated', 'accurate')
+  .option('--network-posture <mode>', 'Network posture: default, authenticated, sensitive-site, manual-review', 'default')
+  .option('--representative-qa', 'Enable representative QA summaries for sampled pages', false)
   .option('--headful', 'Run browser in headed mode', false)
   .option('--scroll-count <n>', 'Auto-scroll repeat count', '5')
   .option('-r, --recursive', 'Enable recursive multi-page crawl on the same domain scope', false)
@@ -57,7 +59,6 @@ program
     try {
       await cloneFrontend({
         url,
-        output: options.output || './output',
         waitTime: parseInt(options.wait, 10),
         viewport: options.viewport,
         screenshot: options.screenshot,
@@ -69,6 +70,9 @@ program
         storageState: options.storageState || null,
         cookieFile: options.cookieFile || null,
         followLoginGated: options.followLoginGated || false,
+        crawlProfile: options.crawlProfile || 'accurate',
+        networkPosture: options.networkPosture || 'default',
+        enableRepresentativeQA: Boolean(options.representativeQa),
         headful: options.headful || false,
         scaffold: options.scaffold !== false,
         domainScope: options.domainScope || 'registrable-domain',
@@ -78,6 +82,9 @@ program
       });
     } catch (err) {
       console.error(chalk.red('\nClone failed:'), err.message);
+      if (err.hint) {
+        console.error(chalk.yellow(err.hint));
+      }
       process.exit(1);
     }
   });

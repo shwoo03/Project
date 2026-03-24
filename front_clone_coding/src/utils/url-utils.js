@@ -41,23 +41,26 @@ export function normalizeCrawlUrl(urlStr) {
 }
 
 export function getPagePathFromUrl(absoluteUrl) {
+  return getViewPathFromUrl(absoluteUrl);
+}
+
+export function getViewPathFromUrl(absoluteUrl) {
   try {
     const url = new URL(absoluteUrl);
-    const host = _toSafeName(url.hostname || 'site');
     let pathname = decodeURIComponent(url.pathname || '/');
     pathname = pathname.replace(/\\/g, '/');
     if (!pathname || pathname === '/') {
-      pathname = '/index.html';
+      pathname = '/index';
     } else if (pathname.endsWith('/')) {
-      pathname = `${pathname}index.html`;
+      pathname = `${pathname}index`;
     } else if (!path.posix.extname(pathname)) {
-      pathname = `${pathname}/index.html`;
+      pathname = `${pathname}.html`;
     }
 
     pathname = pathname.split('?')[0].split('#')[0].replace(/^\/+/, '');
-    return path.posix.join('pages', host, pathname);
+    return pathname.endsWith('.html') ? pathname : `${pathname}.html`;
   } catch {
-    return path.posix.join('pages', 'site', 'index.html');
+    return 'index.html';
   }
 }
 
@@ -100,12 +103,12 @@ export function getAssetDir(mimeType, resourceType) {
 
   if (resourceType === 'stylesheet' || mimeType.includes('css')) return 'css';
   if (resourceType === 'script' || mimeType.includes('javascript')) return 'js';
-  if (resourceType === 'font' || mimeType.includes('font')) return 'fonts';
-  if (resourceType === 'image' || mimeType.startsWith('image/')) return 'images';
+  if (resourceType === 'font' || mimeType.includes('font')) return 'font';
+  if (resourceType === 'image' || mimeType.startsWith('image/')) return 'img';
   if (mimeType.startsWith('video/') || mimeType.startsWith('audio/')) return 'media';
-  if (resourceType === 'document' || mimeType.includes('html')) return 'pages';
+  if (resourceType === 'document' || mimeType.includes('html')) return 'views';
 
-  return 'other';
+  return 'misc';
 }
 
 export function getAssetPathFromUrl(
@@ -131,10 +134,8 @@ export function getAssetPathFromUrl(
     const hostSafe = _toSafeName(url.hostname || 'external_host');
     const inScope = base ? isInDomainScope(url.hostname, base.hostname, domainScope) : false;
 
-    const segments = ['assets', assetDir];
-    if (!inScope) {
-      segments.push('external');
-    }
+    const segments = [assetDir];
+    if (!inScope) segments.push('external');
     segments.push(hostSafe);
 
     if (dirname && dirname !== '/' && dirname !== '.') {
@@ -207,7 +208,7 @@ function _hashFallbackAssetPath(url, mimeType, filename, assetDir, isExternal) {
     safeLeaf = ensureExtension(safeLeaf, mimeType);
   }
 
-  const segments = ['assets', _toSafeName(assetDir || 'other')];
+  const segments = [_toSafeName(assetDir || 'misc')];
   if (isExternal) segments.push('external');
   segments.push(safeHost, hashShard1, hashShard2, safeLeaf);
   return path.posix.join(...segments);

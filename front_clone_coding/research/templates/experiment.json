@@ -1,0 +1,16 @@
+{
+  "title": "Example experiment",
+  "hypothesis": "A more specific login gate heuristic reduces false positives.",
+  "moduleRefs": [
+    "src/crawler/site-crawler.js"
+  ],
+  "dataset": "auth-wall-sites-v1",
+  "metricBefore": {
+    "precision": 0.71
+  },
+  "metricAfter": {
+    "precision": 0.84
+  },
+  "decision": "planned",
+  "notes": "Validate on a second set of mixed marketing and account pages."
+}

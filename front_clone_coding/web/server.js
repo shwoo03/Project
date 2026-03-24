@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 import { cloneFrontend } from '../src/index.js';
 import logger from '../src/utils/logger.js';
 import { validateUrlSafety } from '../src/utils/url-utils.js';
+import { serializeJobError, stringifyErrorLike } from '../src/utils/error-utils.js';
 import {
   MAX_COMPLETED_JOBS,
   JOB_RETENTION_MS,
@@ -21,21 +22,35 @@ export function createUIServerApp({ cloneRunner = cloneFrontend } = {}) {
   const app = express();
   const jobs = new Map();
   let activeJobId = null;
+  const terminalStatuses = new Set(['completed', 'failed', 'cancelled']);
 
   function pruneCompletedJobs() {
     const now = Date.now();
-    const completedJobs = [];
+    const terminalJobs = [];
     for (const [id, job] of jobs) {
-      if (job.status === 'completed' || job.status === 'failed') {
-        completedJobs.push({ id, updatedAt: new Date(job.updatedAt).getTime() });
+      if (terminalStatuses.has(job.status)) {
+        terminalJobs.push({ id, updatedAt: new Date(job.updatedAt).getTime() });
       }
     }
-    completedJobs.sort((a, b) => a.updatedAt - b.updatedAt);
-    for (const { id, updatedAt } of completedJobs) {
-      if (completedJobs.length > MAX_COMPLETED_JOBS || now - updatedAt > JOB_RETENTION_MS) {
-        jobs.delete(id);
-        completedJobs.shift();
+
+    terminalJobs.sort((a, b) => a.updatedAt - b.updatedAt);
+
+    const deleteIds = new Set(
+      terminalJobs
+        .filter(({ updatedAt }) => now - updatedAt > JOB_RETENTION_MS)
+        .map(({ id }) => id),
+    );
+
+    const remainingJobs = terminalJobs.filter(({ id }) => !deleteIds.has(id));
+    const overflow = remainingJobs.length - MAX_COMPLETED_JOBS;
+    if (overflow > 0) {
+      for (const { id } of remainingJobs.slice(0, overflow)) {
+        deleteIds.add(id);
       }
+    }
+
+    for (const id of deleteIds) {
+      jobs.delete(id);
     }
   }
 
@@ -61,18 +76,20 @@ export function createUIServerApp({ cloneRunner = cloneFrontend } = {}) {
     return res.status(401).json({ error: 'Unauthorized: invalid or missing API key' });
   });
 
-  logger.on('log', (entry) => {
+  function handleLoggerEntry(entry) {
     if (!activeJobId) return;
     const job = jobs.get(activeJobId);
     if (!job) return;
 
-    job.logs.push(entry);
-    if (job.logs.length > MAX_JOB_LOGS) {
-      job.logs = job.logs.slice(-500);
-    }
-    job.updatedAt = new Date().toISOString();
-    broadcast(job, entry);
-  });
+    const normalizedEntry = recordJobLog(job, entry);
+    broadcast(job, normalizedEntry);
+  }
+
+  logger.on('log', handleLoggerEntry);
+  app.locals.jobs = jobs;
+  app.locals.cleanup = () => {
+    logger.off('log', handleLoggerEntry);
+  };
 
   app.post('/api/clone', (req, res) => {
     const { url, options = {} } = req.body || {};
@@ -113,7 +130,7 @@ export function createUIServerApp({ cloneRunner = cloneFrontend } = {}) {
 
     jobs.set(jobId, job);
     activeJobId = jobId;
-    broadcast(job, { type: 'info', text: `Job ${jobId} queued for ${job.url}` });
+    emitJobLog(job, { type: 'info', text: `Job ${jobId} queued for ${job.url}` });
     runJob(job, options).catch((error) => {
       logger.error(`Job runner failed: ${error.message}`);
     });
@@ -154,7 +171,7 @@ export function createUIServerApp({ cloneRunner = cloneFrontend } = {}) {
     job.status = 'cancelled';
     job.progress = 'Cancelled';
     job.updatedAt = new Date().toISOString();
-    broadcast(job, { type: 'warn', text: 'Job cancelled by user' });
+    emitJobLog(job, { type: 'warn', text: 'Job cancelled by user' });
     return res.json({ jobId: job.id, status: 'cancelled' });
   });
 
@@ -222,7 +239,7 @@ export function createUIServerApp({ cloneRunner = cloneFrontend } = {}) {
     job.status = 'running';
     job.progress = 'Running';
     job.updatedAt = new Date().toISOString();
-    broadcast(job, { type: 'info', text: `Clone started for ${job.url}` });
+    emitJobLog(job, { type: 'info', text: `Clone started for ${job.url}` });
 
     try {
       if (job.abortController.signal.aborted) throw new Error('Job cancelled');
@@ -244,9 +261,16 @@ export function createUIServerApp({ cloneRunner = cloneFrontend } = {}) {
         maxDepth: clamp(options.maxDepth, 0, 10, 1),
         concurrency: clamp(options.concurrency, 1, 10, 3),
         scaffold: options.scaffold !== false,
-        cookieFile: null,
+        cookieFile: options.cookieFile || null,
         storageState: null,
         followLoginGated: Boolean(options.followLoginGated),
+        crawlProfile: ['accurate', 'balanced', 'lightweight', 'authenticated'].includes(options.crawlProfile)
+          ? options.crawlProfile
+          : 'accurate',
+        networkPosture: ['default', 'authenticated', 'sensitive-site', 'manual-review'].includes(options.networkPosture)
+          ? options.networkPosture
+          : 'default',
+        enableRepresentativeQA: Boolean(options.enableRepresentativeQA),
         domainScope: options.domainScope === 'hostname' ? 'hostname' : 'registrable-domain',
         updateExisting: Boolean(options.updateExisting),
         screenshot: Boolean(options.screenshot),
@@ -257,7 +281,7 @@ export function createUIServerApp({ cloneRunner = cloneFrontend } = {}) {
       job.progress = 'Completed';
       job.outputDir = result?.outputDir || null;
       job.updatedAt = new Date().toISOString();
-      broadcast(job, {
+      emitJobLog(job, {
         type: 'success',
         text: `Clone completed${job.outputDir ? `: ${job.outputDir}` : ''}`,
       });
@@ -265,9 +289,12 @@ export function createUIServerApp({ cloneRunner = cloneFrontend } = {}) {
       if (job.status !== 'cancelled') {
         job.status = 'failed';
         job.progress = 'Failed';
-        job.error = error.message;
+        job.error = serializeJobError(error);
         job.updatedAt = new Date().toISOString();
-        broadcast(job, { type: 'error', text: `Clone failed: ${error.message}` });
+        emitJobLog(job, { type: 'error', text: `Clone failed: ${job.error.message}` });
+        if (job.error.hint) {
+          emitJobLog(job, { type: 'warn', text: job.error.hint });
+        }
       }
     } finally {
       activeJobId = null;
@@ -279,25 +306,45 @@ export function createUIServerApp({ cloneRunner = cloneFrontend } = {}) {
     }
   }
 
-  function broadcast(job, entry) {
-    job.logs.push({
+  function emitJobLog(job, entry) {
+    const normalizedEntry = recordJobLog(job, entry);
+    broadcast(job, normalizedEntry);
+    return normalizedEntry;
+  }
+
+  function recordJobLog(job, entry) {
+    const normalizedEntry = {
       ...entry,
+      text: stringifyErrorLike(entry.text),
       timestamp: entry.timestamp || new Date().toISOString(),
-    });
+    };
+
+    job.logs.push(normalizedEntry);
     if (job.logs.length > MAX_JOB_LOGS) {
-      job.logs = job.logs.slice(-500);
+      job.logs = job.logs.slice(-MAX_JOB_LOGS);
     }
+    job.updatedAt = new Date().toISOString();
+    return normalizedEntry;
+  }
+
+  function broadcast(job, entry) {
     for (const client of job.clients) {
-      client.write(`data: ${JSON.stringify(job.logs[job.logs.length - 1])}\n\n`);
+      client.write(`data: ${JSON.stringify(entry)}\n\n`);
     }
   }
 }
 
 export function startUIServer({ port = process.env.PORT || 4000, cloneRunner } = {}) {
   const app = createUIServerApp({ cloneRunner });
-  return app.listen(port, () => {
+  const server = app.listen(port, () => {
     console.log(`\nWeb UI server is running at http://localhost:${port}\n`);
   });
+
+  server.on('close', () => {
+    app.locals.cleanup?.();
+  });
+
+  return server;
 }
 
 function serializeJob(job) {

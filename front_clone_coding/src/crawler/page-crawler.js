@@ -10,19 +10,30 @@ import {
   SCROLL_INTERVAL_MS,
   MAX_SCREENSHOT_HEIGHT,
 } from '../utils/constants.js';
+import {
+  DEFAULT_CRAWL_PROFILE,
+  DEFAULT_NETWORK_POSTURE,
+  classifyPageSnapshot,
+  getEffectiveWaitTime,
+} from '../utils/crawl-config.js';
 import fs from 'fs/promises';
 import path from 'path';
+import { ensureDir } from '../utils/file-utils.js';
 
 export default class PageCrawler {
   constructor(options) {
     this.url = options.url;
     this.waitTime = options.waitTime || DEFAULT_WAIT_TIME;
+    this.crawlProfile = options.crawlProfile || DEFAULT_CRAWL_PROFILE;
+    this.networkPosture = options.networkPosture || DEFAULT_NETWORK_POSTURE;
     this.viewport = this._parseViewport(options.viewport || '1920x1080');
     this.takeScreenshot = options.screenshot || false;
+    this.enableRepresentativeQA = Boolean(options.enableRepresentativeQA);
     this.scrollCount = options.scrollCount || 5;
     this.storageState = options.storageState || null;
     this.cookieFile = options.cookieFile || null;
     this.headful = options.headful || false;
+    this.captureDir = options.captureDir || null;
 
     this.browser = null;
     this.injectedBrowser = options.browser || null;
@@ -33,6 +44,42 @@ export default class PageCrawler {
   _parseViewport(viewport) {
     const [width, height] = viewport.split('x').map(Number);
     return { width: width || 1920, height: height || 1080 };
+  }
+
+  _buildContextOptions(storageStatePath) {
+    return {
+      viewport: this.viewport,
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      locale: 'en-US',
+      timezoneId: 'UTC',
+      storageState: storageStatePath,
+      serviceWorkers: 'block',
+      recordHar: this.captureDir ? {
+        path: path.join(this.captureDir, `${this._safeFileBase(this.url)}.har`),
+        // Large commercial sites can spend minutes flushing attached HAR payloads.
+        // We keep request-level HAR output for debugging, but omit bodies to avoid stalls.
+        content: 'omit',
+        mode: 'minimal',
+      } : undefined,
+    };
+  }
+
+  async _runWithTimeout(label, fn, timeoutMs = 8000) {
+    let timer = null;
+    try {
+      await Promise.race([
+        fn(),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+        }),
+      ]);
+      return true;
+    } catch (err) {
+      logger.warn(`${label} skipped: ${err.message}`);
+      return false;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   async crawl() {
@@ -51,12 +98,30 @@ export default class PageCrawler {
         }
       }
 
-      const context = await this.browser.newContext({
-        viewport: this.viewport,
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        locale: 'en-US',
-        storageState: storageStatePath,
+      const context = await this.browser.newContext(this._buildContextOptions(storageStatePath));
+
+      await context.addInitScript(() => {
+        const key = '__FRONT_CLONE_ROUTES__';
+        const routeSet = new Set([location.href]);
+        const remember = () => {
+          routeSet.add(location.href);
+          window[key] = [...routeSet];
+        };
+
+        window[key] = [...routeSet];
+
+        for (const name of ['pushState', 'replaceState']) {
+          const original = history[name];
+          history[name] = function (...args) {
+            const result = original.apply(this, args);
+            remember();
+            return result;
+          };
+        }
+
+        window.addEventListener('popstate', remember);
       });
+
       this.page = await context.newPage();
 
       if (this.cookieFile) {
@@ -74,6 +139,7 @@ export default class PageCrawler {
       }
 
       this.interceptor.attach(this.page);
+      const resourceCountBefore = this.interceptor.getResponseCount();
 
       logger.update(`Loading page: ${this.url}`);
       const response = await this.page.goto(this.url, {
@@ -81,9 +147,10 @@ export default class PageCrawler {
         timeout: PAGE_LOAD_TIMEOUT,
       });
 
-      if (this.waitTime > 0) {
-        logger.update(`Waiting ${this.waitTime}ms after load`);
-        await this.page.waitForTimeout(this.waitTime);
+      const effectiveWaitTime = getEffectiveWaitTime(this.waitTime, this.crawlProfile, this.networkPosture);
+      if (effectiveWaitTime > 0) {
+        logger.update(`Waiting ${effectiveWaitTime}ms after load`);
+        await this.page.waitForTimeout(effectiveWaitTime);
       }
 
       logger.update('Running auto-scroll to trigger lazy loaded content');
@@ -97,6 +164,7 @@ export default class PageCrawler {
 
       logger.update('Collecting image URLs, links, forms, and interactive hints');
       const pageSnapshot = await this.page.evaluate(() => {
+        const recordedRoutes = Array.isArray(window.__FRONT_CLONE_ROUTES__) ? window.__FRONT_CLONE_ROUTES__ : [];
         const makeSelectorHint = (el) => {
           if (!(el instanceof Element)) return '';
           if (el.id) return `#${el.id}`;
@@ -160,18 +228,26 @@ export default class PageCrawler {
 
         return {
           liveImageUrls: [...imgUrls],
-          internalLinks: [...links],
+          internalLinks: [...new Set([...links, ...recordedRoutes.filter((item) => typeof item === 'string')])],
           forms,
           interactiveElements,
           title: document.title || '',
+          routeCount: recordedRoutes.length,
+          scriptCount: document.querySelectorAll('script').length,
         };
+      });
+
+      const classification = classifyPageSnapshot(pageSnapshot, this.page.url(), {
+        crawlProfile: this.crawlProfile,
+        enableRepresentativeQA: this.enableRepresentativeQA,
+        takeScreenshot: this.takeScreenshot,
       });
 
       logger.update('Extracting computed styles');
       const computedStyles = await ComputedStyleExtractor.extract(this.page);
 
       let screenshot = null;
-      if (this.takeScreenshot) {
+      if (classification.shouldCaptureScreenshot) {
         logger.update('Taking screenshot');
         const maxScreenshotHeight = MAX_SCREENSHOT_HEIGHT;
         const pageHeight = await this.page.evaluate(() => document.body.scrollHeight);
@@ -184,8 +260,45 @@ export default class PageCrawler {
         }
       }
 
+      const sessionStorageState = await this.page.evaluate(() => {
+        const state = {};
+        for (let i = 0; i < window.sessionStorage.length; i += 1) {
+          const key = window.sessionStorage.key(i);
+          if (!key) continue;
+          state[key] = window.sessionStorage.getItem(key);
+        }
+        return state;
+      }).catch(() => ({}));
+
+      let storageState = null;
+      if (this.captureDir) {
+        await ensureDir(this.captureDir);
+        storageState = await context.storageState({
+          path: path.join(this.captureDir, `${this._safeFileBase(this.url)}.storage-state.json`),
+        });
+        await fs.writeFile(
+          path.join(this.captureDir, `${this._safeFileBase(this.url)}.session-storage.json`),
+          JSON.stringify(sessionStorageState, null, 2),
+          'utf-8',
+        );
+      } else {
+        storageState = await context.storageState();
+      }
+
       const stats = this.interceptor.getStats();
       const totalResources = Object.values(stats).reduce((a, b) => a + b, 0);
+      const resourceCountAfter = this.interceptor.getResponseCount();
+      const qa = {
+        requestedChecks: {
+          resourceCount: this.enableRepresentativeQA,
+          textSimilarity: this.enableRepresentativeQA,
+          screenshotSimilarity: this.enableRepresentativeQA && classification.shouldCaptureScreenshot,
+        },
+        observedResources: resourceCountAfter - resourceCountBefore,
+        screenshotCaptured: Boolean(screenshot),
+        rawTextLength: extractTextLength(html),
+        processedTextLength: extractTextLength(html),
+      };
       logger.succeed(`Crawler complete: ${totalResources} resources, ${pageSnapshot.liveImageUrls.length} images, ${pageSnapshot.internalLinks.length} links`);
 
       return {
@@ -198,24 +311,35 @@ export default class PageCrawler {
         forms: pageSnapshot.forms,
         interactiveElements: pageSnapshot.interactiveElements,
         title: pageSnapshot.title,
+        classification,
+        crawlProfile: this.crawlProfile,
+        networkPosture: this.networkPosture,
+        qa,
         finalUrl: this.page.url(),
         status: response?.status() || null,
+        storageState,
+        sessionStorageState,
       };
     } catch (err) {
       logger.fail(`Failed to crawl page: ${err.message}`);
       throw err;
     } finally {
-      if (this.page) {
-        await this.page.context().close().catch(() => {});
+      const context = this.page?.context?.();
+      if (context) {
+        await this._runWithTimeout('Browser context shutdown', () => context.close());
       }
       if (!this.injectedBrowser && this.browser) {
-        await this.browser.close().catch(() => {});
+        await this._runWithTimeout('Browser shutdown', () => this.browser.close());
       }
     }
   }
 
   async _autoScroll() {
-    await this.page.evaluate(async (scrollCount) => {
+    if (!this.scrollCount || this.scrollCount <= 0) {
+      return;
+    }
+
+    await this.page.evaluate(async ({ scrollCount, scrollIntervalMs }) => {
       await new Promise((resolve) => {
         let count = 0;
         const pageHeight = document.body.scrollHeight;
@@ -228,9 +352,12 @@ export default class PageCrawler {
             window.scrollTo(0, 0);
             resolve();
           }
-        }, SCROLL_INTERVAL_MS);
+        }, scrollIntervalMs);
       });
-    }, this.scrollCount);
+    }, {
+      scrollCount: this.scrollCount,
+      scrollIntervalMs: SCROLL_INTERVAL_MS,
+    });
   }
 
   async _waitForImagesAndContent() {
@@ -263,4 +390,21 @@ export default class PageCrawler {
 
     await this.page.waitForTimeout(1000);
   }
+
+  _safeFileBase(value) {
+    return String(value || 'page')
+      .replace(/[^a-zA-Z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80) || 'page';
+  }
+}
+
+function extractTextLength(html) {
+  return String(html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .length;
 }

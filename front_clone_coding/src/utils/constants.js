@@ -22,3 +22,8 @@ export const MAX_COMPLETED_JOBS = 50;
 export const JOB_RETENTION_MS = 30 * 60 * 1000;
 export const SSE_HEARTBEAT_INTERVAL_MS = 30000;
 export const MAX_JOB_LOGS = 500;
+
+// Playwright runtime
+export const PLAYWRIGHT_VERSION = '1.58.2';
+export const PLAYWRIGHT_DOCKER_IMAGE = `mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble`;
+export const PLAYWRIGHT_RUNTIME_ERROR_CODE = 'PLAYWRIGHT_RUNTIME_MISMATCH';

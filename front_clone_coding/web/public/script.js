@@ -12,11 +12,40 @@ document.addEventListener('DOMContentLoaded', () => {
   let statusTimer = null;
   let currentJobId = null;
 
+  function normalizeText(value) {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value;
+    if (value instanceof Error) return value.message || String(value);
+
+    if (typeof value === 'object') {
+      const preferred = [
+        value.message,
+        typeof value.error === 'string' ? value.error : null,
+        typeof value.code === 'string' ? value.code : null,
+        value.hint,
+      ].filter(Boolean);
+
+      if (preferred.length > 0) {
+        return preferred.map((item) => normalizeText(item)).filter(Boolean).join(' | ');
+      }
+
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return String(value);
+      }
+    }
+
+    return String(value);
+  }
+
   function appendLog(type, text) {
+    const normalizedText = normalizeText(text);
+
     if (type === 'update') {
       const lastLog = terminalBody.lastElementChild;
       if (lastLog && lastLog.classList.contains('update')) {
-        lastLog.textContent = `[update] ${text}`;
+        lastLog.textContent = `[update] ${normalizedText}`;
         return;
       }
     }
@@ -36,7 +65,7 @@ document.addEventListener('DOMContentLoaded', () => {
       start: '[start] ',
     };
 
-    line.textContent = `${prefixMap[type] || ''}${text}`;
+    line.textContent = `${prefixMap[type] || ''}${normalizedText}`;
     terminalBody.appendChild(line);
     terminalBody.scrollTop = terminalBody.scrollHeight;
   }
@@ -47,12 +76,20 @@ document.addEventListener('DOMContentLoaded', () => {
     statusMeta.textContent = message;
   }
 
+  function formatJobError(error) {
+    if (!error) return '';
+    const message = normalizeText(error.message || error);
+    const hint = normalizeText(error.hint);
+    return hint ? `${message} (${hint.split('\n')[0]})` : message;
+  }
+
   function resetUI() {
     startBtn.disabled = false;
     btnText.textContent = 'Start Cloning';
     loader.classList.add('hidden');
     cancelBtn.classList.add('hidden');
     stopPolling();
+    currentJobId = null;
   }
 
   function stopPolling() {
@@ -91,30 +128,52 @@ document.addEventListener('DOMContentLoaded', () => {
     return response.json();
   }
 
+  async function fetchActiveJob() {
+    const response = await fetch('/api/jobs/active/current');
+    if (!response.ok) {
+      throw new Error('Failed to fetch active job');
+    }
+    return response.json();
+  }
+
+  function setRunningUI(job) {
+    currentJobId = job.id;
+    startBtn.disabled = true;
+    btnText.textContent = 'Processing...';
+    loader.classList.remove('hidden');
+    cancelBtn.classList.remove('hidden');
+    setStatus(job.status, job.outputDir || formatJobError(job.error) || `Job ID: ${job.id}`);
+    connectSSE(job.id);
+    startPolling(job.id);
+  }
+
   function startPolling(jobId) {
     stopPolling();
     statusTimer = setInterval(async () => {
       try {
         const job = await fetchJobStatus(jobId);
-        setStatus(job.status, job.outputDir || job.error || '');
+        setStatus(job.status, job.outputDir || formatJobError(job.error) || '');
 
         if (job.status === 'completed') {
           appendLog('success', `Output ready at ${job.outputDir || '(unknown path)'}`);
           resetUI();
           closeSSE();
+          setStatus(job.status, job.outputDir || '');
           browseOutput('');
         }
 
         if (job.status === 'failed') {
-          appendLog('error', job.error || 'Clone failed');
+          appendLog('error', formatJobError(job.error) || 'Clone failed');
           resetUI();
           closeSSE();
+          setStatus(job.status, formatJobError(job.error) || '');
         }
 
         if (job.status === 'cancelled') {
           appendLog('warn', 'Job cancelled');
           resetUI();
           closeSSE();
+          setStatus(job.status, 'Job cancelled');
         }
       } catch (error) {
         appendLog('error', error.message);
@@ -171,9 +230,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
       currentJobId = payload.jobId;
       appendLog('info', `Job ${currentJobId} accepted`);
-      setStatus(payload.status, `Job ID: ${currentJobId}`);
-      connectSSE(currentJobId);
-      startPolling(currentJobId);
+      setRunningUI({
+        id: currentJobId,
+        status: payload.status,
+        outputDir: '',
+        error: null,
+      });
     } catch (error) {
       appendLog('error', `Network error: ${error.message}`);
       setStatus('failed', error.message);
@@ -255,5 +317,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  setStatus('idle', 'Awaiting a new clone job');
+  async function restoreActiveJob() {
+    try {
+      const { job } = await fetchActiveJob();
+      if (!job || (job.status !== 'queued' && job.status !== 'running')) {
+        setStatus('idle', 'Awaiting a new clone job');
+        return;
+      }
+
+      appendLog('info', `Resuming active job ${job.id}`);
+      setRunningUI(job);
+    } catch (error) {
+      appendLog('warn', `Active job restore skipped: ${error.message}`);
+      setStatus('idle', 'Awaiting a new clone job');
+    }
+  }
+
+  restoreActiveJob();
 });

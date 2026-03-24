@@ -1,0 +1,122 @@
+# ============================================
+# 크롤링 대상 소스 설정
+# URL/계정을 추가/삭제하여 관리
+# ============================================
+
+# X (Twitter) 계정 - 타임라인 크롤링
+x_accounts:
+  - username: "OpenAI"
+    category: "ai_lab"
+    enabled: true
+  - username: "AnthropicAI"
+    category: "ai_lab"
+    enabled: true
+  - username: "GoogleDeepMind"
+    category: "ai_lab"
+    enabled: true
+  # 아래에 follow 하고 싶은 계정 추가
+  # - username: "example"
+  #   category: "researcher"
+  #   enabled: true
+
+# 텔레그램 채널/그룹
+telegram_channels:
+  - channel: "@example_ai_channel"
+    category: "news"
+    enabled: true
+    # 메시지 가져올 개수 (최근 N개)
+    limit: 50
+  # - channel: "@another_channel"
+  #   category: "research"
+  #   enabled: true
+  #   limit: 30
+
+# RSS 피드
+rss_feeds:
+  - url: "https://blog.openai.com/rss"
+    name: "OpenAI Blog"
+    category: "blog"
+    enabled: true
+  - url: "https://www.anthropic.com/feed.xml"
+    name: "Anthropic Blog"
+    category: "blog"
+    enabled: true
+  - url: "https://ai.googleblog.com/feeds/posts/default"
+    name: "Google AI Blog"
+    category: "blog"
+    enabled: true
+  # - url: "https://example.com/feed"
+  #   name: "Example Feed"
+  #   category: "news"
+  #   enabled: true
+
+# 웹사이트 직접 크롤링
+websites:
+  - url: "https://news.ycombinator.com"
+    name: "Hacker News"
+    category: "tech_news"
+    enabled: true
+    # CSS selector로 기사 요소 지정
+    selectors:
+      item: ".athing"
+      title: ".titleline > a"
+      link: ".titleline > a::attr(href)"
+    # AI 관련 키워드 필터 (하나라도 포함 시 수집)
+    keywords:
+      - "AI"
+      - "LLM"
+      - "GPT"
+      - "Claude"
+      - "machine learning"
+      - "neural"
+      - "transformer"
+  # - url: "https://example.com/news"
+  #   name: "Example Site"
+  #   category: "news"
+  #   enabled: true
+  #   selectors:
+  #     item: "article"
+  #     title: "h2"
+  #     link: "a::attr(href)"
+  #   keywords: []
+  #   # use_playwright: true  # JS 렌더링 필요 시
+
+# 카테고리별 이모지 매핑 (텔레그램 메시지용)
+category_emoji:
+  ai_lab: "🧪"
+  news: "📰"
+  blog: "📝"
+  research: "🔬"
+  researcher: "👨‍🔬"
+  tech_news: "💻"
+  tool: "🔧"
+
+# 크롤링 설정
+crawl_settings:
+  # HTTP 요청 간 대기 시간 (초)
+  request_delay: 2.0
+  # HTTP 요청 타임아웃 (초)
+  request_timeout: 15
+  # User-Agent
+  user_agent: "Mozilla/5.0 (compatible; ai-news-bot/1.0)"
+  # X API 최근 N시간 이내 트윗만 수집
+  x_hours_lookback: 8
+  # 텔레그램 최근 N시간 이내 메시지만 수집
+  tg_hours_lookback: 8
+  # RSS 최근 N시간 이내 항목만 수집
+  rss_hours_lookback: 24
+
+# Codex 요약 설정
+summarizer:
+  # 배치 크기 (한 번에 요약할 아이템 수)
+  batch_size: 5
+  # 요약 최대 길이 (토큰)
+  max_tokens: 1024
+  # 요약 프롬프트 템플릿 (아래 기본값 사용 또는 커스텀)
+  system_prompt: |
+    You are an AI news curator. Summarize the following news items in Korean.
+    For each item, provide:
+    1. 한줄 요약 (1-2 sentences)
+    2. 중요도 점수 (1-10)
+    3. 관련 키워드 태그
+    Group related items together. Prioritize breaking news and major announcements.

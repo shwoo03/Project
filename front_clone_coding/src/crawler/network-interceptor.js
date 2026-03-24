@@ -234,4 +234,8 @@ export default class NetworkInterceptor {
     }
     return stats;
   }
+
+  getResponseCount() {
+    return this.responses.size;
+  }
 }

@@ -12,7 +12,7 @@ export default class VisualAnalyzer {
   }
 
   async generate(pages) {
-    const docsDir = path.join(this.outputDir, 'docs', 'ui');
+    const docsDir = path.join(this.outputDir, 'server', 'docs', 'ui');
     const screensDir = path.join(docsDir, 'screens');
     await ensureDir(docsDir);
     await ensureDir(screensDir);

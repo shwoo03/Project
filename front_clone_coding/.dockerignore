@@ -2,6 +2,8 @@ node_modules
 output
 .git
 .gitignore
+.claude
+.codex
 coverage
 playwright-report
 test-results
@@ -11,3 +13,5 @@ temp
 .DS_Store
 Thumbs.db
 README.md
+tests
+AGENTS.md

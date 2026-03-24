@@ -5,6 +5,12 @@ import logger from '../utils/logger.js';
 import PageCrawler from './page-crawler.js';
 import NetworkInterceptor from './network-interceptor.js';
 import { getDomainRoot, isInDomainScope, normalizeCrawlUrl } from '../utils/url-utils.js';
+import {
+  DEFAULT_CRAWL_PROFILE,
+  DEFAULT_NETWORK_POSTURE,
+  resolveCrawlProfile,
+  resolveNetworkPosture,
+} from '../utils/crawl-config.js';
 
 export const TRACKER_HOST_PATTERNS = [
   'google-analytics.com',
@@ -62,11 +68,15 @@ export default class SiteCrawler {
     this.screenshot = options.screenshot || false;
     this.scrollCount = options.scrollCount || 5;
     this.followLoginGated = options.followLoginGated || false;
+    this.crawlProfile = options.crawlProfile || DEFAULT_CRAWL_PROFILE;
+    this.networkPosture = options.networkPosture || DEFAULT_NETWORK_POSTURE;
+    this.enableRepresentativeQA = Boolean(options.enableRepresentativeQA);
     this.storageState = options.storageState || null;
     this.cookieFile = options.cookieFile || null;
     this.headful = options.headful || false;
     this.concurrency = options.concurrency || 3;
     this.domainScope = options.domainScope || 'registrable-domain';
+    this.captureDir = options.captureDir || null;
 
     this.queue = [{ url: this.startUrl, depth: 0, discoveredFrom: null }];
     this.visited = new Set([normalizeCrawlUrl(this.startUrl)]);
@@ -75,6 +85,9 @@ export default class SiteCrawler {
     this.siteMap = [];
     this.pageCount = 0;
     this.inFlight = 0;
+    this.lastFailure = null;
+    this.profileSettings = resolveCrawlProfile(this.crawlProfile);
+    this.networkSettings = resolveNetworkPosture(this.networkPosture);
   }
 
   async crawlAll() {
@@ -92,7 +105,12 @@ export default class SiteCrawler {
     }
 
     logger.succeed(`[SiteCrawler] Crawl finished: total ${this.pageCount} pages`);
-    return { results, siteMap: this.siteMap, interceptor: this.interceptor };
+    return {
+      results,
+      siteMap: this.siteMap,
+      interceptor: this.interceptor,
+      lastFailure: this.lastFailure,
+    };
   }
 
   async _worker(browser, results) {
@@ -117,6 +135,10 @@ export default class SiteCrawler {
         cookieFile: this.cookieFile,
         headful: this.headful,
         browser,
+        captureDir: this.captureDir,
+        crawlProfile: this.crawlProfile,
+        networkPosture: this.networkPosture,
+        enableRepresentativeQA: this.enableRepresentativeQA,
       });
 
       try {
@@ -124,9 +146,10 @@ export default class SiteCrawler {
         const finalUrl = pageResult.finalUrl || url;
         const isLogin = this._isLoginPage(finalUrl, pageResult.html);
         const skippedReason = isLogin && !this.followLoginGated ? 'login-gated' : null;
+        const queueBudget = pageResult.classification?.queueBudget || this.profileSettings.linkBudget;
 
         if (!skippedReason) {
-          this._enqueueLinks(pageResult.internalLinks, depth + 1, finalUrl);
+          this._enqueueLinks(pageResult.internalLinks, depth + 1, finalUrl, queueBudget);
         } else {
           logger.warn(`Login-gated page detected. Link queueing is skipped: ${finalUrl}`);
         }
@@ -144,7 +167,13 @@ export default class SiteCrawler {
           forms: pageResult.forms,
           interactiveElements: pageResult.interactiveElements,
           title: pageResult.title,
+          classification: pageResult.classification,
+          crawlProfile: pageResult.crawlProfile,
+          networkPosture: pageResult.networkPosture,
+          qa: pageResult.qa,
           status: pageResult.status,
+          storageState: pageResult.storageState,
+          sessionStorageState: pageResult.sessionStorageState,
           discoveredFrom,
           skippedReason,
         });
@@ -161,9 +190,14 @@ export default class SiteCrawler {
           skippedReason,
           crawlState: 'completed',
           linksFound: pageResult.internalLinks.length,
+          pageClass: pageResult.classification?.pageClass || 'document',
+          queueBudget,
+          crawlProfile: this.crawlProfile,
+          networkPosture: this.networkPosture,
         });
       } catch (err) {
         logger.error(`Failed to crawl page (${url}): ${err.message}`);
+        this.lastFailure = err.message;
         this.siteMap.push({
           url,
           finalUrl: url,
@@ -210,12 +244,12 @@ export default class SiteCrawler {
     return job;
   }
 
-  _enqueueLinks(links, nextDepth, discoveredFrom) {
+  _enqueueLinks(links, nextDepth, discoveredFrom, queueBudget = this.profileSettings.linkBudget) {
     if (!links || links.length === 0) return;
     if (nextDepth > this.maxDepth) return;
 
     let added = 0;
-    for (const link of links) {
+    for (const link of links.slice(0, queueBudget)) {
       try {
         if (this._isExcludedPattern(link)) continue;
         const normalized = normalizeCrawlUrl(link);
@@ -231,7 +265,7 @@ export default class SiteCrawler {
     }
 
     if (added > 0) {
-      logger.debug(`Added ${added} links to queue (depth ${nextDepth})`);
+      logger.debug(`Added ${added} links to queue (depth ${nextDepth}, budget ${queueBudget})`);
     }
   }
 

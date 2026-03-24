@@ -1,0 +1,23 @@
+[
+  {
+    "moduleRef": "src/crawler/page-crawler.js"
+  },
+  {
+    "moduleRef": "src/crawler/site-crawler.js"
+  },
+  {
+    "moduleRef": "src/crawler/network-interceptor.js"
+  },
+  {
+    "moduleRef": "src/processor/html-processor.js"
+  },
+  {
+    "moduleRef": "src/processor/js-processor.js"
+  },
+  {
+    "moduleRef": "src/processor/api-processor.js"
+  },
+  {
+    "moduleRef": "web/server.js"
+  }
+]

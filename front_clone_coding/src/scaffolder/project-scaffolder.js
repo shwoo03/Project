@@ -10,17 +10,16 @@ export default class ProjectScaffolder {
   }
 
   async scaffold(reportData = {}) {
-    logger.start('Generate backend-ready scaffold');
+    logger.start('Generate replay adapter scaffold');
 
     try {
       await this._createDirectories();
       await this._createPackageJson();
-      await this._createServerJs(reportData.entryPagePath || 'pages/index.html');
-      await this._createMockService();
-      await this._createRouteIndex(reportData.apiSummary || { routeGroups: {} });
-      await this._createReadme(reportData.entryPagePath || 'pages/index.html');
-      await this._createSchemaSnapshot(reportData.apiSummary || { routeGroups: {} });
-      logger.succeed('Backend-ready scaffold generated');
+      await this._createRootServerShim();
+      await this._createExpressAdapter(reportData.entryPagePath || 'index.html');
+      await this._createReadme(reportData.entryPagePath || 'index.html');
+      await this._createMissingBehaviors(reportData.siteMap || [], reportData.pages || []);
+      logger.succeed('Replay adapter scaffold generated');
     } catch (err) {
       logger.error(`Scaffolding failed: ${err.message}`);
     }
@@ -28,18 +27,20 @@ export default class ProjectScaffolder {
 
   async _createDirectories() {
     const dirs = [
-      'client',
+      'public',
+      'views',
       'server',
-      'server/routes',
-      'server/controllers',
-      'server/services',
-      'server/schemas',
-      'mocks/api',
-      'docs/api',
-      'docs/ui',
-      'docs/crawl',
-      'docs/integration',
-      'manifest',
+      'server/spec',
+      'server/spec/graphql',
+      'server/mocks',
+      'server/mocks/http',
+      'server/mocks/ws',
+      'server/adapters',
+      'server/adapters/express',
+      'server/docs',
+      'server/docs/ui',
+      'server/docs/crawl',
+      'server/docs/integration',
     ];
 
     for (const dir of dirs) {
@@ -51,7 +52,7 @@ export default class ProjectScaffolder {
     const pkg = {
       name: `clone-${this.targetHost.replace(/\./g, '-')}`,
       version: '1.0.0',
-      description: `Generated clone handoff for ${this.targetHost}`,
+      description: `Generated browser-capture replay package for ${this.targetHost}`,
       main: 'server.js',
       type: 'module',
       scripts: {
@@ -67,92 +68,116 @@ export default class ProjectScaffolder {
     await saveFile(path.join(this.outputDir, 'package.json'), JSON.stringify(pkg, null, 2));
   }
 
-  async _createServerJs(entryPagePath) {
-    const normalizedEntryPath = entryPagePath.replace(/\\/g, '/');
-    const content = `import express from 'express';
-import cors from 'cors';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import apiRouter from './server/routes/api.js';
+  async _createRootServerShim() {
+    const content = `import { startExpressAdapter } from './server/adapters/express/app.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const app = express();
-const PORT = process.env.PORT || 3000;
-const clientPath = path.join(__dirname, 'client');
-
-app.use(cors());
-app.use(express.json({ limit: '5mb' }));
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static(clientPath));
-app.use('/api', apiRouter);
-
-app.get('/', (req, res) => {
-  res.sendFile(path.join(clientPath, '${normalizedEntryPath}'));
-});
-
-app.get('*', (req, res) => {
-  const fallbackPath = path.join(clientPath, req.path);
-  res.sendFile(fallbackPath, (err) => {
-    if (err) {
-      res.sendFile(path.join(clientPath, '${normalizedEntryPath}'));
-    }
-  });
-});
-
-app.listen(PORT, () => {
-  console.log('Server is running on http://localhost:' + PORT);
-  console.log('Entry page: /${normalizedEntryPath}');
-});
+await startExpressAdapter();
 `;
 
     await saveFile(path.join(this.outputDir, 'server.js'), content);
   }
 
-  async _createMockService() {
-    const serviceContent = `import crypto from 'crypto';
-import fs from 'fs';
+  async _createExpressAdapter(entryPagePath) {
+    const normalizedEntryPath = entryPagePath.replace(/\\/g, '/');
+    const content = `import crypto from 'crypto';
+import net from 'net';
+import express from 'express';
+import cors from 'cors';
+import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const mockDataPath = path.join(__dirname, '../../mocks/api/mock-data.json');
+const ROOT = path.resolve(__dirname, '..', '..', '..');
 
-export function loadMockData() {
-  if (!fs.existsSync(mockDataPath)) {
-    return {};
-  }
-  return JSON.parse(fs.readFileSync(mockDataPath, 'utf-8'));
-}
+export async function startExpressAdapter({ port = process.env.PORT || 3000, maxPort } = {}) {
+  const app = express();
 
-export function findMockResponse(mockData, pathname, method, req) {
-  const upperMethod = method.toUpperCase();
-  const entry = mockData[pathname]?.[upperMethod];
-  if (!entry) return null;
+  app.use(cors());
+  app.use(express.json({ limit: '20mb' }));
+  app.use(express.urlencoded({ extended: true }));
+  app.use(express.static(path.join(ROOT, 'public'), { index: false }));
+  app.use('/public', express.static(path.join(ROOT, 'public'), { index: false }));
 
-  const actualSearch = buildSearchString(req?.query || {});
-  const actualBodyHash = hashValue(req?.body);
+  app.all('/api/*', async (req, res, next) => {
+    try {
+      const manifest = await readJson(path.join(ROOT, 'server', 'mocks', 'http-manifest.json'), []);
+      const pathname = req.path.replace(/^\\/api/, '') || '/';
+      const search = buildSearch(req.query || {});
+      const bodyHash = hashValue(req.body);
+      const operationName = typeof req.body?.operationName === 'string' ? req.body.operationName : null;
+      const variablesHash = hashValue(req.body?.variables ?? null);
 
-  const matchedVariant = (entry.variants || []).find((variant) => {
-    const sameSearch = (variant.match?.search || '') === actualSearch;
-    const sameBody = (variant.match?.bodyHash || 'no-body') === actualBodyHash;
-    return sameSearch && sameBody;
+      const match = manifest.find((item) => {
+        if (item.method !== req.method) return false;
+        if (item.path !== pathname) return false;
+        if ((item.search || '') !== search) return false;
+        if (item.graphQL) {
+          return (item.graphQLOperationName || null) === operationName
+            && (item.graphQLVariablesHash || 'no-body') === variablesHash;
+        }
+        return (item.bodyHash || 'no-body') === bodyHash;
+      }) || manifest.find((item) => item.method === req.method && item.path === pathname);
+
+      if (!match) return next();
+
+      const body = await readJson(path.join(ROOT, 'server', match.bodyFile), null);
+      res.type(match.responseMimeType || 'application/json');
+      res.status(match.status || 200);
+      return res.send(body);
+    } catch (error) {
+      return next(error);
+    }
   });
 
-  if (matchedVariant) {
-    return matchedVariant.response;
+  app.get('*', async (req, res, next) => {
+    try {
+      const viewFile = resolveViewFile(req.path);
+      await fs.access(viewFile);
+      return res.sendFile(viewFile);
+    } catch {
+      return next();
+    }
+  });
+
+  app.use((_req, res) => {
+    res.status(404).send('Not Found');
+  });
+
+  const preferredPort = normalizePort(port, 3000);
+  const fallbackMaxPort = normalizePort(maxPort, preferredPort + 20);
+  const resolvedPort = await findAvailablePort(preferredPort, Math.max(preferredPort, fallbackMaxPort));
+
+  if (resolvedPort !== preferredPort) {
+    console.warn('Preferred port ' + preferredPort + ' is busy. Using http://localhost:' + resolvedPort + ' instead.');
   }
 
-  const searchOnlyVariant = (entry.variants || []).find((variant) => (variant.match?.search || '') === actualSearch);
-  if (searchOnlyVariant) {
-    return searchOnlyVariant.response;
-  }
+  const server = app.listen(resolvedPort, () => {
+    console.log('Replay adapter is running on http://localhost:' + resolvedPort);
+    console.log('Entry page: /${normalizedEntryPath.replace(/\\.html$/, '')}');
+  });
 
-  return entry.default || null;
+  return { app, server, port: resolvedPort };
 }
 
-function buildSearchString(query) {
+function resolveViewFile(routePath) {
+  let normalized = routePath || '/';
+  if (normalized === '/') return path.join(ROOT, 'views', '${normalizedEntryPath}');
+  normalized = normalized.replace(/\\/+$/, '');
+  return path.join(ROOT, 'views', normalized.replace(/^\\//, '') + '.html');
+}
+
+async function readJson(filePath, fallback) {
+  try {
+    const raw = await fs.readFile(filePath, 'utf-8');
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function buildSearch(query) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query || {})) {
     if (Array.isArray(value)) {
@@ -162,11 +187,11 @@ function buildSearchString(query) {
     }
   }
   const rendered = params.toString();
-  return rendered ? \`?\${rendered}\` : '';
+  return rendered ? '?' + rendered : '';
 }
 
 function hashValue(value) {
-  if (value === null || value === undefined || value === '' || (typeof value === 'object' && Object.keys(value).length === 0)) {
+  if (value === null || value === undefined || value === '' || (typeof value === 'object' && Object.keys(value || {}).length === 0)) {
     return 'no-body';
   }
   return crypto.createHash('sha1').update(stableSerialize(value)).digest('hex').slice(0, 12);
@@ -174,125 +199,106 @@ function hashValue(value) {
 
 function stableSerialize(value) {
   if (typeof value === 'string') return value;
-  if (Array.isArray(value)) {
-    return \`[\${value.map((item) => stableSerialize(item)).join(',')}]\`;
-  }
+  if (Array.isArray(value)) return '[' + value.map((item) => stableSerialize(item)).join(',') + ']';
   if (value && typeof value === 'object') {
-    return \`{\${Object.keys(value).sort().map((key) => \`\${JSON.stringify(key)}:\${stableSerialize(value[key])}\`).join(',')}}\`;
+    return '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + stableSerialize(value[key])).join(',') + '}';
   }
   return JSON.stringify(value);
 }
-`;
 
-    const controllerContent = `import { loadMockData, findMockResponse } from '../services/mock-api.service.js';
+function normalizePort(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 65535) {
+    return fallback;
+  }
+  return parsed;
+}
 
-export function handleCapturedApi(req, res) {
-  const mockData = loadMockData();
-  const targetPath = req.path || '/';
-  const responseConfig = findMockResponse(mockData, targetPath, req.method, req);
-
-  if (!responseConfig) {
-    res.status(404).json({
-      error: 'Endpoint not found in captured mock data',
-      path: targetPath,
-      method: req.method,
-    });
-    return;
+async function findAvailablePort(startPort, maxPort) {
+  for (let current = startPort; current <= maxPort; current += 1) {
+    const available = await canListenOnPort(current);
+    if (available) return current;
   }
 
-  const body = responseConfig.body ?? {};
-  const mimeType = responseConfig.mimeType || 'application/json';
-  res.setHeader('Content-Type', mimeType);
-  res.status(responseConfig.status || 200).send(
-    typeof body === 'string' ? body : JSON.stringify(body),
-  );
+  throw new Error('No available port found between ' + startPort + ' and ' + maxPort + '. Set PORT to an open port and retry.');
+}
+
+function canListenOnPort(port) {
+  return new Promise((resolve) => {
+    const tester = net.createServer();
+
+    tester.once('error', () => resolve(false));
+    tester.once('listening', () => {
+      tester.close(() => resolve(true));
+    });
+
+    tester.listen(port);
+  });
 }
 `;
 
-    const routeContent = `import { Router } from 'express';
-import { handleCapturedApi } from '../controllers/captured-api.controller.js';
-import generatedRoutes from './generated-routes.js';
-
-const router = Router();
-
-generatedRoutes(router);
-router.all('*', handleCapturedApi);
-
-export default router;
-`;
-
-    await saveFile(path.join(this.outputDir, 'server', 'services', 'mock-api.service.js'), serviceContent);
-    await saveFile(path.join(this.outputDir, 'server', 'controllers', 'captured-api.controller.js'), controllerContent);
-    await saveFile(path.join(this.outputDir, 'server', 'routes', 'api.js'), routeContent);
-  }
-
-  async _createRouteIndex(apiSummary) {
-    const lines = [
-      'export default function generatedRoutes(router) {',
-      '  // Captured endpoint stubs. Replace these handlers with real service logic.',
-    ];
-
-    const mergedRoutes = new Set();
-    for (const [group, routes] of Object.entries(apiSummary.routeGroups || {})) {
-      lines.push(`  // Group: ${group}`);
-
-      for (const route of routes) {
-        let paramCount = 1;
-        const dynamicPath = route.pathname
-          .replace(/\/[0-9a-fA-F-]{8,}(?=\/|$)/g, () => `/:param${paramCount++}`)
-          .replace(/\/\d+(?=\/|$)/g, () => `/:param${paramCount++}`);
-
-        const method = route.method.toLowerCase();
-        const routeKey = `${method} ${dynamicPath}`;
-        if (mergedRoutes.has(routeKey)) continue;
-
-        mergedRoutes.add(routeKey);
-        lines.push(`  router.${method}('${dynamicPath}', (req, res, next) => next());`);
-      }
-    }
-
-    lines.push('}');
-    lines.push('');
-
-    await saveFile(path.join(this.outputDir, 'server', 'routes', 'generated-routes.js'), lines.join('\n'));
-  }
-
-  async _createSchemaSnapshot(apiSummary) {
-    await saveFile(
-      path.join(this.outputDir, 'server', 'schemas', 'captured-endpoints.schema.json'),
-      JSON.stringify(apiSummary, null, 2),
-    );
+    await saveFile(path.join(this.outputDir, 'server', 'adapters', 'express', 'app.js'), content);
   }
 
   async _createReadme(entryPagePath) {
     const lines = [
-      `# ${this.targetHost} Clone Handoff`,
+      `# ${this.targetHost} Replay Package`,
       '',
-      'This project was generated for backend handoff work.',
+      'This output was generated from a live browser capture and rebuilt as an offline replay package.',
       '',
       '## Structure',
       '',
-      '- `client/`: mirrored frontend pages and assets',
-      '- `server/`: Express starter backend with captured route stubs',
-      '- `mocks/api/`: captured mock responses with variants',
-      '- `docs/api/`: API capture docs',
-      '- `docs/ui/`: visual analysis docs',
-      '- `docs/crawl/`: crawl manifest and reports',
-      '- `docs/integration/`: frontend-to-backend mapping docs',
-      '- `manifest/`: normalized crawl manifest',
+      '- `public/`: captured CSS, JS, images, fonts, media, and misc assets',
+      '- `views/`: path-based HTML snapshots',
+      '- `server/spec/`: OpenAPI, AsyncAPI, GraphQL operation reports, and crawl manifests',
+      '- `server/mocks/`: HTTP mock payloads, HTTP manifest, and WebSocket frames',
+      '- `server/adapters/express/`: replay adapter',
+      '- `server/docs/`: generated reports and missing behavior notes',
       '',
       '## Run',
       '',
       '```bash',
       'npm install',
-      'npm run dev',
+      'npm start',
       '```',
       '',
-      `Open \`http://localhost:3000\`. The default entry page is \`/${entryPagePath.replace(/\\/g, '/')}\`.`,
+      `Open \`http://localhost:3000/${entryPagePath.replace(/\\/g, '/').replace(/\\.html$/, '')}\` or the fallback port shown in the terminal.`,
       '',
-      'Generated mock responses prefer an exact query/body variant match and fall back to the default captured response.',
+      'If port `3000` is already in use, the replay server automatically tries the next available port.',
+      'You can also force a specific port with `PORT=3010 npm start`.',
+      '',
+      'The Express adapter is a derived runtime. The source-of-truth artifacts live under `server/spec/` and `server/mocks/`.',
     ];
 
     await saveFile(path.join(this.outputDir, 'README.md'), lines.join('\n'));
+  }
+
+  async _createMissingBehaviors(siteMap, pages) {
+    const lines = [
+      '# Missing Behaviors',
+      '',
+      'The following items may require manual work after replay generation.',
+      '',
+    ];
+
+    const loginPages = siteMap.filter((item) => item.loginGated || item.skippedReason === 'login-gated');
+    for (const page of loginPages) {
+      lines.push(`- Login-gated page detected: ${page.finalUrl || page.url}`);
+    }
+
+    for (const page of pages) {
+      if ((page.interactiveElements || []).some((item) => item.hasOnClick)) {
+        lines.push(`- Inline click handlers detected on ${page.finalUrl || page.url}`);
+      }
+      if (page.sessionStorageState && Object.keys(page.sessionStorageState).length > 0) {
+        lines.push(`- sessionStorage was captured for ${page.finalUrl || page.url}; replay parity may still require custom restore logic.`);
+      }
+    }
+
+    if (lines.length === 3) {
+      lines.push('- No obvious unsupported behaviors were detected from current heuristics.');
+    }
+
+    await saveFile(path.join(this.outputDir, 'server', 'docs', 'missing-behaviors.md'), lines.join('\n'));
   }
 }

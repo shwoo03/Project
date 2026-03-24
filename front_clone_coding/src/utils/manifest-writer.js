@@ -3,9 +3,11 @@ import crypto from 'crypto';
 import { ensureDir, saveFile } from './file-utils.js';
 
 export async function writeManifest(outputDir, manifest) {
-  const manifestDir = path.join(outputDir, 'manifest');
-  const crawlDocsDir = path.join(outputDir, 'docs', 'crawl');
+  const manifestDir = path.join(outputDir, 'server', 'spec', 'manifest');
+  const specDir = path.join(outputDir, 'server', 'spec');
+  const crawlDocsDir = path.join(outputDir, 'server', 'docs', 'crawl');
   await ensureDir(manifestDir);
+  await ensureDir(specDir);
   await ensureDir(crawlDocsDir);
 
   await saveFile(
@@ -42,6 +44,21 @@ export async function writeManifest(outputDir, manifest) {
       error: page.error || null,
       title: page.title,
     })), null, 2),
+  );
+
+  await saveFile(
+    path.join(specDir, 'resource-manifest.json'),
+    JSON.stringify(manifest.assets, null, 2),
+  );
+
+  await saveFile(
+    path.join(specDir, 'page-quality-report.json'),
+    JSON.stringify(manifest.pageQualityReport || [], null, 2),
+  );
+
+  await saveFile(
+    path.join(specDir, 'crawl-profile.json'),
+    JSON.stringify(manifest.crawlProfile || {}, null, 2),
   );
 }
 

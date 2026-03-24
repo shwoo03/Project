@@ -7,7 +7,7 @@ export default class IntegrationDocGenerator {
   }
 
   async generate({ pages, requests, websocketEvents }) {
-    const docsDir = path.join(this.outputDir, 'docs', 'integration');
+    const docsDir = path.join(this.outputDir, 'server', 'docs', 'integration');
     await ensureDir(docsDir);
 
     const formsActions = [];

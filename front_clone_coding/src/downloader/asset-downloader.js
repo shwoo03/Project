@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { saveFile, deduplicateFilename } from '../utils/file-utils.js';
 import { getAssetPathFromUrl } from '../utils/url-utils.js';
 import logger from '../utils/logger.js';
+import { classifyResource } from '../utils/crawl-config.js';
 
 export default class AssetDownloader {
   constructor(outputDir, baseUrl) {
@@ -12,6 +13,7 @@ export default class AssetDownloader {
     this.savedHashes = new Map();
     this.urlToRelativePath = new Map();
     this._usedNames = new Set();
+    this.resourceManifestEntries = [];
   }
 
   async downloadAll(interceptor) {
@@ -51,8 +53,19 @@ export default class AssetDownloader {
 
         await saveFile(absolutePath, data.body);
 
-        this.savedHashes.set(hash, relativePath.replace(/\\/g, '/'));
-        this.urlToRelativePath.set(data.url, relativePath.replace(/\\/g, '/'));
+        const normalizedPath = relativePath.replace(/\\/g, '/');
+        this.savedHashes.set(hash, normalizedPath);
+        this.urlToRelativePath.set(data.url, normalizedPath);
+        this._recordResourceEntry({
+          url: data.url,
+          savedPath: normalizedPath,
+          mimeType: data.mimeType,
+          resourceType: data.type,
+          captureLane: 'browser',
+          status: data.status,
+          size: data.bodyLength || data.body?.length || 0,
+          pageUrl: data.pageUrl || '',
+        });
 
         saved += 1;
         if (saved % 10 === 0) {
@@ -70,5 +83,32 @@ export default class AssetDownloader {
 
   getUrlMap() {
     return this.urlToRelativePath;
+  }
+
+  registerDirectAsset(entry) {
+    this._recordResourceEntry({
+      ...entry,
+      captureLane: 'direct',
+    });
+  }
+
+  getResourceManifestEntries() {
+    return this.resourceManifestEntries.slice();
+  }
+
+  _recordResourceEntry(entry) {
+    const classification = classifyResource(entry.url, entry.mimeType, entry.resourceType);
+    this.resourceManifestEntries.push({
+      url: entry.url,
+      savedPath: entry.savedPath,
+      mimeType: entry.mimeType || '',
+      resourceType: entry.resourceType || '',
+      captureLane: entry.captureLane || 'browser',
+      status: entry.status || null,
+      size: entry.size || 0,
+      pageUrl: entry.pageUrl || '',
+      resourceClass: classification.resourceClass,
+      replayCriticality: classification.replayCriticality,
+    });
   }
 }

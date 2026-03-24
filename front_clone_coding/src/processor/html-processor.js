@@ -168,12 +168,57 @@ export default class HtmlProcessor {
   _replaceAttr($, el, attr, urlMap, outputHtmlPath) {
     const value = $(el).attr(attr);
     if (!value) return;
-    if (value.startsWith('data:') || value.startsWith('blob:') || value.startsWith('javascript:')) return;
+    if (this._shouldPreserveUrlValue(value)) return;
     const absoluteUrl = resolveUrl(value, this.baseUrl);
     const localPath = urlMap.get(absoluteUrl);
     if (localPath) {
       $(el).attr(attr, this._getFinalLocalPath(localPath, outputHtmlPath));
+      return;
     }
+
+    if (this._shouldDisableNavigationTarget(el, attr)) {
+      this._disableNavigationTarget($, el, attr);
+    }
+  }
+
+  _shouldPreserveUrlValue(value) {
+    return (
+      value.startsWith('#') ||
+      value.startsWith('mailto:') ||
+      value.startsWith('tel:') ||
+      value.startsWith('data:') ||
+      value.startsWith('blob:') ||
+      value.startsWith('javascript:')
+    );
+  }
+
+  _shouldDisableNavigationTarget(el, attr) {
+    const tagName = el.tagName?.toLowerCase();
+    if (attr === 'href' && (tagName === 'a' || tagName === 'area')) {
+      return true;
+    }
+
+    if (attr === 'action' && tagName === 'form') {
+      return true;
+    }
+
+    return false;
+  }
+
+  _disableNavigationTarget($, el, attr) {
+    const tagName = el.tagName?.toLowerCase();
+    $(el).attr(attr, '#');
+    $(el).attr('data-disabled-link', 'true');
+    $(el).attr('data-disabled-reason', 'unmapped-target');
+
+    if (tagName === 'form') {
+      $(el).attr('onsubmit', 'return false;');
+      return;
+    }
+
+    $(el).attr('aria-disabled', 'true');
+    $(el).removeAttr('target');
+    $(el).attr('onclick', 'return false;');
   }
 
   _preserveMetadata($) {

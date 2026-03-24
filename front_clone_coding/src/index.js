@@ -18,24 +18,29 @@ import {
   movePath,
   pathExists,
   removePath,
-  replacePath,
   saveFile,
 } from './utils/file-utils.js';
 import { downloadExternalImages, injectCapturedImages } from './utils/image-utils.js';
-import { getDomainRoot, getPagePathFromUrl, normalizeCrawlUrl } from './utils/url-utils.js';
+import { getDomainRoot, getViewPathFromUrl, normalizeCrawlUrl } from './utils/url-utils.js';
 import { hashContent, writeManifest } from './utils/manifest-writer.js';
 import logger from './utils/logger.js';
+import { ensurePlaywrightRuntimeReady } from './utils/playwright-runtime.js';
+import {
+  DEFAULT_CRAWL_PROFILE,
+  DEFAULT_NETWORK_POSTURE,
+  resolveCrawlProfile,
+  resolveNetworkPosture,
+} from './utils/crawl-config.js';
 
 const MERGED_OUTPUT_ENTRIES = [
-  'client',
-  'docs',
-  'manifest',
-  'mocks',
+  'public',
+  'views',
   'server',
   'server.js',
   'package.json',
   'README.md',
 ];
+const CANONICAL_OUTPUT_PARENT = path.resolve('./output');
 
 function checkAborted(signal) {
   if (signal?.aborted) {
@@ -57,6 +62,9 @@ export async function cloneFrontend(options) {
   const signal = options.signal || null;
 
   try {
+    checkAborted(signal);
+    await ensurePlaywrightRuntimeReady();
+
     checkAborted(signal);
     await prepareStagingArea(context);
 
@@ -85,10 +93,17 @@ export async function cloneFrontend(options) {
   } catch (err) {
     console.error('[Unexpected Error]');
     console.error(err.stack);
+    if (err.details) {
+      logger.error(err.details);
+    }
     logger.error(`Operation failed: ${err.message}`);
     await removePath(context.stagingDir).catch(() => {});
     throw err;
   }
+}
+
+export function getOutputDomainRoot(targetUrl) {
+  return getDomainRoot(targetUrl, 'registrable-domain');
 }
 
 async function createRunContext(options) {
@@ -97,10 +112,17 @@ async function createRunContext(options) {
     output: options.output || './output',
     domainScope: options.domainScope || 'registrable-domain',
     visualAnalysis: options.visualAnalysis || 'docs',
+    crawlProfile: options.crawlProfile || DEFAULT_CRAWL_PROFILE,
+    networkPosture: options.networkPosture || DEFAULT_NETWORK_POSTURE,
+    enableRepresentativeQA: Boolean(options.enableRepresentativeQA),
   };
 
-  const outputParent = path.resolve(normalizedOptions.output);
-  const domainRoot = getDomainRoot(normalizedOptions.url, normalizedOptions.domainScope);
+  if (normalizedOptions.output && path.resolve(normalizedOptions.output) !== CANONICAL_OUTPUT_PARENT) {
+    logger.warn('Custom output directories are ignored. Generated packages are always written under ./output/<main-domain>.');
+  }
+
+  const outputParent = CANONICAL_OUTPUT_PARENT;
+  const domainRoot = getOutputDomainRoot(normalizedOptions.url);
   const outputDir = path.join(outputParent, domainRoot);
   const stageRoot = path.join(outputParent, '.front-clone-tmp');
   const runId = `${domainRoot}-${Date.now()}-${process.pid}`;
@@ -116,6 +138,9 @@ async function createRunContext(options) {
     captureVisualDocs: normalizedOptions.visualAnalysis !== 'off',
     stagingDir,
     publicDir: path.join(stagingDir, 'public'),
+    viewsDir: path.join(stagingDir, 'views'),
+    serverDir: path.join(stagingDir, 'server'),
+    captureDir: path.join(stagingDir, 'server', 'debug'),
   };
 }
 
@@ -125,6 +150,9 @@ async function prepareStagingArea(context) {
   await removePath(context.stagingDir);
   await ensureDir(context.stagingDir);
   await ensureDir(context.publicDir);
+  await ensureDir(context.viewsDir);
+  await ensureDir(context.serverDir);
+  await ensureDir(context.captureDir);
 }
 
 async function capturePages(context) {
@@ -145,11 +173,20 @@ async function capturePages(context) {
       cookieFile: options.cookieFile,
       headful: options.headful,
       domainScope: context.domainScope,
+      captureDir: context.captureDir,
+      crawlProfile: options.crawlProfile,
+      networkPosture: options.networkPosture,
+      enableRepresentativeQA: options.enableRepresentativeQA,
     });
 
     const crawlResult = await siteCrawler.crawlAll();
     if (!crawlResult.results || crawlResult.results.length === 0) {
-      throw new Error('No page content could be captured.');
+      const lastError = crawlResult.lastFailure || crawlResult.siteMap.find((item) => item.crawlState === 'failed')?.error;
+      throw new Error(
+        lastError
+          ? `No page content could be captured. Last error: ${lastError}`
+          : 'No page content could be captured.',
+      );
     }
 
     return {
@@ -168,6 +205,10 @@ async function capturePages(context) {
     storageState: options.storageState,
     cookieFile: options.cookieFile,
     headful: options.headful,
+    captureDir: context.captureDir,
+    crawlProfile: options.crawlProfile,
+    networkPosture: options.networkPosture,
+    enableRepresentativeQA: options.enableRepresentativeQA,
   });
 
   const crawlResult = await pageCrawler.crawl();
@@ -187,7 +228,13 @@ async function capturePages(context) {
         forms: crawlResult.forms,
         interactiveElements: crawlResult.interactiveElements,
         title: crawlResult.title,
+        classification: crawlResult.classification,
+        crawlProfile: crawlResult.crawlProfile,
+        networkPosture: crawlResult.networkPosture,
+        qa: crawlResult.qa,
         status: crawlResult.status,
+        storageState: crawlResult.storageState,
+        sessionStorageState: crawlResult.sessionStorageState,
         discoveredFrom: null,
         skippedReason: null,
       },
@@ -216,7 +263,7 @@ async function transformCapturedOutput(context, capture) {
 
   for (const page of capture.pages) {
     const canonicalUrl = page.finalUrl || page.url;
-    const savedPath = getPagePathFromUrl(canonicalUrl);
+    const savedPath = getViewPathFromUrl(canonicalUrl);
     page.savedPath = savedPath;
     page.host = new URL(canonicalUrl).hostname;
 
@@ -254,21 +301,21 @@ async function transformCapturedOutput(context, capture) {
       capture.interceptor,
       page.liveImageUrls,
       context.options.url,
+      downloader,
     );
 
-    if (extraImages > 0) {
+    if (extraImages.savedCount > 0) {
       processedHtml = htmlProcessor.process(processedHtml, fullUrlMap, page.savedPath);
     }
 
     processedHtml = injectCapturedImages(processedHtml, fullUrlMap);
-    await saveFile(path.join(context.publicDir, page.savedPath), processedHtml);
+    await saveFile(path.join(context.viewsDir, page.savedPath), processedHtml);
     page.processedHtml = processedHtml;
 
-    logger.info(`Saved HTML: client/${page.savedPath}`);
+    logger.info(`Saved HTML: views/${page.savedPath}`);
   }
 
   const entryPagePath = capture.pages[0].savedPath;
-  await saveFile(path.join(context.publicDir, 'index.html'), buildLauncher(entryPagePath, context.domainRoot));
 
   if (context.captureVisualDocs) {
     await persistScreenshots(context.stagingDir, capture.pages);
@@ -277,6 +324,7 @@ async function transformCapturedOutput(context, capture) {
   return {
     entryPagePath,
     fullUrlMap,
+    resourceManifestEntries: downloader.getResourceManifestEntries(),
   };
 }
 
@@ -299,8 +347,9 @@ async function generateArtifacts(context, capture, transformed) {
     await visualAnalyzer.generate(capture.pages);
   }
 
-  const assetManifest = buildAssetManifest(capture.interceptor, transformed.fullUrlMap);
+  const assetManifest = buildAssetManifest(capture.interceptor, transformed.fullUrlMap, transformed.resourceManifestEntries);
   const pageManifest = buildPageManifest(capture.siteMap, capture.pages);
+  const pageQualityReport = buildPageQualityReport(capture.pages, assetManifest);
 
   await writeManifest(context.stagingDir, {
     generatedAt: new Date().toISOString(),
@@ -311,9 +360,9 @@ async function generateArtifacts(context, capture, transformed) {
     updateExisting: context.shouldUpdate,
     pages: pageManifest,
     assets: assetManifest,
+    pageQualityReport,
+    crawlProfile: buildCrawlProfileManifest(context.options, capture.pages),
   });
-
-  await replacePath(context.publicDir, path.join(context.stagingDir, 'client'));
 
   if (context.options.scaffold !== false) {
     const scaffolder = new ProjectScaffolder(context.stagingDir, new URL(context.options.url).hostname);
@@ -321,6 +370,7 @@ async function generateArtifacts(context, capture, transformed) {
       entryPagePath: transformed.entryPagePath,
       apiSummary: apiArtifacts.apiSummary,
       siteMap: capture.siteMap,
+      pages: capture.pages,
     });
   }
 
@@ -393,7 +443,14 @@ function buildPageManifest(siteMap, pages) {
   });
 }
 
-function buildAssetManifest(interceptor, urlMap) {
+function buildAssetManifest(interceptor, urlMap, resourceManifestEntries = []) {
+  if (resourceManifestEntries.length > 0) {
+    return resourceManifestEntries.map((entry) => ({
+      ...entry,
+      inScope: entry.savedPath ? !entry.savedPath.includes('/external/') && !entry.savedPath.includes('\\external\\') : false,
+    }));
+  }
+
   const assets = [];
 
   for (const [key, data] of interceptor.getAssets()) {
@@ -402,42 +459,82 @@ function buildAssetManifest(interceptor, urlMap) {
       key,
       url: data.url,
       savedPath,
-      inScope: savedPath ? !savedPath.includes('/external/') : false,
+      inScope: savedPath ? !savedPath.includes('/external/') && !savedPath.includes('\\external\\') : false,
       resourceType: data.type,
       contentType: data.mimeType,
       status: data.status,
       size: data.bodyLength || data.body?.length || 0,
       bodyStored: Boolean(data.bodyStored),
+      captureLane: 'browser',
+      resourceClass: 'passive-static',
+      replayCriticality: 'medium',
+      pageUrl: data.pageUrl || '',
     });
   }
 
   return assets;
 }
 
-function buildLauncher(entryPagePath, domainRoot) {
-  const target = `/${entryPagePath.replace(/\\/g, '/')}`;
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta http-equiv="refresh" content="0; url=${target}">
-  <title>${domainRoot} clone launcher</title>
-</head>
-<body>
-  <p>Redirecting to <a href="${target}">${target}</a>...</p>
-</body>
-</html>
-`;
+function buildPageQualityReport(pages, assetManifest) {
+  return pages.map((page) => {
+    const pageUrl = page.finalUrl || page.url;
+    const pageAssets = assetManifest.filter((asset) => asset.pageUrl === pageUrl);
+    const rawTextLength = page.qa?.rawTextLength || 0;
+    const processedTextLength = String(page.processedHtml || '')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .length;
+    const textDriftRatio = rawTextLength > 0
+      ? Math.abs(processedTextLength - rawTextLength) / rawTextLength
+      : 0;
+
+    return {
+      pageUrl,
+      savedPath: page.savedPath || null,
+      pageClass: page.classification?.pageClass || 'document',
+      highValue: Boolean(page.classification?.highValue),
+      resourceCountObserved: page.qa?.observedResources || 0,
+      assetCountSaved: pageAssets.length,
+      nonSuccessStatuses: pageAssets.filter((asset) => asset.status && asset.status >= 400).length,
+      requestedChecks: page.qa?.requestedChecks || {},
+      screenshotCaptured: Boolean(page.screenshot || page.screenshotPath),
+      textDriftRatio: Number(textDriftRatio.toFixed(4)),
+      flags: page.classification?.flags || [],
+    };
+  });
+}
+
+function buildCrawlProfileManifest(options, pages) {
+  const profile = resolveCrawlProfile(options.crawlProfile);
+  const posture = resolveNetworkPosture(options.networkPosture);
+  return {
+    name: options.crawlProfile,
+    networkPosture: options.networkPosture,
+    representativeQA: Boolean(options.enableRepresentativeQA),
+    profileSettings: profile,
+    networkSettings: posture,
+    sampledPages: pages
+      .filter((page) => page.classification?.shouldRunReplayValidation)
+      .slice(0, profile.replayValidationSampleSize)
+      .map((page) => ({
+        url: page.finalUrl || page.url,
+        savedPath: page.savedPath || null,
+        pageClass: page.classification?.pageClass || 'document',
+      })),
+  };
 }
 
 async function persistScreenshots(outputDir, pages) {
-  const screensRoot = path.join(outputDir, 'docs', 'ui', 'screens');
+  const screensRoot = path.join(outputDir, 'server', 'docs', 'ui', 'screens');
   await ensureDir(screensRoot);
 
   for (const page of pages) {
     if (!page.screenshot) continue;
     const fileName = `${page.host}-${slugify(page.savedPath)}.png`;
-    const relativePath = path.join('docs', 'ui', 'screens', fileName);
+    const relativePath = path.join('server', 'docs', 'ui', 'screens', fileName);
     await saveFile(path.join(outputDir, relativePath), page.screenshot);
     page.screenshotPath = relativePath.replace(/\\/g, '/');
   }

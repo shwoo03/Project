@@ -13,6 +13,7 @@ export async function downloadExternalImages(
   interceptor,
   liveImageUrls = [],
   baseUrl = '',
+  assetDownloader = null,
 ) {
   const $ = cheerio.load(html, { decodeEntities: false });
   const externalUrls = new Set();
@@ -55,12 +56,13 @@ export async function downloadExternalImages(
     }
   }
 
-  if (externalUrls.size === 0) return 0;
+  if (externalUrls.size === 0) return { savedCount: 0, savedAssets: [] };
 
   logger.update(`Downloading ${externalUrls.size} additional external image(s)`);
 
   const CONCURRENCY = IMAGE_DOWNLOAD_CONCURRENCY;
   let saved = 0;
+  const savedAssets = [];
   const urls = [...externalUrls];
 
   for (let i = 0; i < urls.length; i += CONCURRENCY) {
@@ -104,6 +106,17 @@ export async function downloadExternalImages(
 
         urlMap.set(url, relativePath);
         saved += 1;
+        const manifestEntry = {
+          url,
+          savedPath: relativePath,
+          mimeType,
+          resourceType: 'image',
+          status: cached?.status || 200,
+          size: body.length,
+          pageUrl: '',
+        };
+        savedAssets.push(manifestEntry);
+        assetDownloader?.registerDirectAsset(manifestEntry);
 
         if (cached) {
           cached.body = null;
@@ -114,7 +127,7 @@ export async function downloadExternalImages(
     }
   }
 
-  return saved;
+  return { savedCount: saved, savedAssets };
 }
 
 export function injectCapturedImages(html, urlMap) {

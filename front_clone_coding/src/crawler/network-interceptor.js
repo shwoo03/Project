@@ -8,6 +8,11 @@ import {
   MAX_XHR_REQUESTS,
   MAX_WEBSOCKET_EVENTS,
 } from '../utils/constants.js';
+import {
+  analyzeTextDecoding,
+  parseContentTypeInfo,
+  parseCharsetFromContentType,
+} from '../utils/encoding-utils.js';
 
 export default class NetworkInterceptor {
   constructor() {
@@ -15,6 +20,7 @@ export default class NetworkInterceptor {
     this.responseKeysByUrl = new Map();
     this.xhrRequests = [];
     this.websocketEvents = [];
+    this.failedRequests = [];
   }
 
   _evictOldestResponses() {
@@ -42,7 +48,8 @@ export default class NetworkInterceptor {
       if (url.startsWith('data:')) return;
 
       try {
-        const mimeType = (response.headers()['content-type'] || '').split(';')[0].trim();
+        const contentType = response.headers()['content-type'] || '';
+        const { mimeType } = parseContentTypeInfo(contentType);
         const requestBody = request.postData() || '';
         const requestBodyHash = this._hashRequestBody(requestBody);
         const requestKey = this._createRequestKey(request.method(), url, requestBodyHash);
@@ -55,9 +62,12 @@ export default class NetworkInterceptor {
           if (this._shouldStoreBody(resourceType, mimeType, responseBody.length)) {
             body = responseBody;
           }
-        } catch {
-          // Ignore bodies unavailable for redirects or streamed responses.
+        } catch (bodyErr) {
+          // Bodies are unavailable for redirects or streamed responses.
+          logger.debug(`Response body unavailable: ${url} - ${bodyErr.message}`);
         }
+
+        const decoding = this._analyzeStoredBody(resourceType, mimeType, contentType, body);
 
         const entry = {
           key: requestKey,
@@ -66,12 +76,19 @@ export default class NetworkInterceptor {
           requestBodyHash,
           type: resourceType,
           mimeType,
+          contentType,
           headers: response.headers(),
           body,
           bodyLength,
           bodyStored: Boolean(body),
           status: response.status(),
           pageUrl: page.url(),
+          encoding: decoding.encoding,
+          encodingSource: decoding.encodingSource,
+          encodingEvidence: decoding.encodingEvidence,
+          decodeConfidence: decoding.decodeConfidence,
+          suspectedEncodingMismatch: decoding.suspectedEncodingMismatch,
+          decodedText: decoding.decodedText,
         };
 
         this.responses.set(requestKey, entry);
@@ -90,7 +107,7 @@ export default class NetworkInterceptor {
             headers: request.headers(),
             responseStatus: response.status(),
             responseMimeType: mimeType,
-            responseBody: body ? body.toString('utf-8') : null,
+            responseBody: decoding.decodedText,
             responseBodyStored: Boolean(body),
           });
           if (this.xhrRequests.length > MAX_XHR_REQUESTS) {
@@ -104,6 +121,13 @@ export default class NetworkInterceptor {
 
     page.on('requestfailed', (request) => {
       logger.debug(`Request failed: ${request.url()} - ${request.failure()?.errorText}`);
+      this.failedRequests.push({
+        url: request.url(),
+        method: request.method(),
+        resourceType: request.resourceType(),
+        pageUrl: page.url(),
+        errorText: request.failure()?.errorText || 'request-failed',
+      });
     });
 
     page.on('websocket', (socket) => {
@@ -158,7 +182,7 @@ export default class NetworkInterceptor {
 
   _hashRequestBody(value) {
     if (!value) return 'no-body';
-    return crypto.createHash('sha1').update(value).digest('hex').slice(0, 12);
+    return crypto.createHash('sha1').update(value).digest('hex').slice(0, 24);
   }
 
   _shouldStoreBody(resourceType, mimeType, bodyLength) {
@@ -237,5 +261,48 @@ export default class NetworkInterceptor {
 
   getResponseCount() {
     return this.responses.size;
+  }
+
+  getFailedRequests() {
+    return this.failedRequests.slice();
+  }
+
+  _analyzeStoredBody(resourceType, mimeType, contentType, body) {
+    const headerEncoding = parseCharsetFromContentType(contentType);
+    if (!body) {
+      return {
+        encoding: headerEncoding || null,
+        encodingSource: headerEncoding ? 'content-type' : 'unknown',
+        encodingEvidence: {},
+        decodeConfidence: headerEncoding ? 'medium' : 'low',
+        suspectedEncodingMismatch: false,
+        decodedText: null,
+      };
+    }
+
+    if (
+      resourceType === 'document'
+      || resourceType === 'stylesheet'
+      || mimeType.startsWith('text/')
+      || mimeType.includes('javascript')
+      || mimeType.includes('json')
+      || mimeType.includes('xml')
+      || mimeType.includes('svg')
+    ) {
+      return analyzeTextDecoding(body, {
+        resourceType,
+        mimeType,
+        contentType,
+      });
+    }
+
+    return {
+      encoding: headerEncoding || null,
+      encodingSource: headerEncoding ? 'content-type' : 'unknown',
+      encodingEvidence: {},
+      decodeConfidence: headerEncoding ? 'medium' : 'low',
+      suspectedEncodingMismatch: false,
+      decodedText: null,
+    };
   }
 }

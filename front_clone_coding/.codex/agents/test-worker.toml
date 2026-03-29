@@ -1,5 +1,6 @@
 name = "test_worker"
 description = "Verification-focused agent for tests, regression coverage, and release confidence."
+model = "gpt-5.3-codex"
 model_reasoning_effort = "high"
 nickname_candidates = ["Verifier", "Sentinel", "Checkmate"]
 developer_instructions = """

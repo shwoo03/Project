@@ -1,5 +1,9 @@
+import { getFrontierDefaults } from './frontier-utils.js';
+
 export const DEFAULT_CRAWL_PROFILE = 'accurate';
 export const DEFAULT_NETWORK_POSTURE = 'default';
+
+const FRONTIER_DEFAULTS = getFrontierDefaults();
 
 const PROFILE_SETTINGS = {
   accurate: {
@@ -8,8 +12,10 @@ const PROFILE_SETTINGS = {
     formHeavyLinkBudget: 20,
     spaLinkBudget: 40,
     replayValidationSampleSize: 3,
+    interactionBudget: 12,
     waitMultiplier: 1.3,
     screenshot: true,
+    ...FRONTIER_DEFAULTS,
   },
   balanced: {
     name: 'balanced',
@@ -17,8 +23,10 @@ const PROFILE_SETTINGS = {
     formHeavyLinkBudget: 12,
     spaLinkBudget: 24,
     replayValidationSampleSize: 2,
+    interactionBudget: 6,
     waitMultiplier: 1,
     screenshot: false,
+    ...FRONTIER_DEFAULTS,
   },
   lightweight: {
     name: 'lightweight',
@@ -26,8 +34,10 @@ const PROFILE_SETTINGS = {
     formHeavyLinkBudget: 8,
     spaLinkBudget: 12,
     replayValidationSampleSize: 1,
+    interactionBudget: 0,
     waitMultiplier: 0.75,
     screenshot: false,
+    ...FRONTIER_DEFAULTS,
   },
   authenticated: {
     name: 'authenticated',
@@ -35,8 +45,10 @@ const PROFILE_SETTINGS = {
     formHeavyLinkBudget: 18,
     spaLinkBudget: 32,
     replayValidationSampleSize: 3,
+    interactionBudget: 8,
     waitMultiplier: 1.2,
     screenshot: true,
+    ...FRONTIER_DEFAULTS,
   },
 };
 

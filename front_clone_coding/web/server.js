@@ -121,6 +121,9 @@ export function createUIServerApp({ cloneRunner = cloneFrontend } = {}) {
       progress: 'Queued',
       outputDir: null,
       error: null,
+      verificationWarnings: [],
+      qualitySummary: null,
+      artifacts: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       logs: [],
@@ -197,6 +200,10 @@ export function createUIServerApp({ cloneRunner = cloneFrontend } = {}) {
     const heartbeat = setInterval(() => {
       res.write(':heartbeat\n\n');
     }, SSE_HEARTBEAT_INTERVAL_MS);
+    res.on('error', () => {
+      clearInterval(heartbeat);
+      job.clients.delete(res);
+    });
     req.on('close', () => {
       clearInterval(heartbeat);
       job.clients.delete(res);
@@ -277,9 +284,13 @@ export function createUIServerApp({ cloneRunner = cloneFrontend } = {}) {
         signal: job.abortController.signal,
       });
 
+      const jobInsights = normalizeJobInsights(result);
       job.status = 'completed';
       job.progress = 'Completed';
       job.outputDir = result?.outputDir || null;
+      job.verificationWarnings = jobInsights.verificationWarnings;
+      job.qualitySummary = jobInsights.qualitySummary;
+      job.artifacts = jobInsights.artifacts;
       job.updatedAt = new Date().toISOString();
       emitJobLog(job, {
         type: 'success',
@@ -328,8 +339,13 @@ export function createUIServerApp({ cloneRunner = cloneFrontend } = {}) {
   }
 
   function broadcast(job, entry) {
+    const payload = `data: ${JSON.stringify(entry)}\n\n`;
     for (const client of job.clients) {
-      client.write(`data: ${JSON.stringify(entry)}\n\n`);
+      try {
+        client.write(payload);
+      } catch {
+        job.clients.delete(client);
+      }
     }
   }
 }
@@ -355,9 +371,72 @@ function serializeJob(job) {
     progress: job.progress,
     outputDir: job.outputDir,
     error: job.error,
+    verificationWarnings: cloneSerializable(job.verificationWarnings) || [],
+    qualitySummary: cloneSerializable(job.qualitySummary),
+    artifacts: cloneSerializable(job.artifacts),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
   };
+}
+
+function normalizeJobInsights(result) {
+  return {
+    verificationWarnings: normalizeVerificationWarnings(result?.verificationWarnings),
+    qualitySummary: normalizeQualitySummary(result?.qualitySummary, result),
+    artifacts: normalizeArtifacts(result?.artifacts),
+  };
+}
+
+function normalizeVerificationWarnings(warnings) {
+  if (!Array.isArray(warnings)) return [];
+  return warnings
+    .map((warning) => stringifyErrorLike(warning))
+    .map((warning) => warning.trim())
+    .filter(Boolean);
+}
+
+function normalizeQualitySummary(summary, result = {}) {
+  const fallbackPageCount = toCountOrNull(result?.pageCount);
+  const fallbackGraphqlEndpoints = toCountOrNull(result?.apiSummary?.uniqueEndpoints);
+  const source = summary && typeof summary === 'object' && !Array.isArray(summary) ? summary : {};
+
+  return {
+    pagesCaptured: toCountOrNull(source.pagesCaptured ?? fallbackPageCount),
+    pagesFailed: toCountOrNull(source.pagesFailed),
+    skippedPages: toCountOrNull(source.skippedPages),
+    missingCriticalAssets: toCountOrNull(source.missingCriticalAssets),
+    replayWarnings: toCountOrNull(source.replayWarnings),
+    graphqlEndpoints: toCountOrNull(source.graphqlEndpoints ?? fallbackGraphqlEndpoints),
+  };
+}
+
+function normalizeArtifacts(artifacts) {
+  if (!artifacts || typeof artifacts !== 'object' || Array.isArray(artifacts)) return null;
+  return cloneSerializable(artifacts);
+}
+
+function toCountOrNull(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const count = Number(value);
+  return Number.isFinite(count) ? count : null;
+}
+
+function cloneSerializable(value) {
+  if (value === null || value === undefined) return null;
+
+  if (typeof globalThis.structuredClone === 'function') {
+    try {
+      return globalThis.structuredClone(value);
+    } catch {
+      // Fall through to JSON clone.
+    }
+  }
+
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return value;
+  }
 }
 
 function sseHeaders() {

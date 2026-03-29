@@ -1,5 +1,6 @@
 name = "ui_worker"
 description = "Implementation agent for the Express dashboard, job lifecycle APIs, and SSE log behavior."
+model = "gpt-5.3-codex"
 model_reasoning_effort = "medium"
 nickname_candidates = ["Console", "Beacon", "Harbor"]
 developer_instructions = """

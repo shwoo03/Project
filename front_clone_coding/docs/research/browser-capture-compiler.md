@@ -31,12 +31,17 @@ output/example.com/
 - `request`, `response`, `requestfinished`, `requestfailed`를 모두 기록
 - `storageState()` 저장
 - `sessionStorage`는 별도 JSON으로 저장
+- network capture의 기준축은 `browserContext` 이벤트로 둔다.
+- SPA 완료 판정은 `networkidle`보다 URL 변화, DOM 상태, assertion 결과를 우선한다.
+- HAR는 보조 수단으로 두고, replay의 주 경로는 mock manifest와 명시적 route fulfillment로 본다.
 
 ## 스펙 규칙
 
 - HTTP + GraphQL over HTTP: OpenAPI `3.1.0`
 - WebSocket: AsyncAPI
-- GraphQL는 endpoint 기준과 operationName 기준을 둘 다 저장
+- GraphQL는 endpoint 기준과 operationName 기준을 둘 다 저장하고, introspection이 성공할 때만 schema를 authoritative하게 본다.
+- sampled response는 mock 생성에 쓰되, schema의 단일 진실 소스로 보지 않는다.
+- screenshot diff는 보조 신호로만 사용하고, text / ARIA / route / API 체크를 주 신호로 둔다.
 
 ## 검증 규칙
 

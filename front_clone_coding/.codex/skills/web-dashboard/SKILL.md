@@ -9,6 +9,10 @@ description: >
 
 Use this skill when changing the dashboard server in `web/`, the browser UI, or the clone job lifecycle exposed to users.
 
+## Mission Focus
+
+Dashboard work should serve the site-validation workflow. Prioritize clarity around clone status, replay artifacts, failure diagnosis, and evidence gathering for real-site fidelity work.
+
 ## Core Files
 
 - `web/server.js`
@@ -46,6 +50,8 @@ Use this skill when changing the dashboard server in `web/`, the browser UI, or 
 - Preserve the single-active-job contract unless tests and UI flow are intentionally redesigned together.
 - If you change polling, cancellation, or output browsing, update both server and browser-side code in the same task.
 - Do not drift Docker port behavior from the documented `20000` container default without syncing docs and compose config.
+- Prefer surfacing actionable crawl or replay diagnostics over adding unrelated UI affordances.
+- If a new status field or log line exists only to support one site, reconsider whether it can be generalized before shipping it.
 
 ## Validation
 

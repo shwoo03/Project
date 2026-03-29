@@ -24,6 +24,11 @@ description = "Read-only explorer for tracing CLI, crawler, pipeline, and UI flo
 config_file = "./agents/repo-mapper.toml"
 nickname_candidates = ["Tracer", "Compass", "Scout"]
 
+[agents.planner]
+description = "Implementation planning specialist for research-backed, decision-complete execution plans."
+config_file = "./agents/planner-worker.toml"
+nickname_candidates = ["Planner", "Blueprint", "Navigator"]
+
 [agents.crawler_worker]
 description = "Implementation agent for crawling, Playwright capture, scope filtering, and interceptor logic."
 config_file = "./agents/crawler-worker.toml"

@@ -18,6 +18,7 @@ export async function downloadExternalImages(
   const $ = cheerio.load(html, { decodeEntities: false });
   const externalUrls = new Set();
   const usedNames = new Set();
+  const styleUrlPattern = /url\(['"]?(https?:[^'")\s]+)['"]?\)/g;
 
   $('img').each((_, el) => {
     const src = $(el).attr('src') || '';
@@ -42,7 +43,13 @@ export async function downloadExternalImages(
 
   $('[style]').each((_, el) => {
     const style = $(el).attr('style') || '';
-    const matches = [...style.matchAll(/url\(['"]?(https?:[^'")\s]+)['"]?\)/g)];
+    const matches = [...style.matchAll(styleUrlPattern)];
+    matches.forEach((match) => externalUrls.add(match[1]));
+  });
+
+  $('style').each((_, el) => {
+    const css = $(el).html() || '';
+    const matches = [...css.matchAll(styleUrlPattern)];
     matches.forEach((match) => externalUrls.add(match[1]));
   });
 
@@ -222,41 +229,6 @@ export function injectCapturedImages(html, urlMap) {
 
   if (injected > 0) {
     logger.info(`Injected ${injected} captured image reference(s) into HTML`);
-  }
-
-  const imageExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif']);
-  const alreadyUsed = new Set();
-  $('img').each((_, el) => {
-    const value = $(el).attr('src');
-    if (value) alreadyUsed.add(value);
-  });
-
-  const unreferencedImages = [];
-  for (const [, localPath] of urlMap) {
-    const ext = path.extname(localPath).toLowerCase();
-    if (!imageExtensions.has(ext)) continue;
-    if (/logo|icon|favicon|powered_by|ot_guard|ot_close|gif/i.test(localPath)) continue;
-
-    const relative = toRelativeSrc(localPath);
-    if (!alreadyUsed.has(relative)) {
-      unreferencedImages.push(relative);
-    }
-  }
-
-  if (unreferencedImages.length > 0) {
-    const preloads = unreferencedImages
-      .map((relative) => `<link rel="preload" as="image" href="${relative}">`)
-      .join('\n    ');
-    $('head').append(`\n    <!-- clone: preload captured images -->\n    ${preloads}`);
-
-    const hiddenImages = unreferencedImages
-      .map((relative) => `<img src="${relative}" loading="lazy" alt="captured" style="display:none;width:0;height:0;" aria-hidden="true">`)
-      .join('\n      ');
-    $('body').append(
-      `\n<div id="clone-preload-refs" aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden;">\n      ${hiddenImages}\n    </div>`,
-    );
-
-    logger.info(`Added preload references for ${unreferencedImages.length} captured image(s)`);
   }
 
   return $.html();

@@ -11,6 +11,8 @@ import {
   resolveCrawlProfile,
   resolveNetworkPosture,
 } from '../utils/crawl-config.js';
+import { prioritizeFrontierCandidates } from '../utils/frontier-utils.js';
+import { WORKER_PAGE_TIMEOUT, VISITED_SET_SAFETY_MULTIPLIER } from '../utils/constants.js';
 
 export const TRACKER_HOST_PATTERNS = [
   'google-analytics.com',
@@ -77,6 +79,8 @@ export default class SiteCrawler {
     this.concurrency = options.concurrency || 3;
     this.domainScope = options.domainScope || 'registrable-domain';
     this.captureDir = options.captureDir || null;
+    this.enableGraphqlIntrospection = options.enableGraphqlIntrospection !== false;
+    this.signal = options.signal || null;
 
     this.queue = [{ url: this.startUrl, depth: 0, discoveredFrom: null }];
     this.visited = new Set([normalizeCrawlUrl(this.startUrl)]);
@@ -88,6 +92,7 @@ export default class SiteCrawler {
     this.lastFailure = null;
     this.profileSettings = resolveCrawlProfile(this.crawlProfile);
     this.networkSettings = resolveNetworkPosture(this.networkPosture);
+    this.interactionBudget = options.interactionBudget ?? this.profileSettings.interactionBudget ?? 0;
   }
 
   async crawlAll() {
@@ -101,6 +106,7 @@ export default class SiteCrawler {
     try {
       await Promise.all(Array.from({ length: this.concurrency }, () => this._worker(browser, results)));
     } finally {
+      // Browser cleanup errors are expected (already-closed contexts, aborted navigations).
       await browser.close().catch(() => {});
     }
 
@@ -115,6 +121,11 @@ export default class SiteCrawler {
 
   async _worker(browser, results) {
     while (true) {
+      if (this.signal?.aborted) {
+        logger.info('[SiteCrawler] Crawl cancelled by signal');
+        break;
+      }
+
       const job = this._nextJob();
       if (!job) break;
 
@@ -139,17 +150,33 @@ export default class SiteCrawler {
         crawlProfile: this.crawlProfile,
         networkPosture: this.networkPosture,
         enableRepresentativeQA: this.enableRepresentativeQA,
+        interactionBudget: this.interactionBudget,
+        enableGraphqlIntrospection: this.enableGraphqlIntrospection,
+        frontierOriginUrl: this.startUrl,
+        domainScope: this.domainScope,
+        signal: this.signal,
       });
 
       try {
-        const pageResult = await crawler.crawl();
+        const pageResult = await Promise.race([
+          crawler.crawl(),
+          new Promise((_, reject) => {
+            setTimeout(() => reject(new Error(`Page crawl timed out after ${WORKER_PAGE_TIMEOUT}ms`)), WORKER_PAGE_TIMEOUT);
+          }),
+        ]);
         const finalUrl = pageResult.finalUrl || url;
         const isLogin = this._isLoginPage(finalUrl, pageResult.html);
         const skippedReason = isLogin && !this.followLoginGated ? 'login-gated' : null;
         const queueBudget = pageResult.classification?.queueBudget || this.profileSettings.linkBudget;
+        let frontierSelection = {
+          linkCandidatesSeen: pageResult.linkCandidates?.length || pageResult.internalLinks.length,
+          linksSelected: 0,
+          frontierTopCandidates: [],
+          selectionReasons: [],
+        };
 
         if (!skippedReason) {
-          this._enqueueLinks(pageResult.internalLinks, depth + 1, finalUrl, queueBudget);
+          frontierSelection = this._enqueueLinks(pageResult.linkCandidates || pageResult.internalLinks, depth + 1, finalUrl, queueBudget, pageResult.classification);
         } else {
           logger.warn(`Login-gated page detected. Link queueing is skipped: ${finalUrl}`);
         }
@@ -167,6 +194,7 @@ export default class SiteCrawler {
           forms: pageResult.forms,
           interactiveElements: pageResult.interactiveElements,
           title: pageResult.title,
+          documentEncoding: pageResult.documentEncoding,
           classification: pageResult.classification,
           crawlProfile: pageResult.crawlProfile,
           networkPosture: pageResult.networkPosture,
@@ -174,6 +202,10 @@ export default class SiteCrawler {
           status: pageResult.status,
           storageState: pageResult.storageState,
           sessionStorageState: pageResult.sessionStorageState,
+          graphqlArtifacts: pageResult.graphqlArtifacts,
+          captureWarnings: pageResult.captureWarnings,
+          linkCandidates: pageResult.linkCandidates || [],
+          frontierSelection,
           discoveredFrom,
           skippedReason,
         });
@@ -186,16 +218,27 @@ export default class SiteCrawler {
           status: pageResult.status,
           discoveredFrom,
           title: pageResult.title,
+          documentEncoding: pageResult.documentEncoding,
           loginGated: isLogin,
           skippedReason,
           crawlState: 'completed',
           linksFound: pageResult.internalLinks.length,
           pageClass: pageResult.classification?.pageClass || 'document',
           queueBudget,
+          linkCandidatesSeen: frontierSelection?.linkCandidatesSeen ?? (pageResult.linkCandidates?.length || pageResult.internalLinks.length),
+          linksSelected: frontierSelection?.linksSelected ?? 0,
+          frontierTopCandidates: frontierSelection?.frontierTopCandidates ?? [],
+          selectionReasons: frontierSelection?.selectionReasons ?? [],
           crawlProfile: this.crawlProfile,
           networkPosture: this.networkPosture,
         });
       } catch (err) {
+        if (err.message === 'Operation cancelled') {
+          logger.info(`[SiteCrawler] Page crawl cancelled: ${url}`);
+          break;
+        }
+        const isTimeout = err.message.includes('timed out');
+        const crawlState = isTimeout ? 'timeout' : 'failed';
         logger.error(`Failed to crawl page (${url}): ${err.message}`);
         this.lastFailure = err.message;
         this.siteMap.push({
@@ -208,7 +251,7 @@ export default class SiteCrawler {
           title: '',
           loginGated: false,
           skippedReason: null,
-          crawlState: 'failed',
+          crawlState,
           error: err.message,
           linksFound: 0,
         });
@@ -244,29 +287,97 @@ export default class SiteCrawler {
     return job;
   }
 
-  _enqueueLinks(links, nextDepth, discoveredFrom, queueBudget = this.profileSettings.linkBudget) {
-    if (!links || links.length === 0) return;
-    if (nextDepth > this.maxDepth) return;
+  _enqueueLinks(links, nextDepth, discoveredFrom, queueBudget = this.profileSettings.linkBudget, classification = null) {
+    if (!links || links.length === 0) {
+      return {
+        linkCandidatesSeen: 0,
+        linksSelected: 0,
+        frontierTopCandidates: [],
+        selectionReasons: [],
+      };
+    }
+    if (nextDepth > this.maxDepth) {
+      return {
+        linkCandidatesSeen: links.length,
+        linksSelected: 0,
+        frontierTopCandidates: [],
+        selectionReasons: [],
+      };
+    }
 
-    let added = 0;
-    for (const link of links.slice(0, queueBudget)) {
+    if (this.visited.size > this.maxPages * VISITED_SET_SAFETY_MULTIPLIER) {
+      logger.warn(`[SiteCrawler] Visited set exceeded safety cap (${this.visited.size}), skipping link enqueue`);
+      return {
+        linkCandidatesSeen: links.length,
+        linksSelected: 0,
+        frontierTopCandidates: [],
+        selectionReasons: [],
+      };
+    }
+
+    const eligibleCandidates = [];
+
+    for (const link of links) {
       try {
-        if (this._isExcludedPattern(link)) continue;
-        const normalized = normalizeCrawlUrl(link);
+        const candidate = typeof link === 'string' ? { url: link } : link;
+        const normalized = normalizeCrawlUrl(candidate.normalizedUrl || candidate.url);
+        if (this._isExcludedPattern(candidate.url || normalized)) continue;
         if (!this._isInScope(normalized)) continue;
         if (this.visited.has(normalized)) continue;
 
-        this.visited.add(normalized);
-        this.queue.push({ url: normalized, depth: nextDepth, discoveredFrom });
-        added += 1;
-      } catch {
-        // Ignore malformed URLs discovered in DOM.
+        eligibleCandidates.push({
+          ...candidate,
+          url: candidate.url || normalized,
+          normalizedUrl: normalized,
+        });
+      } catch (err) {
+        logger.debug(`Skipped malformed link candidate: ${err.message}`);
       }
+    }
+
+    const prioritized = prioritizeFrontierCandidates(eligibleCandidates, {
+      startUrl: this.startUrl,
+      currentPageUrl: discoveredFrom,
+      nextDepth,
+      queueBudget,
+      domainScope: this.domainScope,
+      discoveredFromPageClass: classification?.pageClass || 'document',
+      weights: this.profileSettings.frontierWeights,
+      diversityCaps: this.profileSettings.frontierDiversityCaps,
+    });
+
+    let added = 0;
+    for (const candidate of prioritized.selectedCandidates) {
+      this.visited.add(candidate.normalizedUrl);
+      this.queue.push({ url: candidate.normalizedUrl, depth: nextDepth, discoveredFrom });
+      added += 1;
     }
 
     if (added > 0) {
       logger.debug(`Added ${added} links to queue (depth ${nextDepth}, budget ${queueBudget})`);
     }
+
+    return {
+      linkCandidatesSeen: links.length,
+      linksSelected: added,
+      frontierTopCandidates: prioritized.topCandidates.map((candidate) => ({
+        url: candidate.normalizedUrl,
+        score: candidate.score,
+        familyKey: candidate.familyKey,
+        sourceKind: candidate.sourceKind,
+        landmark: candidate.landmark,
+        sameHost: candidate.sameHost,
+        pathDepth: candidate.pathDepth,
+        hasQuery: candidate.hasQuery,
+        selectionReasons: candidate.selectionReasons,
+      })),
+      selectionReasons: prioritized.selectedCandidates.map((candidate) => ({
+        url: candidate.normalizedUrl,
+        score: candidate.score,
+        familyKey: candidate.familyKey,
+        selectionReasons: candidate.selectionReasons,
+      })),
+    };
   }
 
   _isInScope(urlStr) {

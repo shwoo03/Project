@@ -12,34 +12,51 @@ import ApiProcessor from './processor/api-processor.js';
 import ProjectScaffolder from './scaffolder/project-scaffolder.js';
 import VisualAnalyzer from './analyzer/visual-analyzer.js';
 import IntegrationDocGenerator from './processor/integration-doc-generator.js';
+import { runReplayVerification } from './verifier/replay-verifier.js';
 import {
-  copyPath,
   ensureDir,
-  movePath,
-  pathExists,
   removePath,
   saveFile,
 } from './utils/file-utils.js';
 import { downloadExternalImages, injectCapturedImages } from './utils/image-utils.js';
-import { getDomainRoot, getViewPathFromUrl, normalizeCrawlUrl } from './utils/url-utils.js';
+import {
+  normalizeCrawlUrl,
+} from './utils/url-utils.js';
 import { hashContent, writeManifest } from './utils/manifest-writer.js';
 import logger from './utils/logger.js';
 import { ensurePlaywrightRuntimeReady } from './utils/playwright-runtime.js';
+import {
+  buildRenderCriticalRuntimeMap,
+} from './utils/replay-mock-utils.js';
+import { summarizeEncodingDiagnosis } from './utils/encoding-utils.js';
 import {
   DEFAULT_CRAWL_PROFILE,
   DEFAULT_NETWORK_POSTURE,
   resolveCrawlProfile,
   resolveNetworkPosture,
 } from './utils/crawl-config.js';
+import {
+  dedupeCapturedPages as _dedupeCapturedPages,
+} from './pipeline/page-dedup.js';
+import {
+  buildPageRouteManifest as _buildPageRouteManifest,
+  buildPageRouteIndex as _buildPageRouteIndex,
+  buildPagePathFallbackMap as _buildPagePathFallbackMap,
+  normalizeRouteLookupPath as _normalizeRouteLookupPath,
+} from './pipeline/page-route-manifest.js';
+import {
+  buildPageReplaySignals as _buildPageReplaySignals,
+  extractPageReplaySignals as _extractPageReplaySignals,
+} from './pipeline/replay-signals.js';
+import {
+  finalizeOutput as _finalizeOutput,
+  getOutputDomainRoot as _getOutputDomainRoot,
+  resolveOutputDirForRun as _resolveOutputDirForRun,
+  isRetriableFilesystemConflict as _isRetriableFilesystemConflict,
+  withFilesystemRetry as _withFilesystemRetry,
+  buildOutputFinalizeError as _buildOutputFinalizeError,
+} from './pipeline/output-finalize.js';
 
-const MERGED_OUTPUT_ENTRIES = [
-  'public',
-  'views',
-  'server',
-  'server.js',
-  'package.json',
-  'README.md',
-];
 const CANONICAL_OUTPUT_PARENT = path.resolve('./output');
 
 function checkAborted(signal) {
@@ -69,13 +86,18 @@ export async function cloneFrontend(options) {
     await prepareStagingArea(context);
 
     checkAborted(signal);
-    const capture = await capturePages(context);
+    const capture = await capturePages(context, signal);
 
     checkAborted(signal);
-    const transformed = await transformCapturedOutput(context, capture);
+    const apiArtifacts = await prepareApiArtifacts(context, capture);
 
     checkAborted(signal);
-    const artifacts = await generateArtifacts(context, capture, transformed);
+    const transformed = await transformCapturedOutput(context, capture, apiArtifacts);
+
+    checkAborted(signal);
+    const artifacts = await generateArtifacts(context, capture, transformed, apiArtifacts);
+
+    const qualitySummary = buildQualitySummary(capture, artifacts);
 
     checkAborted(signal);
     await finalizeOutput(context);
@@ -89,6 +111,9 @@ export async function cloneFrontend(options) {
       pageCount: capture.pages.length,
       entryPagePath: transformed.entryPagePath,
       apiSummary: artifacts.apiArtifacts.apiSummary,
+      verificationWarnings: artifacts.verificationWarnings,
+      qualitySummary,
+      artifacts: artifacts.artifactPaths,
     };
   } catch (err) {
     console.error('[Unexpected Error]');
@@ -96,15 +121,26 @@ export async function cloneFrontend(options) {
     if (err.details) {
       logger.error(err.details);
     }
+    if (err.hint) {
+      logger.warn(err.hint);
+    }
     logger.error(`Operation failed: ${err.message}`);
     await removePath(context.stagingDir).catch(() => {});
     throw err;
   }
 }
 
-export function getOutputDomainRoot(targetUrl) {
-  return getDomainRoot(targetUrl, 'registrable-domain');
-}
+export const getOutputDomainRoot = _getOutputDomainRoot;
+
+export const resolveOutputDirForRun = _resolveOutputDirForRun;
+
+export const dedupeCapturedPages = _dedupeCapturedPages;
+
+export const buildPagePathFallbackMap = _buildPagePathFallbackMap;
+
+export const buildPageRouteManifest = _buildPageRouteManifest;
+
+export const buildPageRouteIndex = _buildPageRouteIndex;
 
 async function createRunContext(options) {
   const normalizedOptions = {
@@ -123,9 +159,13 @@ async function createRunContext(options) {
 
   const outputParent = CANONICAL_OUTPUT_PARENT;
   const domainRoot = getOutputDomainRoot(normalizedOptions.url);
-  const outputDir = path.join(outputParent, domainRoot);
+  const shouldUpdate = Boolean(normalizedOptions.updateExisting);
+  const outputResolution = await resolveOutputDirForRun(outputParent, domainRoot, {
+    updateExisting: shouldUpdate,
+  });
+  const outputDir = outputResolution.outputDir;
   const stageRoot = path.join(outputParent, '.front-clone-tmp');
-  const runId = `${domainRoot}-${Date.now()}-${process.pid}`;
+  const runId = `${outputResolution.outputLabel}-${Date.now()}-${process.pid}`;
   const stagingDir = path.join(stageRoot, runId);
 
   return {
@@ -133,8 +173,9 @@ async function createRunContext(options) {
     outputParent,
     outputDir,
     domainRoot,
+    outputLabel: outputResolution.outputLabel,
     domainScope: normalizedOptions.domainScope,
-    shouldUpdate: Boolean(normalizedOptions.updateExisting),
+    shouldUpdate,
     captureVisualDocs: normalizedOptions.visualAnalysis !== 'off',
     stagingDir,
     publicDir: path.join(stagingDir, 'public'),
@@ -155,7 +196,7 @@ async function prepareStagingArea(context) {
   await ensureDir(context.captureDir);
 }
 
-async function capturePages(context) {
+async function capturePages(context, signal = null) {
   const { options, captureVisualDocs } = context;
 
   if (options.recursive) {
@@ -177,6 +218,9 @@ async function capturePages(context) {
       crawlProfile: options.crawlProfile,
       networkPosture: options.networkPosture,
       enableRepresentativeQA: options.enableRepresentativeQA,
+      interactionBudget: options.interactionBudget,
+      enableGraphqlIntrospection: options.enableGraphqlIntrospection,
+      signal,
     });
 
     const crawlResult = await siteCrawler.crawlAll();
@@ -209,6 +253,9 @@ async function capturePages(context) {
     crawlProfile: options.crawlProfile,
     networkPosture: options.networkPosture,
     enableRepresentativeQA: options.enableRepresentativeQA,
+    interactionBudget: options.interactionBudget,
+    enableGraphqlIntrospection: options.enableGraphqlIntrospection,
+    signal,
   });
 
   const crawlResult = await pageCrawler.crawl();
@@ -228,6 +275,7 @@ async function capturePages(context) {
         forms: crawlResult.forms,
         interactiveElements: crawlResult.interactiveElements,
         title: crawlResult.title,
+        documentEncoding: crawlResult.documentEncoding,
         classification: crawlResult.classification,
         crawlProfile: crawlResult.crawlProfile,
         networkPosture: crawlResult.networkPosture,
@@ -235,6 +283,9 @@ async function capturePages(context) {
         status: crawlResult.status,
         storageState: crawlResult.storageState,
         sessionStorageState: crawlResult.sessionStorageState,
+        graphqlArtifacts: crawlResult.graphqlArtifacts,
+        captureWarnings: crawlResult.captureWarnings,
+        linkCandidates: crawlResult.linkCandidates || [],
         discoveredFrom: null,
         skippedReason: null,
       },
@@ -249,41 +300,50 @@ async function capturePages(context) {
         status: crawlResult.status,
         discoveredFrom: null,
         title: crawlResult.title,
+        documentEncoding: crawlResult.documentEncoding,
         loginGated: false,
         skippedReason: null,
         crawlState: 'completed',
         linksFound: crawlResult.internalLinks.length,
+        linkCandidatesSeen: crawlResult.linkCandidates?.length || crawlResult.internalLinks.length,
+        linksSelected: 0,
+        frontierTopCandidates: [],
+        selectionReasons: [],
       },
     ],
   };
 }
 
-async function transformCapturedOutput(context, capture) {
-  const pageUrlMap = new Map();
-
-  for (const page of capture.pages) {
-    const canonicalUrl = page.finalUrl || page.url;
-    const savedPath = getViewPathFromUrl(canonicalUrl);
-    page.savedPath = savedPath;
-    page.host = new URL(canonicalUrl).hostname;
-
-    pageUrlMap.set(page.url, savedPath);
-    pageUrlMap.set(canonicalUrl, savedPath);
-    pageUrlMap.set(normalizeCrawlUrl(page.url), savedPath);
-    pageUrlMap.set(normalizeCrawlUrl(canonicalUrl), savedPath);
-  }
+async function transformCapturedOutput(context, capture, apiArtifacts) {
+  const includeHostPrefix = Boolean(context.options.recursive) && context.domainScope === 'registrable-domain';
+  const deduped = dedupeCapturedPages(capture.pages, capture.siteMap, { includeHostPrefix });
+  capture.pages = deduped.pages;
+  capture.siteMap = deduped.siteMap;
+  const pageUrlMap = deduped.pageUrlMap;
+  const pageRouteManifest = buildPageRouteManifest(capture.siteMap, capture.pages, capture.pages[0]?.savedPath || 'index.html');
+  const pageRouteIndex = buildPageRouteIndex(pageRouteManifest);
 
   const downloader = new AssetDownloader(context.stagingDir, context.options.url);
   const fullUrlMap = await downloader.downloadAll(capture.interceptor);
+  await downloader.recoverFailedAssets(capture.interceptor.getFailedRequests());
   for (const [url, localPath] of pageUrlMap) {
     fullUrlMap.set(url, localPath);
   }
+  const renderCriticalRuntimeMap = buildRenderCriticalRuntimeMap(apiArtifacts.filteredRequests || []);
 
-  const cssProcessor = new CssProcessor(context.stagingDir, context.options.url, fullUrlMap, capture.interceptor);
-  const jsProcessor = new JsProcessor(context.stagingDir, context.options.url, fullUrlMap);
-  await Promise.all([cssProcessor.processAll(), jsProcessor.processAll()]);
+  const cssProcessor = new CssProcessor(context.stagingDir, context.options.url, fullUrlMap, capture.interceptor, {
+    assetRegistry: downloader,
+  });
+  const jsProcessor = new JsProcessor(context.stagingDir, context.options.url, fullUrlMap, {
+    renderCriticalRuntimeMap,
+  });
+  const [cssResult] = await Promise.all([cssProcessor.processAll(), jsProcessor.processAll()]);
 
-  const htmlProcessor = new HtmlProcessor(context.options.url, { useBaseHref: true });
+  const htmlProcessor = new HtmlProcessor(context.options.url, {
+    useBaseHref: true,
+    renderCriticalRuntimeMap,
+    pageRouteIndex,
+  });
   for (const page of capture.pages) {
     htmlProcessor.baseUrl = page.finalUrl || page.url;
     let processedHtml = htmlProcessor.process(page.html, fullUrlMap, page.savedPath);
@@ -323,17 +383,16 @@ async function transformCapturedOutput(context, capture) {
 
   return {
     entryPagePath,
+    entryReplayRoute: pageRouteManifest.entryReplayRoute,
     fullUrlMap,
     resourceManifestEntries: downloader.getResourceManifestEntries(),
+    pageRouteManifest,
+    cssRecoverySummary: cssResult.cssRecoverySummary,
   };
 }
 
-async function generateArtifacts(context, capture, transformed) {
-  const xhrRequests = capture.interceptor.getXhrRequests();
+async function generateArtifacts(context, capture, transformed, apiArtifacts) {
   const websocketEvents = capture.interceptor.getWebsocketEvents();
-
-  const apiProcessor = new ApiProcessor(context.stagingDir, context.options.url, context.domainScope);
-  const apiArtifacts = await apiProcessor.generateArtifacts(xhrRequests, websocketEvents);
 
   const integrationDocGenerator = new IntegrationDocGenerator(context.stagingDir);
   await integrationDocGenerator.generate({
@@ -347,9 +406,11 @@ async function generateArtifacts(context, capture, transformed) {
     await visualAnalyzer.generate(capture.pages);
   }
 
+  annotatePagesWithEncodingDiagnostics(capture.pages, capture.interceptor);
   const assetManifest = buildAssetManifest(capture.interceptor, transformed.fullUrlMap, transformed.resourceManifestEntries);
+  annotatePagesWithRenderCriticalCandidates(capture.pages, apiArtifacts.renderCriticalCandidates || []);
   const pageManifest = buildPageManifest(capture.siteMap, capture.pages);
-  const pageQualityReport = buildPageQualityReport(capture.pages, assetManifest);
+  const pageQualityReport = buildPageQualityReport(capture.pages, assetManifest, transformed.cssRecoverySummary);
 
   await writeManifest(context.stagingDir, {
     generatedAt: new Date().toISOString(),
@@ -361,59 +422,68 @@ async function generateArtifacts(context, capture, transformed) {
     pages: pageManifest,
     assets: assetManifest,
     pageQualityReport,
+    cssRecoverySummary: transformed.cssRecoverySummary,
     crawlProfile: buildCrawlProfileManifest(context.options, capture.pages),
+    pageRoutes: transformed.pageRouteManifest,
   });
 
   if (context.options.scaffold !== false) {
     const scaffolder = new ProjectScaffolder(context.stagingDir, new URL(context.options.url).hostname);
     await scaffolder.scaffold({
       entryPagePath: transformed.entryPagePath,
+      entryReplayRoute: transformed.entryReplayRoute,
       apiSummary: apiArtifacts.apiSummary,
       siteMap: capture.siteMap,
       pages: capture.pages,
     });
   }
 
-  return { apiArtifacts };
+  const verifierResult = await runReplayVerification({
+    outputDir: context.stagingDir,
+    startUrl: context.options.url,
+    pages: capture.pages,
+    apiArtifacts,
+    sampleSize: resolveCrawlProfile(context.options.crawlProfile).replayValidationSampleSize,
+  });
+
+  return {
+    apiArtifacts,
+    verificationWarnings: verifierResult.verificationWarnings,
+    verificationReport: verifierResult.report,
+    artifactPaths: {
+      openApiSpec: 'server/spec/openapi.json',
+      asyncApiSpec: 'server/spec/asyncapi.json',
+      graphqlOperations: 'server/spec/graphql/operations.json',
+      graphqlSchema: apiArtifacts.graphqlArtifacts?.length ? 'server/spec/graphql/schema.json' : null,
+      replayVerificationReport: verifierResult.artifacts.replayVerificationReport,
+      replayVerificationJson: verifierResult.artifacts.replayVerificationJson,
+    },
+  };
 }
 
-async function finalizeOutput(context) {
-  if (!context.shouldUpdate) {
-    await removePath(context.outputDir);
-    await ensureDir(path.dirname(context.outputDir));
-    await movePath(context.stagingDir, context.outputDir);
-    return;
-  }
+async function prepareApiArtifacts(context, capture) {
+  const xhrRequests = capture.interceptor.getXhrRequests();
+  const websocketEvents = capture.interceptor.getWebsocketEvents();
+  const graphqlArtifacts = capture.pages.flatMap((page) => page.graphqlArtifacts || []);
+  const pageReplaySignals = buildPageReplaySignals(capture.pages);
 
-  await ensureDir(context.outputDir);
-
-  for (const entry of MERGED_OUTPUT_ENTRIES) {
-    const sourcePath = path.join(context.stagingDir, entry);
-    if (!(await pathExists(sourcePath))) continue;
-
-    const destinationPath = path.join(context.outputDir, entry);
-    await replacePath(sourcePath, destinationPath);
-  }
-
-  const remainingEntries = await listRemainingEntries(context.stagingDir);
-  for (const entry of remainingEntries) {
-    const sourcePath = path.join(context.stagingDir, entry);
-    const destinationPath = path.join(context.outputDir, entry);
-    await copyPath(sourcePath, destinationPath);
-  }
-
-  await removePath(context.stagingDir);
+  const apiProcessor = new ApiProcessor(
+    context.stagingDir,
+    context.options.url,
+    context.domainScope,
+    pageReplaySignals,
+  );
+  return apiProcessor.generateArtifacts(xhrRequests, websocketEvents, graphqlArtifacts);
 }
 
-async function listRemainingEntries(stagingDir) {
-  const fs = await import('fs/promises');
-  try {
-    const entries = await fs.readdir(stagingDir);
-    return entries;
-  } catch {
-    return [];
-  }
-}
+const buildPageReplaySignals = _buildPageReplaySignals;
+
+export const extractPageReplaySignals = _extractPageReplaySignals;
+
+const finalizeOutput = _finalizeOutput;
+export const isRetriableFilesystemConflict = _isRetriableFilesystemConflict;
+export const withFilesystemRetry = _withFilesystemRetry;
+export const buildOutputFinalizeError = _buildOutputFinalizeError;
 
 function buildPageManifest(siteMap, pages) {
   const pagesByUrl = new Map();
@@ -424,23 +494,74 @@ function buildPageManifest(siteMap, pages) {
 
   return siteMap.map((item) => {
     const page = pagesByUrl.get(item.normalizedUrl);
+    const hiddenNavigationSummary = extractHiddenNavigationSummary(page?.processedHtml || page?.html || '');
+    const encodingDiagnostics = summarizeEncodingDiagnosis(page?.encodingDiagnostics || {});
     return {
       url: item.url,
       finalUrl: item.finalUrl,
       normalizedUrl: item.normalizedUrl,
       savedPath: page?.savedPath || null,
+      replayRoute: page?.replayRoute || null,
+      routeAliases: page?.replayRouteAliases || [],
       host: page?.host || (item.finalUrl ? new URL(item.finalUrl).hostname : null),
       depth: item.depth,
       discoveredFrom: item.discoveredFrom,
       status: item.status,
       title: item.title || '',
+      detectedCharset: encodingDiagnostics.encoding || item.documentEncoding || page?.documentEncoding || null,
+      encodingSource: encodingDiagnostics.encodingSource,
+      decodeConfidence: encodingDiagnostics.decodeConfidence,
+      suspectedEncodingMismatch: encodingDiagnostics.suspectedEncodingMismatch,
+      encodingEvidence: encodingDiagnostics.encodingEvidence,
       loginGated: item.loginGated,
       crawlState: item.crawlState || 'completed',
+      replayable: Boolean(page?.savedPath && page?.replayRoute),
       skippedReason: item.skippedReason || null,
       error: item.error || null,
+      linksFound: item.linksFound ?? page?.internalLinks?.length ?? 0,
+      pageClass: item.pageClass || page?.classification?.pageClass || 'document',
+      queueBudget: item.queueBudget ?? page?.classification?.queueBudget ?? null,
+      linkCandidatesSeen: item.linkCandidatesSeen ?? page?.linkCandidates?.length ?? 0,
+      linksSelected: item.linksSelected ?? 0,
+      frontierTopCandidates: item.frontierTopCandidates || [],
+      selectionReasons: item.selectionReasons || [],
+      bootstrapSignals: page?.bootstrapSignals || page?.replayBootstrapSignals || {},
+      replayBootstrapSignals: page?.replayBootstrapSignals || {},
+      replayCandidates: page?.replayCandidates || [],
+      expectedRenderCriticalCandidates: page?.expectedRenderCriticalCandidates || [],
+      renderCriticalCandidates: page?.renderCriticalCandidates || [],
+      hiddenNavigationSummary,
       contentHash: page ? hashContent(page.processedHtml || page.html || '') : null,
     };
   });
+}
+
+function annotatePagesWithRenderCriticalCandidates(pages, renderCriticalCandidates) {
+  const groupedCandidates = new Map();
+
+  for (const candidate of renderCriticalCandidates || []) {
+    const pageKey = normalizeCrawlUrl(candidate.pageUrl || '');
+    if (!pageKey) continue;
+    const current = groupedCandidates.get(pageKey) || [];
+    current.push(candidate);
+    groupedCandidates.set(pageKey, current);
+  }
+
+  for (const page of pages) {
+    const pageKey = normalizeCrawlUrl(page.finalUrl || page.url);
+    const candidates = groupedCandidates.get(pageKey) || [];
+    const normalizedCandidates = candidates.map((candidate) => ({
+      method: candidate.method,
+      replayRole: candidate.replayRole,
+      expectedForReplay: candidate.expectedForReplay !== false,
+      replayPath: candidate.replayPath,
+      renderCriticalKind: candidate.renderCriticalKind,
+      operationName: candidate.operationName,
+    }));
+    page.replayCandidates = normalizedCandidates;
+    page.expectedRenderCriticalCandidates = normalizedCandidates.filter((candidate) => candidate.expectedForReplay !== false);
+    page.renderCriticalCandidates = page.expectedRenderCriticalCandidates;
+  }
 }
 
 function buildAssetManifest(interceptor, urlMap, resourceManifestEntries = []) {
@@ -461,7 +582,7 @@ function buildAssetManifest(interceptor, urlMap, resourceManifestEntries = []) {
       savedPath,
       inScope: savedPath ? !savedPath.includes('/external/') && !savedPath.includes('\\external\\') : false,
       resourceType: data.type,
-      contentType: data.mimeType,
+      contentType: data.contentType || data.mimeType,
       status: data.status,
       size: data.bodyLength || data.body?.length || 0,
       bodyStored: Boolean(data.bodyStored),
@@ -469,18 +590,36 @@ function buildAssetManifest(interceptor, urlMap, resourceManifestEntries = []) {
       resourceClass: 'passive-static',
       replayCriticality: 'medium',
       pageUrl: data.pageUrl || '',
+      encoding: data.encoding || null,
+      encodingSource: data.encodingSource || 'unknown',
+      decodeConfidence: data.decodeConfidence || 'low',
+      suspectedEncodingMismatch: Boolean(data.suspectedEncodingMismatch),
+      encodingEvidence: data.encodingEvidence || {},
     });
   }
 
   return assets;
 }
 
-function buildPageQualityReport(pages, assetManifest) {
+function buildPageQualityReport(pages, assetManifest, cssRecoverySummary = {}) {
+  const cssRecoveryPages = new Map(
+    (cssRecoverySummary.pages || [])
+      .filter((entry) => entry?.pageUrl)
+      .map((entry) => [entry.pageUrl, entry]),
+  );
+
   return pages.map((page) => {
     const pageUrl = page.finalUrl || page.url;
     const pageAssets = assetManifest.filter((asset) => asset.pageUrl === pageUrl);
+    const hiddenNavigationSummary = extractHiddenNavigationSummary(page.processedHtml || page.html || '');
+    const encodingDiagnostics = summarizeEncodingDiagnosis(page.encodingDiagnostics || {});
+    const cssRecovery = cssRecoveryPages.get(pageUrl) || {
+      cssRecoveryStatus: 'no-css-assets',
+      missingCriticalCssAssets: 0,
+      cssRecoveryWarnings: [],
+    };
     const rawTextLength = page.qa?.rawTextLength || 0;
-    const processedTextLength = String(page.processedHtml || '')
+    const processedTextLength = String(page.processedHtml || page.decodedDocumentHtml || page.html || '')
       .replace(/<script[\s\S]*?<\/script>/gi, ' ')
       .replace(/<style[\s\S]*?<\/style>/gi, ' ')
       .replace(/<[^>]+>/g, ' ')
@@ -494,6 +633,8 @@ function buildPageQualityReport(pages, assetManifest) {
     return {
       pageUrl,
       savedPath: page.savedPath || null,
+      replayRoute: page.replayRoute || null,
+      replayable: Boolean(page.savedPath && page.replayRoute),
       pageClass: page.classification?.pageClass || 'document',
       highValue: Boolean(page.classification?.highValue),
       resourceCountObserved: page.qa?.observedResources || 0,
@@ -503,8 +644,83 @@ function buildPageQualityReport(pages, assetManifest) {
       screenshotCaptured: Boolean(page.screenshot || page.screenshotPath),
       textDriftRatio: Number(textDriftRatio.toFixed(4)),
       flags: page.classification?.flags || [],
+      bootstrapSignals: page.bootstrapSignals || page.replayBootstrapSignals || {},
+      bootstrapEvidenceLevel: page.bootstrapSignals?.bootstrapEvidenceLevel || page.replayBootstrapSignals?.bootstrapEvidenceLevel || 'none',
+      bootstrapSignalCount: page.bootstrapSignals?.bootstrapSignalCount || page.replayBootstrapSignals?.bootstrapSignalCount || 0,
+      encoding: encodingDiagnostics.encoding,
+      encodingSource: encodingDiagnostics.encodingSource,
+      decodeConfidence: encodingDiagnostics.decodeConfidence,
+      suspectedEncodingMismatch: encodingDiagnostics.suspectedEncodingMismatch,
+      encodingEvidence: encodingDiagnostics.encodingEvidence,
+      cssRecoveryStatus: cssRecovery.cssRecoveryStatus,
+      missingCriticalCssAssets: cssRecovery.missingCriticalCssAssets || 0,
+      cssRecoveryWarnings: cssRecovery.cssRecoveryWarnings || [],
+      hiddenNavigationSummary,
+      localizedHiddenNavigationCount: hiddenNavigationSummary.localizedHiddenNavigationCount,
+      disabledHiddenNavigationCount: hiddenNavigationSummary.disabledHiddenNavigationCount,
+      nonReplayableTargetCount: hiddenNavigationSummary.nonReplayableTargetCount,
     };
   });
+}
+
+function annotatePagesWithEncodingDiagnostics(pages = [], interceptor) {
+  for (const page of pages) {
+    const response = interceptor?.getLatestResponse?.(page.finalUrl || page.url)
+      || interceptor?.getLatestResponse?.(page.url);
+    const summarized = summarizeEncodingDiagnosis({
+      encoding: response?.encoding || page.documentEncoding || null,
+      encodingSource: response?.encodingSource || (page.documentEncoding ? 'document-character-set' : 'unknown'),
+      decodeConfidence: response?.decodeConfidence || (page.documentEncoding ? 'medium' : 'low'),
+      suspectedEncodingMismatch: Boolean(response?.suspectedEncodingMismatch),
+      encodingEvidence: response?.encodingEvidence || {},
+    });
+
+    page.encodingDiagnostics = {
+      ...summarized,
+      contentType: response?.contentType || '',
+    };
+    if (response?.decodedText) {
+      page.decodedDocumentHtml = response.decodedText;
+    }
+  }
+}
+
+function extractHiddenNavigationSummary(html = '') {
+  const source = String(html || '');
+  if (!source) {
+    return {
+      localizedHiddenNavigationCount: 0,
+      disabledHiddenNavigationCount: 0,
+      nonReplayableTargetCount: 0,
+      localizedHiddenNavigationClasses: {},
+      disabledHiddenNavigationClasses: {},
+    };
+  }
+
+  const $ = cheerio.load(source, { decodeEntities: false });
+  const localizedHiddenNavigationCount = $('[data-hidden-navigation-localized="true"]').length;
+  const disabledHiddenNavigationCount = $('[data-hidden-navigation-disabled="true"]').length;
+  const nonReplayableTargetCount = $('[data-hidden-navigation-disabled="true"][data-disabled-reason="uncloned-target"]').length;
+  const localizedHiddenNavigationClasses = {};
+  const disabledHiddenNavigationClasses = {};
+
+  $('[data-hidden-navigation-localized="true"]').each((_, el) => {
+    const key = $(el).attr('data-hidden-navigation-class') || 'unspecified';
+    localizedHiddenNavigationClasses[key] = (localizedHiddenNavigationClasses[key] || 0) + 1;
+  });
+
+  $('[data-hidden-navigation-disabled="true"]').each((_, el) => {
+    const key = $(el).attr('data-hidden-navigation-class') || ($(el).attr('data-disabled-reason') || 'unspecified');
+    disabledHiddenNavigationClasses[key] = (disabledHiddenNavigationClasses[key] || 0) + 1;
+  });
+
+  return {
+    localizedHiddenNavigationCount,
+    disabledHiddenNavigationCount,
+    nonReplayableTargetCount,
+    localizedHiddenNavigationClasses,
+    disabledHiddenNavigationClasses,
+  };
 }
 
 function buildCrawlProfileManifest(options, pages) {
@@ -524,6 +740,25 @@ function buildCrawlProfileManifest(options, pages) {
         savedPath: page.savedPath || null,
         pageClass: page.classification?.pageClass || 'document',
       })),
+  };
+}
+
+function buildQualitySummary(capture, artifacts) {
+  const pagesCompleted = capture.siteMap.filter((page) => page.crawlState === 'completed').length;
+  const pagesSaved = capture.pages.filter((page) => Boolean(page.savedPath)).length;
+  const pagesReplayable = capture.pages.filter((page) => Boolean(page.savedPath && page.replayRoute)).length;
+  const linksSelected = capture.siteMap.reduce((total, page) => total + (page.linksSelected || 0), 0);
+  return {
+    pagesCaptured: capture.pages.length,
+    pagesCompleted,
+    pagesSaved,
+    pagesReplayable,
+    linksSelected,
+    pagesFailed: capture.siteMap.filter((page) => page.crawlState === 'failed').length,
+    skippedPages: capture.siteMap.filter((page) => page.crawlState === 'skipped' || page.skippedReason).length,
+    missingCriticalAssets: artifacts.verificationReport?.missingCriticalAssets?.length || 0,
+    replayWarnings: artifacts.verificationWarnings?.length || 0,
+    graphqlEndpoints: artifacts.apiArtifacts.apiSummary?.graphqlEndpointCount || 0,
   };
 }
 

@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/dntmd/OneDrive/Desktop/개人/Project/front_clone_coding/src/**)",
+      "Bash(wc -l /c/Users/dntmd/OneDrive/Desktop/개인/Project/front_clone_coding/src/processor/*.js /c/Users/dntmd/OneDrive/Desktop/개인/Project/front_clone_coding/src/scaffolder/*.js /c/Users/dntmd/OneDrive/Desktop/개인/Project/front_clone_coding/src/verifier/*.js /c/Users/dntmd/OneDrive/Desktop/개인/Project/front_clone_coding/src/evaluation/*.js)",
+      "Read(//c/Users/dntmd/OneDrive/Desktop/개人/Project/front_clone_coding/web/public/**)",
+      "Bash(grep \"\\\\.js$\")",
+      "Bash(wc -l /c/Users/dntmd/OneDrive/Desktop/개인/Project/front_clone_coding/tests/*.test.js)",
+      "Bash(wc -l '/c/Users/dntmd/OneDrive/Desktop/개인/Project/front_clone_coding/src/crawler/'*.js)",
+      "Bash(grep -n \"TODO\\\\|FIXME\\\\|HACK\\\\|XXX\\\\|BUG\" /c/Users/dntmd/OneDrive/Desktop/개人/Project/front_clone_coding/src/processor/*.js /c/Users/dntmd/OneDrive/Desktop/개人/Project/front_clone_coding/src/scaffolder/*.js /c/Users/dntmd/OneDrive/Desktop/개人/Project/front_clone_coding/src/verifier/*.js /c/Users/dntmd/OneDrive/Desktop/개人/Project/front_clone_coding/src/evaluation/*.js)",
+      "Read(//c/Users/dntmd/OneDrive/Desktop/**)",
+      "Bash(wc -l /c/Users/dntmd/OneDrive/Desktop/개인/Project/front_clone_coding/src/processor/*.js /c/Users/dntmd/OneDrive/Desktop/개인/Project/front_clone_coding/src/utils/*.js)",
+      "Bash(wc -l /c/Users/dntmd/OneDrive/Desktop/个人/Project/front_clone_coding/web/public/*.js /c/Users/dntmd/OneDrive/Desktop/个人/Project/front_clone_coding/web/server.js)",
+      "Bash(wc -l src/utils/*.js)",
+      "Bash(wc -l \"/c/Users/dntmd/OneDrive/Desktop/개인/Project/front_clone_coding/web/public\"/*.js \"/c/Users/dntmd/OneDrive/Desktop/개인/Project/front_clone_coding/web/server.js\")",
+      "Bash(wc -l src/processor/*.js)",
+      "Bash(npm test:*)",
+      "Bash(wc -l \"C:/Users/dntmd/OneDrive/Desktop/개인/Project/front_clone_coding/src/pipeline/\"*.js)",
+      "Bash(wc -l \"c:/Users/dntmd/OneDrive/Desktop/개인/Project/front_clone_coding/src/pipeline/\"*.js)",
+      "Bash(npm install:*)",
+      "Bash(npx eslint:*)",
+      "Bash(node --check tests/css-processor.test.js)",
+      "Bash(node --check tests/html-processor.test.js)",
+      "Bash(node --check tests/js-processor.test.js)",
+      "Bash(node --check tests/api-processor.test.js)",
+      "Bash(node --check tests/image-utils.test.js)",
+      "Bash(wc -l \"c:/Users/dntmd/OneDrive/Desktop/개인/Project/front_clone_coding/tests/\"*.test.js)"
+    ]
+  }
+}

@@ -6,16 +6,21 @@ import traverseModule from '@babel/traverse';
 import generateModule from '@babel/generator';
 
 import { resolveUrl, getRelativePath } from '../utils/url-utils.js';
+import { normalizeAbsoluteRequestUrl } from '../utils/replay-mock-utils.js';
+import { shouldStaticallyFilterRuntime } from '../utils/external-runtime-utils.js';
 import logger from '../utils/logger.js';
 
 const traverse = traverseModule.default;
 const generate = generateModule.default;
+const STATIC_NOOP_ENDPOINT = '/__front_clone_noop__';
+const STATIC_NOOP_IMAGE = 'data:,';
 
 export default class JsProcessor {
-  constructor(outputDir, baseUrl, urlMap) {
+  constructor(outputDir, baseUrl, urlMap, options = {}) {
     this.outputDir = outputDir;
     this.baseUrl = baseUrl;
     this.urlMap = urlMap;
+    this.renderCriticalRuntimeMap = options.renderCriticalRuntimeMap || new Map();
     this.report = {
       removed: [],
       kept: [],
@@ -151,18 +156,47 @@ export default class JsProcessor {
             rewriteLiteral(firstArg, 'asset');
           }
         }
-        if ((calleeName === 'WebSocket' || calleeName === 'EventSource') && pathRef.node.arguments[0]?.type === 'StringLiteral') {
+        if ((calleeName === 'WebSocket' || calleeName === 'EventSource') && pathRef.node.arguments[0]) {
           const arg = pathRef.node.arguments[0];
-          this._recordApiCall(calleeName.toLowerCase(), arg.value, fileLocalPath, arg.loc?.start?.line);
-          rewriteLiteral(arg, 'runtime-endpoint');
+          const resolvedUrl = this._evaluateStaticString(arg);
+          this._recordApiCall(calleeName.toLowerCase(), resolvedUrl || '[dynamic]', fileLocalPath, arg.loc?.start?.line);
+          if (this._rewriteRenderCriticalRuntimeExpression(arg, fileUrl)) {
+            changed = true;
+            return;
+          }
+          if (resolvedUrl && shouldStaticallyFilterRuntime(resolvedUrl, { targetUrl: this.baseUrl })) {
+            if (calleeName === 'WebSocket') {
+              pathRef.replaceWithSourceString('({ close(){}, send(){}, addEventListener(){}, removeEventListener(){}, readyState: 3 })');
+              changed = true;
+              pathRef.skip();
+              return;
+            }
+            this._replaceExpressionWithLiteral(arg, STATIC_NOOP_ENDPOINT);
+            changed = true;
+            return;
+          }
+          if (arg.type === 'StringLiteral') {
+            rewriteLiteral(arg, 'runtime-endpoint');
+          }
         }
       },
       CallExpression: (pathRef) => {
         const callee = pathRef.node.callee;
-        if (callee?.type === 'Identifier' && callee.name === 'fetch' && pathRef.node.arguments[0]?.type === 'StringLiteral') {
+        if (callee?.type === 'Identifier' && callee.name === 'fetch' && pathRef.node.arguments[0]) {
           const arg = pathRef.node.arguments[0];
-          this._recordApiCall('fetch', arg.value, fileLocalPath, arg.loc?.start?.line);
-          rewriteLiteral(arg, 'runtime-endpoint');
+          const resolvedUrl = this._evaluateStaticString(arg);
+          this._recordApiCall('fetch', resolvedUrl || '[dynamic]', fileLocalPath, arg.loc?.start?.line);
+          if (this._rewriteRenderCriticalRuntimeExpression(arg, fileUrl)) {
+            changed = true;
+            return;
+          }
+          if (this._rewriteNonCriticalRuntimeExpression(arg)) {
+            changed = true;
+            return;
+          }
+          if (arg.type === 'StringLiteral') {
+            rewriteLiteral(arg, 'runtime-endpoint');
+          }
           return;
         }
 
@@ -171,11 +205,73 @@ export default class JsProcessor {
           && callee.object?.type === 'Identifier'
           && callee.object.name === 'axios'
           && callee.property?.type === 'Identifier'
-          && pathRef.node.arguments[0]?.type === 'StringLiteral'
+          && pathRef.node.arguments[0]
         ) {
           const arg = pathRef.node.arguments[0];
-          this._recordApiCall('axios', arg.value, fileLocalPath, arg.loc?.start?.line);
-          rewriteLiteral(arg, 'runtime-endpoint');
+          const resolvedUrl = this._evaluateStaticString(arg);
+          this._recordApiCall('axios', resolvedUrl || '[dynamic]', fileLocalPath, arg.loc?.start?.line);
+          if (this._rewriteRenderCriticalRuntimeExpression(arg, fileUrl)) {
+            changed = true;
+            return;
+          }
+          if (this._rewriteNonCriticalRuntimeExpression(arg)) {
+            changed = true;
+            return;
+          }
+          if (arg.type === 'StringLiteral') {
+            rewriteLiteral(arg, 'runtime-endpoint');
+          }
+        }
+
+        if (
+          callee?.type === 'MemberExpression'
+          && callee.property?.type === 'Identifier'
+          && callee.property.name === 'sendBeacon'
+          && pathRef.node.arguments[0]
+        ) {
+          if (this._rewriteRenderCriticalRuntimeExpression(pathRef.node.arguments[0], fileUrl)) {
+            changed = true;
+            return;
+          }
+          if (this._rewriteNonCriticalRuntimeExpression(pathRef.node.arguments[0])) {
+            changed = true;
+          }
+          return;
+        }
+
+        if (
+          callee?.type === 'MemberExpression'
+          && callee.property?.type === 'Identifier'
+          && callee.property.name === 'open'
+          && pathRef.node.arguments[1]
+        ) {
+          if (this._rewriteRenderCriticalRuntimeExpression(pathRef.node.arguments[1], fileUrl)) {
+            changed = true;
+            return;
+          }
+          if (this._rewriteNonCriticalRuntimeExpression(pathRef.node.arguments[1])) {
+            changed = true;
+          }
+        }
+      },
+      AssignmentExpression: (pathRef) => {
+        const left = pathRef.node.left;
+        const right = pathRef.node.right;
+        if (
+          left?.type === 'MemberExpression'
+          && left.property?.type === 'Identifier'
+          && left.property.name === 'src'
+          && this._rewriteNonCriticalRuntimeExpression(right, STATIC_NOOP_IMAGE)
+        ) {
+          changed = true;
+        }
+      },
+      ObjectProperty: (pathRef) => {
+        const key = pathRef.node.key;
+        const value = pathRef.node.value;
+        const keyName = key?.type === 'Identifier' ? key.name : key?.type === 'StringLiteral' ? key.value : '';
+        if ((keyName === 'src' || keyName === 'url') && this._rewriteNonCriticalRuntimeExpression(value)) {
+          changed = true;
         }
       },
       StringLiteral: (pathRef) => {
@@ -217,6 +313,82 @@ export default class JsProcessor {
     };
   }
 
+  _rewriteNonCriticalRuntimeLiteral(node) {
+    if (!node || typeof node.value !== 'string') return false;
+    if (!shouldStaticallyFilterRuntime(node.value, { targetUrl: this.baseUrl })) return false;
+    node.value = STATIC_NOOP_ENDPOINT;
+    if (typeof node.extra?.raw === 'string') {
+      node.extra.raw = JSON.stringify(STATIC_NOOP_ENDPOINT);
+    }
+    return true;
+  }
+
+  _rewriteNonCriticalRuntimeExpression(node, replacement = STATIC_NOOP_ENDPOINT) {
+    const staticValue = this._evaluateStaticString(node);
+    if (!staticValue) return false;
+    if (!shouldStaticallyFilterRuntime(staticValue, { targetUrl: this.baseUrl })) return false;
+    this._replaceExpressionWithLiteral(node, replacement);
+    return true;
+  }
+
+  _rewriteRenderCriticalRuntimeExpression(node, fileUrl) {
+    const staticValue = this._evaluateStaticString(node);
+    if (!staticValue) return false;
+
+    const runtimeTarget = this._getRenderCriticalRuntimeTarget(staticValue, fileUrl);
+    if (!runtimeTarget) return false;
+
+    this._replaceExpressionWithLiteral(node, runtimeTarget);
+    return true;
+  }
+
+  _getRenderCriticalRuntimeTarget(rawValue, fileUrl) {
+    const absoluteUrl = normalizeAbsoluteRequestUrl(resolveUrl(rawValue, fileUrl));
+    return this.renderCriticalRuntimeMap.get(absoluteUrl) || null;
+  }
+
+  _replaceExpressionWithLiteral(node, replacement) {
+    if (!node) return;
+    node.type = 'StringLiteral';
+    node.value = replacement;
+    node.extra = { raw: JSON.stringify(replacement), rawValue: replacement };
+    delete node.expressions;
+    delete node.quasis;
+    delete node.left;
+    delete node.right;
+    delete node.operator;
+    delete node.name;
+    delete node.object;
+    delete node.property;
+    delete node.arguments;
+    delete node.callee;
+    delete node.properties;
+    delete node.elements;
+  }
+
+  _evaluateStaticString(node) {
+    if (!node) return null;
+
+    if (node.type === 'StringLiteral') {
+      return node.value;
+    }
+
+    if (node.type === 'TemplateLiteral') {
+      if ((node.expressions || []).length > 0) return null;
+      return (node.quasis || []).map((part) => part.value?.cooked || '').join('');
+    }
+
+    if (node.type === 'BinaryExpression' && node.operator === '+') {
+      const left = this._evaluateStaticString(node.left);
+      const right = this._evaluateStaticString(node.right);
+      if (typeof left === 'string' && typeof right === 'string') {
+        return `${left}${right}`;
+      }
+    }
+
+    return null;
+  }
+
   _toLocalReference(rawValue, fileUrl, fileLocalPath, usageType) {
     if (!rawValue || rawValue.startsWith('data:') || rawValue.startsWith('blob:') || rawValue.startsWith('javascript:')) {
       return null;
@@ -224,6 +396,12 @@ export default class JsProcessor {
 
     const absoluteUrl = resolveUrl(rawValue, fileUrl);
     const mapped = this.urlMap.get(absoluteUrl);
+
+    if (usageType === 'runtime-endpoint') {
+      const runtimeTarget = this.renderCriticalRuntimeMap.get(normalizeAbsoluteRequestUrl(absoluteUrl));
+      if (runtimeTarget) return runtimeTarget;
+    }
+
     if (!mapped) return null;
 
     if (usageType === 'runtime-endpoint') {
@@ -283,7 +461,10 @@ export default class JsProcessor {
       'googletagmanager.com',
       'googlesyndication.com',
       'google-analytics',
+      'googleadservices.com',
+      'recaptcha',
       'facebook.net',
+      'facebook.com/tr',
       'fbevents.js',
       'connect.facebook',
       'hotjar.com',
@@ -300,6 +481,8 @@ export default class JsProcessor {
       'doubleclick.net',
       'adservice.google',
       'analytics.js',
+      'logs.',
+      '/log/',
       'gtag/js',
       'gtm.js',
     ];

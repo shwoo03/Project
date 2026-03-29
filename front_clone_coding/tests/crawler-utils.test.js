@@ -43,6 +43,75 @@ test('PageCrawler auto-scroll skips evaluate when scrollCount is negative', asyn
   assert.equal(called, false);
 });
 
+test('PageCrawler auto-scroll does not throw when page evaluation fails', async () => {
+  const crawler = new PageCrawler({
+    url: 'https://example.com',
+    scrollCount: 3,
+  });
+
+  crawler.page = {
+    evaluate: async () => {
+      throw new Error('Cannot read properties of null (reading \u0027scrollHeight\u0027)');
+    },
+  };
+
+  const result = await crawler._autoScroll();
+
+  assert.deepEqual(result, {
+    warnings: ['Auto-scroll skipped: Cannot read properties of null (reading \u0027scrollHeight\u0027)'],
+  });
+});
+
+test('PageCrawler measures scroll context with documentElement fallback', async () => {
+  const crawler = new PageCrawler({
+    url: 'https://example.com',
+  });
+
+  crawler.page = {
+    evaluate: async () => ({
+      pageHeight: 1800,
+      viewportHeight: 900,
+      canScroll: true,
+      scrollTargetKind: 'documentElement',
+    }),
+  };
+
+  const result = await crawler._measureScrollContext();
+
+  assert.deepEqual(result, {
+    pageHeight: 1800,
+    viewportHeight: 900,
+    canScroll: true,
+    scrollTargetKind: 'documentElement',
+  });
+});
+
+test('PageCrawler screenshot capture falls back to viewport screenshot when page height is unavailable', async () => {
+  const screenshotCalls = [];
+  const crawler = new PageCrawler({
+    url: 'https://example.com',
+  });
+
+  crawler.page = {
+    evaluate: async () => ({
+      pageHeight: 0,
+      viewportHeight: 0,
+      canScroll: false,
+      scrollTargetKind: 'none',
+    }),
+    screenshot: async (options) => {
+      screenshotCalls.push(options);
+      return Buffer.from('png');
+    },
+  };
+
+  const result = await crawler._captureScreenshot();
+
+  assert.equal(Buffer.isBuffer(result.buffer), true);
+  assert.equal(result.warnings.length, 1);
+  assert.deepEqual(screenshotCalls, [undefined]);
+});
+
 test('PageCrawler uses lightweight HAR capture when captureDir is enabled', () => {
   const crawler = new PageCrawler({
     url: 'https://www.netflix.com',

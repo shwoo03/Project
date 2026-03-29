@@ -1,79 +1,90 @@
+import { createFormController } from './form-controller.js';
+import { createJobView } from './job-view.js';
+import { createLogController } from './log-controller.js';
+import { createOutputBrowser } from './output-browser.js';
+import { normalizeText } from './ui-formatters.js';
+
 document.addEventListener('DOMContentLoaded', () => {
   const form = document.getElementById('clone-form');
-  const startBtn = document.getElementById('start-btn');
-  const btnText = startBtn.querySelector('.btn-text');
-  const loader = startBtn.querySelector('.loader');
-  const cancelBtn = document.getElementById('cancel-btn');
-  const terminalBody = document.getElementById('terminal-output');
-  const statusBadge = document.getElementById('job-status');
-  const statusMeta = document.getElementById('job-meta');
+  const startButton = document.getElementById('start-btn');
+  const startButtonText = startButton.querySelector('.btn-text');
+  const loader = startButton.querySelector('.loader');
+  const cancelButton = document.getElementById('cancel-btn');
+  const restoreButton = document.getElementById('restore-btn');
+  const workspaceMode = document.getElementById('workspace-mode');
+  const setupState = document.getElementById('setup-state');
+  const resultsState = document.getElementById('results-state');
+  const formFootnote = document.getElementById('form-footnote');
+  const outputRefreshButton = document.getElementById('refresh-output');
+
+  const formController = createFormController({
+    form,
+    startButton,
+    startButtonText,
+    loader,
+    cancelButton,
+    restoreButton,
+    footnote: formFootnote,
+    summaryError: document.getElementById('form-error-summary'),
+    fieldErrors: {
+      url: document.getElementById('url-error'),
+      maxDepth: document.getElementById('maxDepth-error'),
+      maxPages: document.getElementById('maxPages-error'),
+      concurrency: document.getElementById('concurrency-error'),
+    },
+    setupState,
+    workspaceMode,
+  });
+
+  const logController = createLogController({
+    rawLogBody: document.getElementById('terminal-output'),
+    importantEvents: document.getElementById('important-events'),
+    importantMeta: document.getElementById('important-events-meta'),
+    rawLogMeta: document.getElementById('raw-log-meta'),
+  });
+
+  const jobView = createJobView({
+    statusBadge: document.getElementById('job-status'),
+    stageRail: document.getElementById('stage-rail'),
+    jobMeta: document.getElementById('job-meta'),
+    statusHeadline: document.getElementById('status-headline'),
+    statusReadout: document.getElementById('status-readout'),
+    resultsState,
+    resultsTopline: document.getElementById('results-topline'),
+    outcomeMeta: document.getElementById('outcome-meta'),
+    replayOutcome: document.getElementById('replay-outcome'),
+    jobInsights: document.getElementById('job-insights'),
+    artifactShortcuts: document.getElementById('artifact-shortcuts'),
+    workspaceMode,
+  });
+
+  const outputBrowser = createOutputBrowser({
+    outputList: document.getElementById('output-list'),
+    outputBreadcrumb: document.getElementById('output-breadcrumb'),
+    outputShortcuts: document.getElementById('output-shortcuts'),
+  });
 
   let eventSource = null;
   let statusTimer = null;
   let currentJobId = null;
 
-  function normalizeText(value) {
-    if (value === null || value === undefined) return '';
-    if (typeof value === 'string') return value;
-    if (value instanceof Error) return value.message || String(value);
+  function setViewFromJob(job = {}) {
+    const model = jobView.render(job);
+    outputBrowser.setShortcuts(model.outputShortcuts);
 
-    if (typeof value === 'object') {
-      const preferred = [
-        value.message,
-        typeof value.error === 'string' ? value.error : null,
-        typeof value.code === 'string' ? value.code : null,
-        value.hint,
-      ].filter(Boolean);
-
-      if (preferred.length > 0) {
-        return preferred.map((item) => normalizeText(item)).filter(Boolean).join(' | ');
-      }
-
-      try {
-        return JSON.stringify(value);
-      } catch {
-        return String(value);
-      }
+    if (job.status === 'completed') {
+      formController.setSetupState('재실행 가능');
+      formController.setWorkspaceMode('결과 확인');
+    } else if (job.status === 'running' || job.status === 'queued') {
+      formController.setSetupState('실행 중');
+      formController.setWorkspaceMode('크롤 진행 중');
+    } else if (job.status === 'failed' || job.status === 'cancelled') {
+      formController.setSetupState('다시 실행 가능');
+      formController.setWorkspaceMode('확인 필요');
+    } else {
+      formController.setSetupState('대기');
+      formController.setWorkspaceMode('대기 중');
     }
-
-    return String(value);
-  }
-
-  function appendLog(type, text) {
-    const normalizedText = normalizeText(text);
-
-    if (type === 'update') {
-      const lastLog = terminalBody.lastElementChild;
-      if (lastLog && lastLog.classList.contains('update')) {
-        lastLog.textContent = `[update] ${normalizedText}`;
-        return;
-      }
-    }
-
-    const line = document.createElement('div');
-    line.className = `log line ${type}`;
-
-    const prefixMap = {
-      succeed: '[ok] ',
-      success: '[ok] ',
-      fail: '[error] ',
-      error: '[error] ',
-      info: '[info] ',
-      warn: '[warn] ',
-      update: '[update] ',
-      debug: '[debug] ',
-      start: '[start] ',
-    };
-
-    line.textContent = `${prefixMap[type] || ''}${normalizedText}`;
-    terminalBody.appendChild(line);
-    terminalBody.scrollTop = terminalBody.scrollHeight;
-  }
-
-  function setStatus(status, message = '') {
-    statusBadge.textContent = status;
-    statusBadge.dataset.state = status.toLowerCase();
-    statusMeta.textContent = message;
   }
 
   function formatJobError(error) {
@@ -83,13 +94,11 @@ document.addEventListener('DOMContentLoaded', () => {
     return hint ? `${message} (${hint.split('\n')[0]})` : message;
   }
 
-  function resetUI() {
-    startBtn.disabled = false;
-    btnText.textContent = 'Start Cloning';
-    loader.classList.add('hidden');
-    cancelBtn.classList.add('hidden');
-    stopPolling();
-    currentJobId = null;
+  function closeSSE() {
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
   }
 
   function stopPolling() {
@@ -99,11 +108,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  function closeSSE() {
-    if (eventSource) {
-      eventSource.close();
-      eventSource = null;
-    }
+  function resetToIdleView() {
+    currentJobId = null;
+    formController.setBusyState({
+      busy: false,
+      canCancel: false,
+      submitLabel: '실행',
+      footnoteText: '실행 준비가 되었습니다.',
+      showRestore: true,
+    });
   }
 
   function connectSSE(jobId) {
@@ -112,7 +125,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     eventSource.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      appendLog(data.type, data.text);
+      logController.append(data.type, data.text, data.timestamp);
     };
 
     eventSource.onerror = () => {
@@ -123,7 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
   async function fetchJobStatus(jobId) {
     const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
     if (!response.ok) {
-      throw new Error('Failed to fetch job status');
+      throw new Error('작업 상태를 불러오지 못했습니다.');
     }
     return response.json();
   }
@@ -131,18 +144,21 @@ document.addEventListener('DOMContentLoaded', () => {
   async function fetchActiveJob() {
     const response = await fetch('/api/jobs/active/current');
     if (!response.ok) {
-      throw new Error('Failed to fetch active job');
+      throw new Error('활성 작업을 불러오지 못했습니다.');
     }
     return response.json();
   }
 
-  function setRunningUI(job) {
+  function setRunningState(job) {
     currentJobId = job.id;
-    startBtn.disabled = true;
-    btnText.textContent = 'Processing...';
-    loader.classList.remove('hidden');
-    cancelBtn.classList.remove('hidden');
-    setStatus(job.status, job.outputDir || formatJobError(job.error) || `Job ID: ${job.id}`);
+    formController.setBusyState({
+      busy: true,
+      canCancel: true,
+      submitLabel: '실행 중',
+      footnoteText: '현재 작업이 실행 중입니다.',
+      showRestore: true,
+    });
+    setViewFromJob(job);
     connectSSE(job.id);
     startPolling(job.id);
   }
@@ -152,186 +168,127 @@ document.addEventListener('DOMContentLoaded', () => {
     statusTimer = setInterval(async () => {
       try {
         const job = await fetchJobStatus(jobId);
-        setStatus(job.status, job.outputDir || formatJobError(job.error) || '');
+        setViewFromJob(job);
 
         if (job.status === 'completed') {
-          appendLog('success', `Output ready at ${job.outputDir || '(unknown path)'}`);
-          resetUI();
+          logController.append('success', `출력 준비 완료: ${job.outputDir || '(경로 없음)'}`);
+          stopPolling();
           closeSSE();
-          setStatus(job.status, job.outputDir || '');
-          browseOutput('');
+          resetToIdleView();
+          outputBrowser.browse('');
         }
 
         if (job.status === 'failed') {
-          appendLog('error', formatJobError(job.error) || 'Clone failed');
-          resetUI();
+          logController.append('error', formatJobError(job.error) || '실패');
+          stopPolling();
           closeSSE();
-          setStatus(job.status, formatJobError(job.error) || '');
+          resetToIdleView();
         }
 
         if (job.status === 'cancelled') {
-          appendLog('warn', 'Job cancelled');
-          resetUI();
+          logController.append('warn', '중지됨');
+          stopPolling();
           closeSSE();
-          setStatus(job.status, 'Job cancelled');
+          resetToIdleView();
         }
       } catch (error) {
-        appendLog('error', error.message);
-        resetUI();
+        logController.append('error', error.message);
+        stopPolling();
         closeSSE();
+        resetToIdleView();
       }
     }, 1000);
   }
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
+    const payload = formController.readSubmission();
+    if (!payload) return;
 
-    const url = document.getElementById('url').value;
-    const maxDepth = document.getElementById('maxDepth').value;
-    const maxPages = document.getElementById('maxPages').value;
-    const concurrency = document.getElementById('concurrency').value;
-    const recursive = document.getElementById('recursive').checked;
-    const scaffold = document.getElementById('scaffold').checked;
-    const cookieFile = document.getElementById('cookieFile').value;
-
-    terminalBody.innerHTML = '';
-    appendLog('info', `Initializing clone job for ${url}...`);
-    setStatus('queued', 'Submitting job');
-
-    startBtn.disabled = true;
-    btnText.textContent = 'Processing...';
-    loader.classList.remove('hidden');
-    cancelBtn.classList.remove('hidden');
+    logController.clear();
+    logController.append('info', `${payload.url} 실행 준비 중...`);
+    formController.setBusyState({
+      busy: true,
+      canCancel: true,
+      submitLabel: '요청 중',
+      footnoteText: '실행 요청을 보내는 중입니다.',
+      showRestore: true,
+    });
+    setViewFromJob({ status: 'queued' });
 
     try {
       const response = await fetch('/api/clone', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url,
-          options: {
-            maxDepth,
-            maxPages,
-            concurrency,
-            recursive,
-            scaffold,
-            cookieFile: cookieFile || undefined,
-          },
-        }),
+        body: JSON.stringify(payload),
       });
 
-      const payload = await response.json();
+      const result = await response.json();
       if (!response.ok) {
-        appendLog('error', payload.error || 'Failed to start job');
-        setStatus('failed', payload.error || 'Unable to start');
-        resetUI();
+        logController.append('error', result.error || '실행 시작 실패');
+        setViewFromJob({ status: 'failed' });
+        resetToIdleView();
         return;
       }
 
-      currentJobId = payload.jobId;
-      appendLog('info', `Job ${currentJobId} accepted`);
-      setRunningUI({
+      currentJobId = result.jobId;
+      logController.append('info', `작업 ${currentJobId} 시작`);
+      setRunningState({
         id: currentJobId,
-        status: payload.status,
+        status: result.status,
         outputDir: '',
         error: null,
+        verificationWarnings: [],
+        qualitySummary: null,
+        artifacts: null,
       });
     } catch (error) {
-      appendLog('error', `Network error: ${error.message}`);
-      setStatus('failed', error.message);
-      resetUI();
+      logController.append('error', `네트워크 오류: ${error.message}`);
+      setViewFromJob({ status: 'failed' });
+      resetToIdleView();
     }
   });
 
-  // Output Browser
-  const outputList = document.getElementById('output-list');
-  const outputBreadcrumb = document.getElementById('output-breadcrumb');
-  const refreshBtn = document.getElementById('refresh-output');
-
-  async function browseOutput(dirPath) {
-    try {
-      const res = await fetch(`/api/output?path=${encodeURIComponent(dirPath || '')}`);
-      if (!res.ok) {
-        outputList.innerHTML = '<div class="output-empty">Could not load output directory.</div>';
-        return;
-      }
-      const data = await res.json();
-      renderBreadcrumb(data.path);
-      if (data.entries.length === 0) {
-        outputList.innerHTML = '<div class="output-empty">Empty directory.</div>';
-        return;
-      }
-      outputList.innerHTML = '';
-      for (const entry of data.entries) {
-        const item = document.createElement('div');
-        item.className = 'output-item';
-        const icon = entry.type === 'directory' ? '\uD83D\uDCC1' : '\uD83D\uDCC4';
-        item.innerHTML = `<span class="icon">${icon}</span><span class="name">${entry.name}</span>`;
-        if (entry.type === 'directory') {
-          item.addEventListener('click', () => browseOutput(entry.path));
-        } else {
-          item.addEventListener('click', () => {
-            window.open(`/api/output?path=${encodeURIComponent(entry.path)}`, '_blank');
-          });
-        }
-        outputList.appendChild(item);
-      }
-    } catch {
-      outputList.innerHTML = '<div class="output-empty">Failed to load output.</div>';
-    }
-  }
-
-  function renderBreadcrumb(currentPath) {
-    outputBreadcrumb.innerHTML = '';
-    const parts = (currentPath || '').split('/').filter(Boolean);
-    const root = document.createElement('a');
-    root.textContent = 'output';
-    root.addEventListener('click', () => browseOutput(''));
-    outputBreadcrumb.appendChild(root);
-
-    let accumulated = '';
-    for (const part of parts) {
-      accumulated = accumulated ? `${accumulated}/${part}` : part;
-      const sep = document.createTextNode(' / ');
-      outputBreadcrumb.appendChild(sep);
-      const link = document.createElement('a');
-      link.textContent = part;
-      const target = accumulated;
-      link.addEventListener('click', () => browseOutput(target));
-      outputBreadcrumb.appendChild(link);
-    }
-  }
-
-  refreshBtn.addEventListener('click', () => browseOutput(''));
-  browseOutput('');
-
-  cancelBtn.addEventListener('click', async () => {
+  cancelButton.addEventListener('click', async () => {
     if (!currentJobId) return;
-    cancelBtn.disabled = true;
+    cancelButton.disabled = true;
     try {
       await fetch(`/api/jobs/${encodeURIComponent(currentJobId)}/cancel`, { method: 'POST' });
-    } catch (err) {
-      appendLog('error', `Cancel request failed: ${err.message}`);
+    } catch (error) {
+      logController.append('error', `중지 요청 실패: ${error.message}`);
     } finally {
-      cancelBtn.disabled = false;
+      cancelButton.disabled = false;
     }
+  });
+
+  restoreButton.addEventListener('click', async () => {
+    await restoreActiveJob();
+  });
+
+  outputRefreshButton.addEventListener('click', () => {
+    outputBrowser.browse('');
   });
 
   async function restoreActiveJob() {
     try {
       const { job } = await fetchActiveJob();
       if (!job || (job.status !== 'queued' && job.status !== 'running')) {
-        setStatus('idle', 'Awaiting a new clone job');
+        setViewFromJob({ status: 'idle' });
+        resetToIdleView();
         return;
       }
 
-      appendLog('info', `Resuming active job ${job.id}`);
-      setRunningUI(job);
+      logController.append('info', `작업 ${job.id} 복구`);
+      setRunningState(job);
     } catch (error) {
-      appendLog('warn', `Active job restore skipped: ${error.message}`);
-      setStatus('idle', 'Awaiting a new clone job');
+      logController.append('warn', `복구 실패: ${error.message}`);
+      setViewFromJob({ status: 'idle' });
+      resetToIdleView();
     }
   }
 
+  setViewFromJob({ status: 'idle' });
+  resetToIdleView();
+  outputBrowser.browse('');
   restoreActiveJob();
 });

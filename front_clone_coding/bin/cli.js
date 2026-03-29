@@ -21,6 +21,8 @@ program
   .option('--crawl-profile <mode>', 'Crawl profile: accurate, balanced, lightweight, authenticated', 'accurate')
   .option('--network-posture <mode>', 'Network posture: default, authenticated, sensitive-site, manual-review', 'default')
   .option('--representative-qa', 'Enable representative QA summaries for sampled pages', false)
+  .option('--interaction-budget <n>', 'Safe interaction attempts per page', '')
+  .option('--no-graphql-introspection', 'Disable best-effort GraphQL introspection')
   .option('--headful', 'Run browser in headed mode', false)
   .option('--scroll-count <n>', 'Auto-scroll repeat count', '5')
   .option('-r, --recursive', 'Enable recursive multi-page crawl on the same domain scope', false)
@@ -73,6 +75,8 @@ program
         crawlProfile: options.crawlProfile || 'accurate',
         networkPosture: options.networkPosture || 'default',
         enableRepresentativeQA: Boolean(options.representativeQa),
+        interactionBudget: options.interactionBudget ? parseInt(options.interactionBudget, 10) : undefined,
+        enableGraphqlIntrospection: options.graphqlIntrospection !== false,
         headful: options.headful || false,
         scaffold: options.scaffold !== false,
         domainScope: options.domainScope || 'registrable-domain',

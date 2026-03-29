@@ -9,6 +9,21 @@
     "moduleRef": "src/crawler/network-interceptor.js"
   },
   {
+    "moduleRef": "src/downloader/asset-downloader.js"
+  },
+  {
+    "moduleRef": "src/utils/url-utils.js"
+  },
+  {
+    "moduleRef": "src/utils/frontier-utils.js"
+  },
+  {
+    "moduleRef": "src/utils/encoding-utils.js"
+  },
+  {
+    "moduleRef": "src/processor/css-processor.js"
+  },
+  {
     "moduleRef": "src/processor/html-processor.js"
   },
   {
@@ -16,6 +31,15 @@
   },
   {
     "moduleRef": "src/processor/api-processor.js"
+  },
+  {
+    "moduleRef": "src/utils/replay-mock-utils.js"
+  },
+  {
+    "moduleRef": "src/scaffolder/project-scaffolder.js"
+  },
+  {
+    "moduleRef": "src/verifier/replay-verifier.js"
   },
   {
     "moduleRef": "web/server.js"

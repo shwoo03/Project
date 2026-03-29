@@ -7,6 +7,21 @@ import { ensureExtension } from './file-utils.js';
 const MAX_ASSET_PATH_LENGTH = 220;
 const MAX_PATH_SEGMENT_LENGTH = 100;
 const ASSET_HASH_LENGTH = 10;
+const PAGE_IDENTITY_IGNORED_QUERY_PARAMS = new Set([
+  'utm_source',
+  'utm_medium',
+  'utm_campaign',
+  'utm_term',
+  'utm_content',
+  'utm_id',
+  'gclid',
+  'fbclid',
+  'msclkid',
+  '_ga',
+  '_gl',
+  'ref',
+  'ref_src',
+]);
 
 export function getDomainRoot(input, domainScope = 'registrable-domain') {
   const hostname = _getHostname(input);
@@ -40,11 +55,11 @@ export function normalizeCrawlUrl(urlStr) {
   }
 }
 
-export function getPagePathFromUrl(absoluteUrl) {
-  return getViewPathFromUrl(absoluteUrl);
+export function getPagePathFromUrl(absoluteUrl, options = {}) {
+  return getViewPathFromUrl(absoluteUrl, options);
 }
 
-export function getViewPathFromUrl(absoluteUrl) {
+export function getViewPathFromUrl(absoluteUrl, options = {}) {
   try {
     const url = new URL(absoluteUrl);
     let pathname = decodeURIComponent(url.pathname || '/');
@@ -58,10 +73,108 @@ export function getViewPathFromUrl(absoluteUrl) {
     }
 
     pathname = pathname.split('?')[0].split('#')[0].replace(/^\/+/, '');
-    return pathname.endsWith('.html') ? pathname : `${pathname}.html`;
+    let finalPath = pathname.endsWith('.html') ? pathname : `${pathname}.html`;
+    finalPath = _applyQuerySuffixToViewPath(finalPath, options.querySuffix || '');
+    if (!options.includeHostPrefix) {
+      return finalPath;
+    }
+
+    return path.posix.join(_toSafeName(url.hostname || 'site'), finalPath);
   } catch {
     return 'index.html';
   }
+}
+
+export function normalizePageIdentitySearch(search = '') {
+  const params = new URLSearchParams(String(search || '').replace(/^\?/, ''));
+  const entries = [];
+
+  for (const [key, value] of params.entries()) {
+    if (PAGE_IDENTITY_IGNORED_QUERY_PARAMS.has(String(key || '').toLowerCase())) continue;
+    entries.push([key, value]);
+  }
+
+  entries.sort(([leftKey, leftValue], [rightKey, rightValue]) => {
+    if (leftKey === rightKey) return leftValue.localeCompare(rightValue);
+    return leftKey.localeCompare(rightKey);
+  });
+
+  const normalized = new URLSearchParams();
+  for (const [key, value] of entries) {
+    normalized.append(key, value);
+  }
+
+  const rendered = normalized.toString();
+  return rendered ? `?${rendered}` : '';
+}
+
+export function getNormalizedPageIdentityUrl(urlStr) {
+  try {
+    const url = new URL(urlStr);
+    url.hash = '';
+    url.search = normalizePageIdentitySearch(url.search);
+    if (url.pathname !== '/' && url.pathname.endsWith('/')) {
+      url.pathname = url.pathname.slice(0, -1);
+    }
+    return url.href;
+  } catch {
+    return urlStr;
+  }
+}
+
+export function buildReplayQuerySuffix(search = '') {
+  const normalizedSearch = normalizePageIdentitySearch(search);
+  if (!normalizedSearch) return '';
+
+  const params = new URLSearchParams(normalizedSearch.replace(/^\?/, ''));
+  const parts = [];
+
+  for (const [key, value] of params.entries()) {
+    const safeKey = _toSafeName(key).slice(0, 24) || 'key';
+    const safeValue = _toSafeName(value).slice(0, 24) || 'value';
+    parts.push(`${safeKey}-${safeValue}`);
+  }
+
+  if (parts.length === 0) {
+    return `__q_${crypto.createHash('sha1').update(normalizedSearch).digest('hex').slice(0, ASSET_HASH_LENGTH)}`;
+  }
+
+  let suffixBody = parts.join('_');
+  if (suffixBody.length > 80) {
+    const hash = crypto.createHash('sha1').update(normalizedSearch).digest('hex').slice(0, ASSET_HASH_LENGTH);
+    suffixBody = `${suffixBody.slice(0, 60)}_${hash}`;
+  }
+
+  return `__q_${suffixBody}`;
+}
+
+export function buildReplayRouteFromSavedPath(savedPath = 'index.html') {
+  const normalizedSavedPath = String(savedPath || 'index.html').replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!normalizedSavedPath || normalizedSavedPath === 'index.html') {
+    return '/';
+  }
+
+  if (normalizedSavedPath.endsWith('/index.html')) {
+    return `/${normalizedSavedPath.slice(0, -'/index.html'.length)}`;
+  }
+
+  return `/${normalizedSavedPath.replace(/\.html$/i, '')}`;
+}
+
+export function buildReplayRouteAliases(savedPath = 'index.html') {
+  const normalizedSavedPath = String(savedPath || 'index.html').replace(/\\/g, '/').replace(/^\/+/, '');
+  const primaryRoute = buildReplayRouteFromSavedPath(normalizedSavedPath);
+  const aliases = new Set();
+
+  aliases.add(`/${normalizedSavedPath}`);
+  if (normalizedSavedPath === 'index.html') {
+    aliases.add('/index');
+  } else if (normalizedSavedPath.endsWith('/index.html')) {
+    aliases.add(`/${normalizedSavedPath.slice(0, -'.html'.length)}`);
+  }
+
+  aliases.delete(primaryRoute);
+  return [...aliases];
 }
 
 export function urlToLocalPath(absoluteUrl, baseUrl, domainScope = 'registrable-domain') {
@@ -182,6 +295,19 @@ function _needsPathFallback(segments, candidatePath) {
   if (candidatePath.length > MAX_ASSET_PATH_LENGTH) return true;
   if (segments.some((part) => part.length > MAX_PATH_SEGMENT_LENGTH)) return true;
   return false;
+}
+
+function _applyQuerySuffixToViewPath(finalPath, querySuffix) {
+  if (!querySuffix) return finalPath;
+
+  const normalized = String(finalPath || '').replace(/\\/g, '/');
+  if (!normalized) return normalized;
+
+  if (normalized !== 'index.html' && normalized.endsWith('/index.html')) {
+    return normalized.replace(/\/index\.html$/i, `${querySuffix}/index.html`);
+  }
+
+  return normalized.replace(/\.html$/i, `${querySuffix}.html`);
 }
 
 function _toSafeName(name) {

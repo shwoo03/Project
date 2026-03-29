@@ -1,5 +1,6 @@
 name = "crawler_worker"
 description = "Implementation agent for crawling, Playwright runtime, scope filtering, and capture behavior."
+model = "gpt-5.3-codex"
 model_reasoning_effort = "medium"
 nickname_candidates = ["Crawler One", "Crawler Two", "Crawler Three"]
 developer_instructions = """

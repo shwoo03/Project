@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { createUIServerApp, startUIServer } from '../web/server.js';
 import logger from '../src/utils/logger.js';
 import { PLAYWRIGHT_RUNTIME_ERROR_CODE } from '../src/utils/constants.js';
+import { buildJobStatusModel } from '../web/public/job-status-utils.js';
 
 const textDecoder = new TextDecoder();
 
@@ -88,6 +89,104 @@ test('web UI exposes structured Playwright runtime errors in job status', { conc
   } finally {
     await closeServer(server);
   }
+});
+
+test('web UI exposes quality summary, warnings, and artifacts in job status', { concurrency: false }, async () => {
+  const server = startUIServer({
+    port: 4018,
+    cloneRunner: async () => ({
+      outputDir: './output/example.com',
+      verificationWarnings: ['Replay route drift detected'],
+      qualitySummary: {
+        pagesCaptured: 4,
+        pagesFailed: 1,
+        skippedPages: 2,
+        missingCriticalAssets: 3,
+        replayWarnings: 1,
+        graphqlEndpoints: 5,
+      },
+      artifacts: {
+        replayVerificationReport: 'server/docs/replay-verification.md',
+        openApiSpec: 'server/spec/openapi.json',
+      },
+    }),
+  });
+
+  try {
+    const createResponse = await fetch('http://localhost:4018/api/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: 'https://example.com',
+        options: {},
+      }),
+    });
+
+    assert.equal(createResponse.status, 202);
+    const created = await createResponse.json();
+    const job = await waitForJobStatus(created.jobId, 'completed', 4018);
+
+    assert.deepEqual(job.verificationWarnings, ['Replay route drift detected']);
+    assert.deepEqual(job.qualitySummary, {
+      pagesCaptured: 4,
+      pagesFailed: 1,
+      skippedPages: 2,
+      missingCriticalAssets: 3,
+      replayWarnings: 1,
+      graphqlEndpoints: 5,
+    });
+    assert.deepEqual(job.artifacts, {
+      replayVerificationReport: 'server/docs/replay-verification.md',
+      openApiSpec: 'server/spec/openapi.json',
+    });
+
+    const model = buildJobStatusModel(job);
+    assert.deepEqual(model.summaryItems.map((item) => item.value), ['4', '1', '2', '3', '1', '5']);
+    assert.equal(model.warningItems[0].text, 'Replay route drift detected');
+    assert.equal(model.artifactItems[0].label, 'Replay Verification Report');
+    assert.equal(model.artifactItems[0].value, 'server/docs/replay-verification.md');
+    assert.equal(model.status.code, 'completed');
+    assert.equal(model.stageItems[2].state, 'current');
+    assert.equal(model.replayOutcome.headline, '확인 필요');
+    assert.equal(model.artifactLinks[0].href, '/api/output?path=example.com%2Fserver%2Fdocs%2Freplay-verification.md');
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test('web UI groups warnings and builds operator shortcuts from output metadata', () => {
+  const model = buildJobStatusModel({
+    status: 'completed',
+    outputDir: './output/netflix.com',
+    verificationWarnings: [
+      'Missing critical asset: hero font bundle',
+      'External runtime noise: recaptcha request observed',
+      'Replay route drift detected',
+    ],
+    qualitySummary: {
+      pagesCaptured: 3,
+      pagesFailed: 0,
+      skippedPages: 0,
+      missingCriticalAssets: 1,
+      replayWarnings: 3,
+      graphqlEndpoints: 2,
+    },
+    artifacts: {
+      replayVerificationReport: 'server/spec/replay-verification.json',
+      generatedReadme: 'README.md',
+    },
+  });
+
+  assert.deepEqual(model.warningGroups.map((group) => group.key), [
+    'missing-assets',
+    'external-runtime',
+    'replay-warnings',
+  ]);
+  assert.equal(model.outputShortcuts[0].path, 'netflix.com');
+  assert.equal(model.outputShortcuts[1].path, 'netflix.com/README.md');
+  assert.equal(model.outputShortcuts[2].path, 'netflix.com/server/spec/manifest/crawl-manifest.json');
+  assert.equal(model.outputShortcuts[3].path, 'netflix.com/server/spec/replay-verification.json');
+  assert.equal(model.artifactLinks[0].href, '/api/output?path=netflix.com%2Fserver%2Fspec%2Freplay-verification.json');
 });
 
 test('web UI does not surface [object Object] for structured clone failures', { concurrency: false }, async () => {

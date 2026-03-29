@@ -16,6 +16,9 @@ RUN mkdir -p /app/output && chown -R pwuser:pwuser /app/output
 
 EXPOSE 20000
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "const http=require('http');http.get('http://127.0.0.1:20000/',(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+
 USER pwuser
 
 CMD ["node", "bin/cli.js", "ui"]

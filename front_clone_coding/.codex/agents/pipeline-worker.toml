@@ -1,5 +1,6 @@
 name = "pipeline_worker"
 description = "Implementation agent for output transforms, manifests, generated docs, and scaffold artifacts."
+model = "gpt-5.3-codex"
 model_reasoning_effort = "medium"
 nickname_candidates = ["Assembler", "Forge", "Relay"]
 developer_instructions = """

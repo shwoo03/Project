@@ -64,7 +64,9 @@
       "Bash(find /c/Users/dntmd/OneDrive/Desktop/개人/Project/front_clone_coding/output -name *report*.json -o -name *verification*.json)",
       "Bash(wc -l /c/Users/dntmd/OneDrive/Desktop/개인/Project/front_clone_coding/src/verifier/*.js)",
       "Bash(xargs wc:*)",
-      "Bash(find /c/Users/dntmd/OneDrive/Desktop/개인/Project/front_clone_coding/output -type f -name *.json)"
+      "Bash(find /c/Users/dntmd/OneDrive/Desktop/개인/Project/front_clone_coding/output -type f -name *.json)",
+      "Bash(grep -r \"Main.do\\\\|portalMain.do\" /c/Users/dntmd/OneDrive/Desktop/개인/Project/front_clone_coding/src --include=*.js)",
+      "Bash(grep -r \"Main\\\\.do\\\\|portalMain\\\\|/index\\\\.do\\\\|normalizedUrl.*=.*normalizedUrl\" /c/Users/dntmd/OneDrive/Desktop/개인/Project/front_clone_coding --include=*.js)"
     ]
   }
 }

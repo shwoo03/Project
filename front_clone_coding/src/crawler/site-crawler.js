@@ -172,6 +172,10 @@ export default class SiteCrawler {
           }),
         ]);
         const finalUrl = pageResult.finalUrl || url;
+        const normalizedFinalUrl = normalizeCrawlUrl(finalUrl);
+        if (normalizedFinalUrl !== normalizeCrawlUrl(url)) {
+          this.visited.add(normalizedFinalUrl);
+        }
         const isLogin = this._isLoginPage(finalUrl, pageResult.html);
         const skippedReason = isLogin && !this.followLoginGated ? 'login-gated' : null;
         const queueBudget = pageResult.classification?.queueBudget || this.profileSettings.linkBudget;

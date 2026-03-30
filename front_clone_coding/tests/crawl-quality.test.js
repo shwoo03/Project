@@ -13,7 +13,7 @@ import {
 } from '../src/index.js';
 import { classifyPageSnapshot } from '../src/utils/crawl-config.js';
 import { classifyExternalRuntime } from '../src/utils/external-runtime-utils.js';
-import { getViewPathFromUrl } from '../src/utils/url-utils.js';
+import { getViewPathFromUrl, normalizeCrawlUrl } from '../src/utils/url-utils.js';
 import {
   enrichLinkCandidate,
   prioritizeFrontierCandidates,
@@ -583,4 +583,16 @@ test('classifyExternalRuntime keeps same-site logging non-critical while same-si
     classifyExternalRuntime('https://www.netflix.com/bootstrap/runtime-data', { targetUrl: 'https://www.netflix.com/kr-en/' }),
     { category: 'render-critical-runtime', resourceHint: 'request' },
   );
+});
+
+test('normalizeCrawlUrl removes tracking query params and sorts remaining', () => {
+  const withTracking = normalizeCrawlUrl('https://example.com/Main.do?menuNo=1003&utm_source=nav');
+  const withoutTracking = normalizeCrawlUrl('https://example.com/Main.do?menuNo=1003');
+  assert.equal(withTracking, withoutTracking);
+});
+
+test('normalizeCrawlUrl normalizes query parameter order', () => {
+  const orderA = normalizeCrawlUrl('https://example.com/page?b=2&a=1');
+  const orderB = normalizeCrawlUrl('https://example.com/page?a=1&b=2');
+  assert.equal(orderA, orderB);
 });

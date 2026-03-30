@@ -46,6 +46,7 @@ export function normalizeCrawlUrl(urlStr) {
   try {
     const url = new URL(urlStr);
     url.hash = '';
+    url.search = normalizePageIdentitySearch(url.search);
     if (url.pathname !== '/' && url.pathname.endsWith('/')) {
       url.pathname = url.pathname.slice(0, -1);
     }

@@ -29,9 +29,19 @@
 - **Widget soft-fail → note 분류**: content 일치 + shell 정상 시 warning이 아닌 note
 - **runtime-induced-partial-match / runtime-induced-content-gap**: 콘텐츠 갭과 런타임 유발 갭 분리
 - **hidden navigation 패턴 확장**: `fn*`, `nav*`, `jump*` 래퍼 함수 + select `this.options[].value` 핸들러
+- **hidden navigation 3차 확장**: 리터럴+변수 혼합 패턴 partial matching (`'/path?key=' + variable` → fallbackMap 매치) + form GET hidden input URL 재구성
+- **hidden navigation 4차 확장**: 변수 prefix + 리터럴 suffix (`baseUrl + '/page.do'`) 및 template literal (`` `${base}/page.do` ``) 패턴 지원 + directNavigationPatterns template literal guard
+- **Personalized Page Mock Sanitization**: render-supporting API 응답에서 user-specific 필드를 3단계 heuristic으로 자동 감지 → generic placeholder 치환 (email, JWT, UUID, 숫자 ID 등)
+- **대규모 사이트 성능 최적화**: `batchParallel` 세마포어 worker pool로 asset download(10), CSS(6), JS(8), HTML(4) 처리 병렬화 → 전체 파이프라인 50-80% 단축
+- **JSP 세미콜론 path parameter 제거**: `;CUSTOM_SESSION=...` 등 JSP 세션 파라미터가 파일명에 포함되는 문제 해결
+- **ESLint 완전 정리**: 50 problems (28 errors + 22 warnings) → 0 problems. 테스트 globals 설정, unused 코드 제거
+- **생성 output README 개선**: 크롤 통계, CSS 회수율, hidden navigation, API mock 요약, 알려진 제한 자동 삽입
+- **Scaffolder 템플릿 외부화**: project-scaffolder.js 577줄 → 248줄 (-57%), Express adapter + runtime guard를 독립 template 파일로 분리
+- **Web UI 실시간 진행 표시**: logger progress 이벤트 + SSE 전달 + 진행 바/카운터/stage label UI
+- **Replay Verifier 모듈 분리**: 1,408줄 → 940줄, content-comparison.js (187줄) + runtime-diagnostics.js (303줄) 분리
 - **index.js 모듈 분리** (1405줄 → 794줄): page-dedup, page-route-manifest, replay-signals, output-finalize
 - **테스트 분할**: output-processors.test.js (2256줄) → 7개 파일 (최대 505줄)
-- **Verifier 순수 함수 유닛 테스트 30개** 추가 (총 140개 테스트)
+- **Verifier 순수 함수 유닛 테스트 30개** + hidden navigation 3차 8개 + 4차 7개 + mock sanitizer 14개 + concurrency 5개 + 통합 2개 + 핵심 모듈 커버리지 24개 (총 200개 테스트)
 - **매직 넘버 상수화**: CONTENT_GAP_CEILING, PARTIAL_MATCH_CEILING 등
 - **ESLint flat config** 추가 (`npm run lint`)
 - **Docker HEALTHCHECK** + 리소스 제한 (4G/2CPU)
@@ -48,16 +58,24 @@
 - **runtime 404를 data-miss / asset-miss / script-failed / style-failed로 세분류**하여 soft-fail 판단이 더 정확합니다.
 - **content 일치 시 widget soft-fail을 note로 분류**하여 false-positive 경고가 줄었습니다.
 - **runtime-induced 콘텐츠 갭이 별도 레이블로 표시**되어 실제 소싱 문제와 런타임 문제를 구분할 수 있습니다.
+- **hidden navigation**이 리터럴 prefix, 변수 prefix+리터럴 suffix, template literal 모든 패턴에서 fallbackMap으로 안전하게 localize되어 disabled 비율이 크게 감소합니다.
+- **form GET + hidden input 재구성**으로 query parameter 기반 navigation form이 자동으로 localize됩니다.
+- **render-supporting mock sanitization**으로 personalized page의 stale 개인 데이터가 generic placeholder로 치환되어, replay 시 민감 정보 노출이 줄고 verifier가 `mock-driven-sanitized-replay`로 정확하게 분류합니다.
 - **크롤 취소가 즉시 반영**되어 Web UI 운영성이 개선되었습니다.
 - **index.js가 794줄로 축소**되어 코드 탐색과 유지보수가 쉬워졌습니다.
-- **140개 테스트**로 회귀 방지 범위가 확대되었습니다.
+- **asset download, CSS/JS/HTML 처리가 모두 병렬화**되어 대규모 사이트(100+ 페이지) 처리 속도가 50-80% 향상되었습니다.
+- **JSP 세미콜론 path parameter**가 파일명에서 자동 제거되어, culture.jongno.go.kr 같은 JSP 기반 서브도메인의 CSS가 정상 서빙됩니다.
+- **Web UI에서 크롤/다운로드 진행 상황이 실시간 진행 바로 표시**되어 운영 가시성이 크게 향상되었습니다.
+- **scaffolder 템플릿이 독립 파일로 분리**되어 Express adapter와 runtime guard를 별도로 편집/테스트 가능합니다.
+- **replay-verifier.js가 content-comparison + runtime-diagnostics로 분리**되어 유지보수성이 향상되었습니다 (1,408줄 → 940줄).
+- **200개 테스트**로 회귀 방지 범위가 확대되었습니다.
 
 ## 현재 한계
 
 - 일부 legacy portal 페이지는 여전히 `runtime-widget-soft-fail`이 남습니다 (content 일치 시 note로 다운그레이드됨).
 - same-origin runtime resource 404 중 `runtime-data-miss`나 `runtime-asset-miss`는 soft로 처리되지만, 위젯이 완전히 채워지지 않을 수 있습니다.
-- hidden navigation 중 변수 기반 동적 경로 구성(`goPage(baseUrl + param)`)은 아직 정적 분석으로 해석 불가합니다.
-- personalized 또는 runtime-heavy 페이지는 `runtime-induced-partial-match`로 표시되지만, 실질적 해결은 mock 데이터에 의존합니다.
+- hidden navigation의 pure variable 패턴(`goPage(baseUrl + menuNo)` — 리터럴 없음)은 정적 분석으로 해석 불가하여 여전히 disabled 유지됩니다.
+- personalized 또는 runtime-heavy 페이지는 render-supporting mock이 자동 sanitize되지만, 사이트별 비표준 필드명(`mbrNo`, `loginHash` 등)은 generic heuristic에 감지되지 않을 수 있습니다.
 
 ## 현재 판단
 
@@ -65,8 +83,12 @@
 - 이유:
   - 파이프라인 안정성 (abort signal, worker 타임아웃, 해시 충돌 해소)이 크게 개선되었습니다.
   - 리플레이 정확도 판단이 더 세밀해졌습니다 (note/warning 분리, runtime-induced 분류).
-  - 코드 품질 (모듈 분리, 테스트 140개, ESLint)이 지속 개발에 적합한 수준입니다.
-  - 다만 일부 사이트는 original runtime이 가진 DOM 가정과 동적 경로 때문에 완전한 원본 수준 재현은 어렵습니다.
+  - hidden navigation 3차+4차 확장으로 리터럴 prefix, 변수 prefix+리터럴 suffix, template literal, form GET reconstruction이 모두 지원됩니다.
+  - mock sanitization으로 render-supporting API 응답의 personalized 필드가 자동 치환됩니다.
+  - 파이프라인 성능이 batchParallel 병렬화로 크게 개선되었습니다 (50-80% 단축).
+  - scaffolder 템플릿 외부화, Web UI 진행 표시, verifier 모듈 분리가 완료되었습니다.
+  - 코드 품질 (모듈 분리, 테스트 200개, ESLint clean)이 지속 개발에 적합한 수준입니다.
+  - 다만 일부 사이트는 original runtime이 가진 DOM 가정과 pure variable 동적 경로 때문에 완전한 원본 수준 재현은 어렵습니다.
 
 ## 운영 메모
 
@@ -80,7 +102,9 @@
 
 ## 다음 우선순위
 
-- hidden navigation의 변수 기반 동적 경로 해석 확대 (문자열 연결 + 변수 조합)
-- personalized page mock 데이터 자동 생성 또는 fallback 전략
-- Docker multi-stage build로 이미지 크기 최적화
-- 대규모 사이트 크롤 성능 프로파일링 및 병목 지점 최적화
+- CI/CD 파이프라인 구축 (GitHub Actions: test + lint + Docker 빌드 자동화)
+- 환경 기반 설정 확장 (constants.js → 환경 변수 오버라이드)
+- Web UI 출력 파일 미리보기 (HTML iframe, JSON 구문 강조, diff 뷰)
+- 다중 Job 지원 및 큐잉 (단일 activeJobId → 큐 기반)
+- SPA/모던 프레임워크 지원 강화 (Vue 3, Next.js App Router, History API 추적)
+- Mock Sanitization 고도화 (opt-in 필드명, inline state blob, deterministic placeholder)

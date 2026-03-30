@@ -396,7 +396,7 @@ test('AssetDownloader can recover failed critical assets into a recovery lane', 
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'front-clone-recovery-'));
   const originalFetch = globalThis.fetch;
 
-  globalThis.fetch = async (url) => ({
+  globalThis.fetch = async (_url) => ({
     ok: true,
     status: 200,
     headers: new Headers({ 'content-type': 'image/png' }),

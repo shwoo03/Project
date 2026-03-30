@@ -249,7 +249,7 @@ export default class PageCrawler {
           });
         });
 
-        const forms = [...document.querySelectorAll('form')].map((form, index) => ({
+        const forms = [...document.querySelectorAll('form')].map((form, _index) => ({
           selectorHint: makeSelectorHint(form),
           action: form.getAttribute('action') || '',
           resolvedAction: form.action || '',
@@ -740,7 +740,7 @@ export default class PageCrawler {
     }
   }
 
-  async _captureGraphqlArtifacts({ context, storageState }) {
+  async _captureGraphqlArtifacts({ context: _context, storageState }) {
     if (!this.enableGraphqlIntrospection) {
       return { artifacts: [], warnings: [] };
     }
@@ -760,9 +760,9 @@ export default class PageCrawler {
         if (new URL(endpoint).origin !== currentOrigin) continue;
         seen.add(endpoint);
 
-        const result = await this.page.evaluate(async ({ endpoint, query }) => {
+        const result = await this.page.evaluate(async ({ endpoint: resolvedEndpoint, query }) => {
           try {
-            const response = await fetch(endpoint, {
+            const response = await fetch(resolvedEndpoint, {
               method: 'POST',
               headers: {
                 'content-type': 'application/json',

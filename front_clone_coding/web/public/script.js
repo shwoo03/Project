@@ -72,6 +72,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const model = jobView.render(job);
     outputBrowser.setShortcuts(model.outputShortcuts);
 
+    if (['completed', 'failed', 'cancelled'].includes(job.status)) {
+      const progressSection = document.getElementById('progress-section');
+      if (progressSection) progressSection.style.display = 'none';
+    }
+
     if (job.status === 'completed') {
       formController.setSetupState('재실행 가능');
       formController.setWorkspaceMode('결과 확인');
@@ -84,6 +89,30 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       formController.setSetupState('대기');
       formController.setWorkspaceMode('대기 중');
+    }
+  }
+
+  function updateProgressBar(data) {
+    const section = document.getElementById('progress-section');
+    if (!section) return;
+    section.style.display = 'block';
+
+    const stageLabels = { crawl: 'Crawling', download: 'Downloading', process: 'Processing', verify: 'Verifying' };
+    const stageLabel = document.getElementById('progress-stage-label');
+    if (stageLabel) stageLabel.textContent = stageLabels[data.stage] || data.stage;
+
+    const counter = document.getElementById('progress-counter');
+    if (counter) counter.textContent = `${data.current} / ${data.total}`;
+
+    const pct = data.total > 0 ? Math.round((data.current / data.total) * 100) : 0;
+    const fill = document.getElementById('progress-bar-fill');
+    if (fill) fill.style.width = pct + '%';
+
+    if (data.detail) {
+      const detail = document.getElementById('progress-detail');
+      if (detail) {
+        try { detail.textContent = new URL(data.detail).pathname; } catch { detail.textContent = data.detail; }
+      }
     }
   }
 
@@ -126,6 +155,9 @@ document.addEventListener('DOMContentLoaded', () => {
     eventSource.onmessage = (event) => {
       const data = JSON.parse(event.data);
       logController.append(data.type, data.text, data.timestamp);
+      if (data.type === 'progress' && data.progressData) {
+        updateProgressBar(data.progressData);
+      }
     };
 
     eventSource.onerror = () => {

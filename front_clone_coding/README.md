@@ -104,12 +104,26 @@ The main orchestrator (`src/index.js`) delegates to focused pipeline modules:
 - Widget soft-fail warnings are now downgraded to informational `notes` when page content matches and the page shell is intact, reducing false-positive warning noise.
 - Content comparison now separates `runtime-induced-partial-match` from `partial-content-match` when runtime failures accompany the content gap, so operators can distinguish crawl-sourcing issues from runtime replay issues.
 - Hidden navigation detection now recognizes `fn*`, `nav*`, and `jump*` wrapper function patterns and `select[onchange]` handlers that navigate via `this.options[this.selectedIndex].value`.
+- Hidden navigation now supports partial literal matching for mixed literal+variable concatenation patterns such as `location.href = '/board/list.do?menuNo=' + menuNo`, using the fallbackMap hostname+pathname uniqueness guarantee to safely resolve the target.
+- Form GET actions with `<input type="hidden">` children are now automatically reconstructed into full GET URLs and matched against the pageRouteIndex, enabling localization of query-parameter-driven navigation forms.
 - Crawl cancellation via AbortSignal now propagates from the Web UI through SiteCrawler workers to PageCrawler checkpoints, allowing crawls to stop within 2-3 seconds of a cancel request.
 - SiteCrawler workers now enforce a per-page timeout (3x PAGE_LOAD_TIMEOUT) and record timed-out pages as `crawlState: 'timeout'` instead of blocking indefinitely.
+- Render-supporting API mock responses (classified as `bootstrap-backed-state-refresh`) are now automatically sanitized to replace user-specific fields (emails, JWTs, UUIDs, session tokens, user IDs) with generic placeholders, using a 3-tier key heuristic and value-type pattern matching that never touches render-critical content.
+- The HTTP mock manifest now includes `sanitized` and `sanitizedFields` metadata per entry, and the replay verifier reclassifies `runtime-induced-partial-match` to `mock-driven-sanitized-replay` when sanitized mocks are present for the page.
+- Hidden navigation now supports variable-prefix + literal-suffix concatenation patterns such as `location.href = baseUrl + '/page.do'`, extracting the trailing literal suffix for fallbackMap pathname matching.
+- Template literal navigation expressions such as `` location.href = `${baseUrl}/page.do` `` are now recognized, with the static suffix after the last `${}` expression extracted and matched against the fallbackMap.
+- The `directNavigationPatterns` callback now guards against misprocessing backtick strings that contain `${...}` template expressions, preventing false disabling of template literal navigation targets.
+- Asset download, CSS processing, JS processing, and HTML page processing are now fully parallelized using a shared `batchParallel` semaphore-style worker pool, with configurable concurrency limits per pipeline stage (10/6/8/4 respectively).
+- JSP-style semicolon path parameters (e.g., `;CUSTOM_SESSION=...`, `;JSESSIONID=...`) are now stripped from URL pathnames before generating filesystem paths, fixing complete CSS breakage on JSP-based subdomains like `culture.jongno.go.kr`.
+- ESLint configuration now includes test-file globals (`global`, `Response`, `Headers`, `TextDecoder`), and all source/test warnings (unused variables, useless assignments, useless escapes) have been resolved, achieving 0 errors and 0 warnings.
+- Generated output README now includes dynamic sections for crawl summary (pages, CSS recovery rate), hidden navigation stats, API mock breakdown (render-critical/supporting/non-critical, sanitized count), and known limitations, all conditionally rendered based on available data.
+- Scaffolder template literals (Express adapter 285 lines, runtime guard 141 lines) have been extracted to standalone files under `src/scaffolder/templates/`, reducing `project-scaffolder.js` from 577 to 248 lines.
+- The Web UI now displays a real-time progress bar with stage labels (Crawling/Downloading), page counters, and current URL detail during crawl and asset download phases, powered by structured `progress` events via SSE.
+- The replay verifier has been split into three focused modules: `content-comparison.js` (187 lines) for text marker and drift analysis, `runtime-diagnostics.js` (303 lines) for failure classification, and the orchestration core in `replay-verifier.js` (reduced from 1,408 to 940 lines), with re-exports preserving backwards compatibility.
 
 ## Current Status
 
-As of `2026-03-29`, the project is strongest on:
+As of `2026-03-30`, the project is strongest on:
 
 - replayable local route generation for pages that were actually saved
 - CSS and first-paint asset recovery for public and legacy portal sites
@@ -118,13 +132,21 @@ As of `2026-03-29`, the project is strongest on:
 - **fine-grained runtime failure classification** (`runtime-data-miss`, `runtime-asset-miss`, `runtime-script-failed`, `runtime-style-failed`) for precise severity assessment
 - **runtime-induced content gap separation** from true content sourcing gaps (`runtime-induced-partial-match`, `runtime-induced-content-gap`)
 - **abort signal propagation** allowing immediate crawl cancellation from the Web UI
-- **modular codebase** with index.js reduced to 794 lines and 140 automated tests
+- **comprehensive hidden navigation coverage** including literal prefix, variable prefix + literal suffix, template literals, and form GET reconstruction
+- **automatic mock sanitization** of render-supporting API responses to replace user-specific fields with generic placeholders
+- **parallel pipeline processing** via `batchParallel` for asset downloads, CSS/JS/HTML processing (50-80% faster)
+- **JSP semicolon path parameter stripping** for correct CSS serving on JSP-based portals
+- **clean ESLint** with 0 errors and 0 warnings across all source and test files
+- **enriched output README** with crawl statistics, CSS recovery rates, API mock summaries, and known limitations
+- **real-time progress UI** with stage-based progress bar, page counters, and asset download tracking in the Web dashboard
+- **modular verifier** with content-comparison and runtime-diagnostics split into focused submodules
+- **modular codebase** with index.js reduced to 794 lines, scaffolder templates externalized, and 200 automated tests
 
 The project is still not a perfect one-click clone for all sites. The main remaining gaps are:
 
 - legacy portal widget scripts that still degrade into `runtime-widget-soft-fail` (now classified as `note` when content matches)
-- hidden navigation patterns that combine variables with string concatenation (e.g., `goPage(baseUrl + param)`)
-- true content sourcing gaps on dynamic or highly personalized pages (displayed as `runtime-induced-partial-match` when runtime failures are present)
+- pure-variable hidden navigation patterns with no literal component (e.g., `goPage(baseUrl + menuNo)`) cannot be statically resolved
+- personalized page mock sanitization only covers generic field patterns; site-specific non-standard keys (e.g., `mbrNo`, `loginHash`) may pass through unsanitized
 
 In short: the pipeline now produces a stable, inspectable local replay package with precise fidelity diagnostics, but some sites still need more generic runtime-hardening work before they feel indistinguishable from the original.
 
@@ -204,7 +226,7 @@ If the browser runtime is missing, the job status API returns a structured error
 npm test
 ```
 
-The test suite (140 tests) covers utility behavior, crawler heuristics, API capture shaping, verifier pure-function logic, and CLI/web smoke flows that do not require mutating tracked source files. Tests are organized by module:
+The test suite (200 tests) covers utility behavior, crawler heuristics, API capture shaping, verifier pure-function logic, and CLI/web smoke flows that do not require mutating tracked source files. Tests are organized by module:
 
 - `tests/css-processor.test.js` - CSS rewriting and asset recovery
 - `tests/html-processor.test.js` - HTML rewriting and hidden navigation

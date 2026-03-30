@@ -19,6 +19,8 @@ import {
   saveFile,
 } from './utils/file-utils.js';
 import { downloadExternalImages, injectCapturedImages } from './utils/image-utils.js';
+import { batchParallel } from './utils/concurrency-utils.js';
+import { PAGE_PROCESSING_CONCURRENCY } from './utils/constants.js';
 import {
   normalizeCrawlUrl,
 } from './utils/url-utils.js';
@@ -339,14 +341,13 @@ async function transformCapturedOutput(context, capture, apiArtifacts) {
   });
   const [cssResult] = await Promise.all([cssProcessor.processAll(), jsProcessor.processAll()]);
 
-  const htmlProcessor = new HtmlProcessor(context.options.url, {
-    useBaseHref: true,
-    renderCriticalRuntimeMap,
-    pageRouteIndex,
-  });
-  for (const page of capture.pages) {
-    htmlProcessor.baseUrl = page.finalUrl || page.url;
-    let processedHtml = htmlProcessor.process(page.html, fullUrlMap, page.savedPath);
+  await batchParallel(capture.pages, PAGE_PROCESSING_CONCURRENCY, async (page) => {
+    const pageHtmlProcessor = new HtmlProcessor(page.finalUrl || page.url, {
+      useBaseHref: true,
+      renderCriticalRuntimeMap,
+      pageRouteIndex,
+    });
+    let processedHtml = pageHtmlProcessor.process(page.html, fullUrlMap, page.savedPath);
 
     if (page.computedStyles) {
       const $ = cheerio.load(processedHtml, { decodeEntities: false });
@@ -365,7 +366,7 @@ async function transformCapturedOutput(context, capture, apiArtifacts) {
     );
 
     if (extraImages.savedCount > 0) {
-      processedHtml = htmlProcessor.process(processedHtml, fullUrlMap, page.savedPath);
+      processedHtml = pageHtmlProcessor.process(processedHtml, fullUrlMap, page.savedPath);
     }
 
     processedHtml = injectCapturedImages(processedHtml, fullUrlMap);
@@ -373,7 +374,7 @@ async function transformCapturedOutput(context, capture, apiArtifacts) {
     page.processedHtml = processedHtml;
 
     logger.info(`Saved HTML: views/${page.savedPath}`);
-  }
+  });
 
   const entryPagePath = capture.pages[0].savedPath;
 
@@ -435,6 +436,8 @@ async function generateArtifacts(context, capture, transformed, apiArtifacts) {
       apiSummary: apiArtifacts.apiSummary,
       siteMap: capture.siteMap,
       pages: capture.pages,
+      cssRecoverySummary: transformed.cssRecoverySummary,
+      httpManifest: apiArtifacts.httpManifest,
     });
   }
 

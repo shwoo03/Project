@@ -57,12 +57,16 @@ Only then should they change code. Do not patch by domain name, host name, produ
 - `src/processor/css-processor.js` - PostCSS + `postcss-url` rewrite for CSS imports and asset URLs.
 - `src/processor/js-processor.js` - Babel/es-module-lexer-based JS rewrite for imports, static asset references, and runtime endpoint references.
 - `src/processor/api-processor.js` - generates OpenAPI 3.1.0, AsyncAPI 3.0.0, GraphQL summaries, and HTTP mock manifests.
-- `src/scaffolder/project-scaffolder.js` - emits generated replay runtime files under `server/`, plus root `server.js`, `package.json`, and replay README.
+- `src/scaffolder/project-scaffolder.js` - emits generated replay runtime files under `server/`, plus root `server.js`, `package.json`, and replay README. Templates are externalized in `src/scaffolder/templates/`.
+- `src/verifier/content-comparison.js` - content marker extraction, token overlap, drift assessment, title comparison (split from replay-verifier).
+- `src/verifier/runtime-diagnostics.js` - runtime error classification, failure assessment, diagnostics building (split from replay-verifier).
 - `src/utils/url-utils.js` - domain root calculation, scope checks, URL normalization, asset/view path mapping, and public URL safety validation.
 - `src/utils/playwright-runtime.js` - runtime mismatch detection and recovery hints tied to the pinned Playwright image.
 - `web/server.js` - Express dashboard API, job lifecycle, SSE log streaming, output browser, and structured job errors.
 - `web/public/` - static dashboard UI assets.
-- `tests/` - Node.js built-in test runner coverage (140 tests) organized per module: css-processor, html-processor, js-processor, api-processor, replay-verifier, verifier-unit, crawl-quality, web-ui, and supporting utilities.
+- `src/utils/mock-sanitizer.js` - heuristic-based sanitization of user-specific fields in render-supporting API mock responses.
+- `src/utils/concurrency-utils.js` - semaphore-style `batchParallel` worker pool for bounded parallel processing across the pipeline.
+- `tests/` - Node.js built-in test runner coverage (200 tests) organized per module: css-processor, html-processor, js-processor, api-processor, mock-sanitizer, concurrency-utils, network-interceptor, asset-downloader, frontier-utils, page-route-manifest, replay-verifier, verifier-unit, crawl-quality, web-ui, and supporting utilities.
 - `.codex/skills/` - project-specific Codex skills for common workstreams in this repository.
 
 ## Non-Negotiable Rules
@@ -88,7 +92,7 @@ Only then should they change code. Do not patch by domain name, host name, produ
 
 ## Validation
 
-- Default verification: `npm test` (140 tests) and `npm run lint`
+- Default verification: `npm test` (200 tests) and `npm run lint`
 - Web UI changes: `node bin/cli.js ui`
 - Docker/runtime changes: `docker compose up -d --build` (HEALTHCHECK enabled, resource limits 4G/2CPU)
 - Crawl/runtime changes: prefer automated tests first; keep live-site manual runs minimal and non-destructive

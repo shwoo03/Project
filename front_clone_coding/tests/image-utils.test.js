@@ -6,7 +6,7 @@ import path from 'path';
 import * as cheerio from 'cheerio';
 
 import { downloadExternalImages, injectCapturedImages } from '../src/utils/image-utils.js';
-import { ensureDir, saveFile } from '../src/utils/file-utils.js';
+import { ensureDir } from '../src/utils/file-utils.js';
 
 test('injectCapturedImages does not preload unreferenced images into replay HTML', () => {
   const html = '<html><head></head><body><img src="https://example.com/hero.jpg" alt="hero"></body></html>';

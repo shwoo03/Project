@@ -9,3 +9,10 @@ playwright-report/
 test-results/
 tmp/
 temp/
+.claude/
+.codex/
+research/
+AGNETS.md
+check.md
+PLAN.md
+README.md

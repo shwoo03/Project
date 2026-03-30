@@ -8,6 +8,8 @@ import generateModule from '@babel/generator';
 import { resolveUrl, getRelativePath } from '../utils/url-utils.js';
 import { normalizeAbsoluteRequestUrl } from '../utils/replay-mock-utils.js';
 import { shouldStaticallyFilterRuntime } from '../utils/external-runtime-utils.js';
+import { batchParallel } from '../utils/concurrency-utils.js';
+import { JS_PROCESSING_CONCURRENCY } from '../utils/constants.js';
 import logger from '../utils/logger.js';
 
 const traverse = traverseModule.default;
@@ -42,9 +44,9 @@ export default class JsProcessor {
 
     logger.update(`Analyzing ${jsFiles.length} JS files`);
 
-    for (const { url, localPath } of jsFiles) {
+    await batchParallel(jsFiles, JS_PROCESSING_CONCURRENCY, async ({ url, localPath }) => {
       await this._processJsFile(url, localPath);
-    }
+    });
 
     logger.succeed(
       `JS processing done: ${jsFiles.length} files, ${this.report.removed.length} removed, ` +
@@ -93,10 +95,9 @@ export default class JsProcessor {
   }
 
   async _rewriteJsModule(content, fileUrl, fileLocalPath) {
-    let lexerImports = [];
+    let lexerImports;
     try {
-      const [imports] = parseModuleImports(content);
-      lexerImports = imports;
+      [lexerImports] = parseModuleImports(content);
     } catch {
       lexerImports = [];
     }
@@ -448,7 +449,7 @@ export default class JsProcessor {
       'objectRestSpread',
     ];
 
-    if (/\binterface\b|\btype\b|:\s*[A-Z_a-z][\w<>, \[\]\|&?:]*/.test(content)) {
+    if (/\binterface\b|\btype\b|:\s*[A-Z_a-z][\w<>, [\]|&?:]*/.test(content)) {
       plugins.push('typescript');
     }
 

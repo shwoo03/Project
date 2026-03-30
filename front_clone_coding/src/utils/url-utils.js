@@ -64,6 +64,7 @@ export function getViewPathFromUrl(absoluteUrl, options = {}) {
     const url = new URL(absoluteUrl);
     let pathname = decodeURIComponent(url.pathname || '/');
     pathname = pathname.replace(/\\/g, '/');
+    pathname = pathname.replace(/;[^/]*/g, '');
     if (!pathname || pathname === '/') {
       pathname = '/index';
     } else if (pathname.endsWith('/')) {
@@ -237,6 +238,7 @@ export function getAssetPathFromUrl(
 
     let pathname = url.pathname || '/';
     pathname = pathname.replace(/\\/g, '/');
+    pathname = pathname.replace(/;[^/]*/g, '');
     if (!pathname || pathname === '/') pathname = '/index';
     if (pathname.endsWith('/')) pathname = `${pathname}index`;
     pathname = pathname.split('?')[0].split('#')[0];
@@ -270,7 +272,7 @@ export function getAssetPathFromUrl(
 export function getFilenameFromUrl(urlStr) {
   try {
     const url = new URL(urlStr);
-    let pathname = url.pathname.split('?')[0].split('#')[0];
+    let pathname = url.pathname.replace(/;[^/]*/g, '').split('?')[0].split('#')[0];
     let filename = path.basename(pathname);
     if (!filename || filename === '/') filename = 'index.html';
     return filename;

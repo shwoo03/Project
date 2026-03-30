@@ -388,7 +388,7 @@ test('web UI removes its logger listener when the server closes', { concurrency:
 });
 
 async function waitForJobStatus(jobId, expectedStatus, port) {
-  let job = null;
+  let job;
 
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const response = await fetch(`http://localhost:${port}/api/jobs/${jobId}`);

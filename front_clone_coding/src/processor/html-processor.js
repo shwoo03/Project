@@ -146,7 +146,10 @@ export default class HtmlProcessor {
       this._replaceAttr($, el, 'href', urlMap, outputHtmlPath);
     });
 
+    this._localizeFormGetHiddenInputs($, outputHtmlPath);
+
     $('form').each((_, el) => {
+      if ($(el).attr('data-hidden-navigation-localized') === 'true') return;
       this._replaceAttr($, el, 'action', urlMap, outputHtmlPath);
     });
 
@@ -400,6 +403,54 @@ export default class HtmlProcessor {
     });
   }
 
+  _localizeFormGetHiddenInputs($, outputHtmlPath) {
+    if (!this.pageRouteIndex) return;
+
+    $('form').each((_, el) => {
+      const method = String($(el).attr('method') || 'get').toLowerCase();
+      if (method !== 'get') return;
+
+      if ($(el).attr('data-hidden-navigation-localized') === 'true') return;
+      if ($(el).attr('data-hidden-navigation-disabled') === 'true') return;
+
+      const action = $(el).attr('action');
+      if (!action || action === '#') return;
+
+      const hiddenInputs = $(el).find('input[type="hidden"]').toArray().filter((input) => {
+        const name = $(input).attr('name');
+        const value = $(input).attr('value');
+        return Boolean(name) && value != null && value !== '';
+      });
+
+      if (hiddenInputs.length === 0) return;
+
+      const params = new URLSearchParams();
+      for (const input of hiddenInputs) {
+        params.append($(input).attr('name'), $(input).attr('value'));
+      }
+
+      const reconstructedUrl = `${action}${action.includes('?') ? '&' : '?'}${params.toString()}`;
+      const absoluteUrl = resolveUrl(reconstructedUrl, this.baseUrl);
+
+      const pageRoute = this._resolvePageRoute(absoluteUrl);
+      if (pageRoute?.replayable) {
+        const finalRoute = this._getFinalReplayRoute(pageRoute.replayRoute, outputHtmlPath);
+        $(el).attr('action', finalRoute);
+        for (const input of hiddenInputs) { $(input).remove(); }
+        this._markLocalizedHiddenNavigation($, el, 1, 'form-get-reconstruction');
+        return;
+      }
+
+      const fallbackRoute = this._tryPartialLiteralMatch(action, outputHtmlPath);
+      if (fallbackRoute) {
+        $(el).attr('action', fallbackRoute);
+        for (const input of hiddenInputs) { $(input).remove(); }
+        this._markLocalizedHiddenNavigation($, el, 1, 'form-get-reconstruction');
+        return;
+      }
+    });
+  }
+
   _getDisabledReason(absoluteUrl) {
     if (!absoluteUrl || absoluteUrl === '#') {
       return 'uncloned-target';
@@ -617,6 +668,7 @@ export default class HtmlProcessor {
 
     for (const pattern of directNavigationPatterns) {
       rewritten = rewritten.replace(pattern, (match, prefix, quote, rawUrl, suffix = '') => {
+        if (quote === '`' && rawUrl.includes('${')) return match;
         const safeSuffix = typeof suffix === 'string' ? suffix : '';
         const replacement = rewriteLiteral(rawUrl);
         if (replacement === rawUrl) {
@@ -627,6 +679,8 @@ export default class HtmlProcessor {
     }
 
     rewritten = this._rewriteHiddenNavigationLiteralConcats(rewritten, rewriteLiteral);
+    rewritten = this._rewriteHiddenNavigationMixedConcats(rewritten, state, outputHtmlPath);
+    rewritten = this._rewriteHiddenNavigationTemplateLiterals(rewritten, state, outputHtmlPath);
 
     return {
       scriptText: rewritten,
@@ -661,13 +715,104 @@ export default class HtmlProcessor {
     return rewritten;
   }
 
+  _rewriteHiddenNavigationMixedConcats(scriptText, state, outputHtmlPath) {
+    if (!this.pageRouteIndex?.fallbackMap) return scriptText;
+
+    const literalPrefixPatterns = [
+      /((?:window|document|top|self)?\.?location(?:\.href)?\s*=\s*)((?:['"`][^'"`\r\n]*['"`]\s*\+\s*)+(?:[A-Za-z_$][\w$.]*)(?:\s*\+\s*(?:['"`][^'"`\r\n]*['"`]|[A-Za-z_$][\w$.]*))*)(?=\s*[;,)\r\n]|$)/gi,
+      /((?:window|document|top|self)?\.?location\.(?:assign|replace)\s*\(\s*)((?:['"`][^'"`\r\n]*['"`]\s*\+\s*)+(?:[A-Za-z_$][\w$.]*)(?:\s*\+\s*(?:['"`][^'"`\r\n]*['"`]|[A-Za-z_$][\w$.]*))*)(\s*\))/gi,
+      /((?:window\.)?open\s*\(\s*)((?:['"`][^'"`\r\n]*['"`]\s*\+\s*)+(?:[A-Za-z_$][\w$.]*)(?:\s*\+\s*(?:['"`][^'"`\r\n]*['"`]|[A-Za-z_$][\w$.]*))*)(?=\s*[,)])/gi,
+      /((?:^|[=(:,;]\s*)(?!fetch\b|axios\b|sendBeacon\b)(?:[A-Za-z_$][\w$.]*\s*\(\s*))((?:['"`][^'"`\r\n]*['"`]\s*\+\s*)+(?:[A-Za-z_$][\w$.]*)(?:\s*\+\s*(?:['"`][^'"`\r\n]*['"`]|[A-Za-z_$][\w$.]*))*)(?=\s*[,)])/gi,
+    ];
+
+    const variablePrefixPatterns = [
+      /((?:window|document|top|self)?\.?location(?:\.href)?\s*=\s*)((?:[A-Za-z_$][\w$.]*\s*\+\s*)+(?:['"`][^'"`\r\n]*['"`])(?:\s*\+\s*(?:['"`][^'"`\r\n]*['"`]|[A-Za-z_$][\w$.]*))*)(?=\s*[;,)\r\n]|$)/gi,
+      /((?:window|document|top|self)?\.?location\.(?:assign|replace)\s*\(\s*)((?:[A-Za-z_$][\w$.]*\s*\+\s*)+(?:['"`][^'"`\r\n]*['"`])(?:\s*\+\s*(?:['"`][^'"`\r\n]*['"`]|[A-Za-z_$][\w$.]*))*)(\s*\))/gi,
+      /((?:window\.)?open\s*\(\s*)((?:[A-Za-z_$][\w$.]*\s*\+\s*)+(?:['"`][^'"`\r\n]*['"`])(?:\s*\+\s*(?:['"`][^'"`\r\n]*['"`]|[A-Za-z_$][\w$.]*))*)(?=\s*[,)])/gi,
+      /((?:^|[=(:,;]\s*)(?!fetch\b|axios\b|sendBeacon\b)(?:[A-Za-z_$][\w$.]*\s*\(\s*))((?:[A-Za-z_$][\w$.]*\s*\+\s*)+(?:['"`][^'"`\r\n]*['"`])(?:\s*\+\s*(?:['"`][^'"`\r\n]*['"`]|[A-Za-z_$][\w$.]*))*)(?=\s*[,)])/gi,
+    ];
+
+    const allPatterns = [...literalPrefixPatterns, ...variablePrefixPatterns];
+
+    const tryRewrite = (match, prefix, expression, suffix = '') => {
+      const safeSuffix = typeof suffix === 'string' ? suffix : '';
+
+      if (this._evaluateLiteralStringConcat(expression)) return match;
+
+      const extractedPrefix = this._extractMixedConcatLiteralPrefix(expression);
+      if (extractedPrefix) {
+        const route = this._tryPartialLiteralMatch(extractedPrefix.prefix, outputHtmlPath);
+        if (route) {
+          state.changed = true;
+          state.localizedCount += 1;
+          state.primaryNavigationTarget ||= route;
+          state.classification ||= 'partial-literal-match';
+          return `${prefix}${extractedPrefix.quote}${route}${extractedPrefix.quote}${safeSuffix}`;
+        }
+      }
+
+      const extractedSuffix = this._extractMixedConcatLiteralSuffix(expression);
+      if (extractedSuffix) {
+        const route = this._tryPartialLiteralMatch(extractedSuffix.suffix, outputHtmlPath);
+        if (route) {
+          state.changed = true;
+          state.localizedCount += 1;
+          state.primaryNavigationTarget ||= route;
+          state.classification ||= 'partial-literal-match';
+          return `${prefix}${extractedSuffix.quote}${route}${extractedSuffix.quote}${safeSuffix}`;
+        }
+      }
+
+      return match;
+    };
+
+    let rewritten = scriptText;
+    for (const pattern of allPatterns) {
+      rewritten = rewritten.replace(pattern, tryRewrite);
+    }
+
+    return rewritten;
+  }
+
+  _rewriteHiddenNavigationTemplateLiterals(scriptText, state, outputHtmlPath) {
+    if (!this.pageRouteIndex?.fallbackMap) return scriptText;
+
+    const templateLiteralPatterns = [
+      /((?:window|document|top|self)?\.?location(?:\.href)?\s*=\s*)(`[^`\r\n]*\$\{[^`\r\n]*`)(?=\s*[;,)\r\n]|$)/gi,
+      /((?:window|document|top|self)?\.?location\.(?:assign|replace)\s*\(\s*)(`[^`\r\n]*\$\{[^`\r\n]*`)(\s*\))/gi,
+      /((?:window\.)?open\s*\(\s*)(`[^`\r\n]*\$\{[^`\r\n]*`)(?=\s*[,)])/gi,
+      /((?:^|[=(:,;]\s*)(?!fetch\b|axios\b|sendBeacon\b)(?:[A-Za-z_$][\w$.]*\s*\(\s*))(`[^`\r\n]*\$\{[^`\r\n]*`)(?=\s*[,)])/gi,
+    ];
+
+    let rewritten = scriptText;
+    for (const pattern of templateLiteralPatterns) {
+      rewritten = rewritten.replace(pattern, (match, prefix, expression, suffix = '') => {
+        const safeSuffix = typeof suffix === 'string' ? suffix : '';
+
+        const extracted = this._extractTemplateLiteralStaticSuffix(expression);
+        if (!extracted) return match;
+
+        const route = this._tryPartialLiteralMatch(extracted.suffix, outputHtmlPath);
+        if (!route) return match;
+
+        state.changed = true;
+        state.localizedCount += 1;
+        state.primaryNavigationTarget ||= route;
+        state.classification ||= 'partial-literal-match';
+        return `${prefix}'${route}'${safeSuffix}`;
+      });
+    }
+
+    return rewritten;
+  }
+
   _evaluateLiteralStringConcat(expression = '') {
     const source = String(expression || '').trim();
     if (!source || !source.includes('+')) return null;
 
     const partPattern = /(['"`])([^'"`\r\n]*)\1/g;
     const parts = [];
-    let match = null;
+    let match = null; // eslint-disable-line no-useless-assignment
     while ((match = partPattern.exec(source)) !== null) {
       parts.push({
         quote: match[1],
@@ -689,6 +834,96 @@ export default class HtmlProcessor {
       quote: parts[0].quote,
       value,
     };
+  }
+
+  _extractMixedConcatLiteralPrefix(expression = '') {
+    const source = String(expression || '').trim();
+    if (!source || !source.includes('+')) return null;
+
+    const tokens = source.split(/\s*\+\s*/);
+    let prefix = '';
+    let quote = '';
+    let literalCount = 0;
+    let hitVariable = false;
+
+    for (const token of tokens) {
+      const literalMatch = token.match(/^(['"`])([^'"`\r\n]*)\1$/);
+      if (literalMatch && !hitVariable) {
+        prefix += literalMatch[2];
+        quote ||= literalMatch[1];
+        literalCount += 1;
+      } else {
+        hitVariable = true;
+      }
+    }
+
+    if (literalCount === 0 || !hitVariable) return null;
+    if (literalCount === tokens.length) return null;
+    if (!this._looksLikeNavigationValue(prefix)) return null;
+
+    return { quote, prefix };
+  }
+
+  _extractMixedConcatLiteralSuffix(expression = '') {
+    const source = String(expression || '').trim();
+    if (!source || !source.includes('+')) return null;
+
+    const tokens = source.split(/\s*\+\s*/);
+    let suffix = '';
+    let quote = '';
+    let literalCount = 0;
+    let hitVariable = false;
+
+    for (let i = tokens.length - 1; i >= 0; i--) {
+      const literalMatch = tokens[i].match(/^(['"`])([^'"`\r\n]*)\1$/);
+      if (literalMatch && !hitVariable) {
+        suffix = literalMatch[2] + suffix;
+        quote ||= literalMatch[1];
+        literalCount += 1;
+      } else {
+        hitVariable = true;
+      }
+    }
+
+    if (literalCount === 0 || !hitVariable) return null;
+    if (literalCount === tokens.length) return null;
+    if (!this._looksLikeNavigationValue(suffix)) return null;
+
+    return { quote, suffix };
+  }
+
+  _extractTemplateLiteralStaticSuffix(expression = '') {
+    const source = String(expression || '').trim();
+    const contentMatch = source.match(/^`([\s\S]*)`$/);
+    if (!contentMatch) return null;
+
+    const content = contentMatch[1];
+    const exprPattern = /\$\{[^}]*\}/g;
+    let lastEnd = -1;
+    let exprMatch = null; // eslint-disable-line no-useless-assignment
+    while ((exprMatch = exprPattern.exec(content)) !== null) {
+      lastEnd = exprMatch.index + exprMatch[0].length;
+    }
+
+    if (lastEnd < 0) return null;
+
+    const suffix = content.slice(lastEnd);
+    if (!suffix || !this._looksLikeNavigationValue(suffix)) return null;
+
+    return { suffix };
+  }
+
+  _tryPartialLiteralMatch(literalPrefix, outputHtmlPath) {
+    if (!this.pageRouteIndex?.fallbackMap || !literalPrefix) return null;
+
+    const absoluteUrl = resolveUrl(literalPrefix, this.baseUrl);
+    const fallbackKey = this._getPageFallbackKey(absoluteUrl);
+    if (!fallbackKey) return null;
+
+    const fallbackRoute = this.pageRouteIndex.fallbackMap.get(fallbackKey);
+    if (!fallbackRoute?.replayable) return null;
+
+    return this._getFinalReplayRoute(fallbackRoute.replayRoute, outputHtmlPath);
   }
 
   _looksLikeRelativeNavigationValue(value = '') {

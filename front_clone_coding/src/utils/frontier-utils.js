@@ -1,6 +1,6 @@
 import { URL } from 'url';
 
-import { getDomainRoot, isInDomainScope, normalizeCrawlUrl } from './url-utils.js';
+import { isInDomainScope, normalizeCrawlUrl } from './url-utils.js';
 
 export const DEFAULT_FRONTIER_WEIGHTS = {
   sameHostEarly: 10,
@@ -138,14 +138,14 @@ export function buildPriorityFingerprint(urlStr) {
 export function tokenizePathname(pathname = '') {
   return String(pathname || '')
     .toLowerCase()
-    .split(/[/?#._\-]+/)
+    .split(/[/?#._-]+/)
     .map((token) => token.trim())
     .filter(Boolean);
 }
 
 export function enrichLinkCandidate(candidate, context = {}) {
   const fallbackUrl = context.currentPageUrl || context.startUrl;
-  let parsed = null;
+  let parsed;
   try {
     parsed = new URL(candidate.url, fallbackUrl);
   } catch {

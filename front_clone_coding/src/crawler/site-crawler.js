@@ -134,6 +134,13 @@ export default class SiteCrawler {
       this.inFlight += 1;
 
       logger.info(`\n[${currentCount}/${this.maxPages}] Current page: ${url} (Depth: ${depth})`);
+      logger.progress({
+        stage: 'crawl',
+        current: currentCount,
+        total: this.maxPages,
+        label: `Crawling page ${currentCount} of ${this.maxPages}`,
+        detail: url,
+      });
 
       const crawler = new PageCrawler({
         url,

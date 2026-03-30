@@ -82,6 +82,15 @@ class Logger extends EventEmitter {
     }
     this._emit('update', message);
   }
+
+  progress(data) {
+    this.emit('log', {
+      type: 'progress',
+      text: data.label || '',
+      timestamp: new Date().toISOString(),
+      progressData: data,
+    });
+  }
 }
 
 const logger = new Logger();

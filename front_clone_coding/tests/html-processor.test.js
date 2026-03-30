@@ -4,7 +4,6 @@ import * as cheerio from 'cheerio';
 
 import HtmlProcessor from '../src/processor/html-processor.js';
 import { buildPagePathFallbackMap, extractPageReplaySignals } from '../src/index.js';
-import { normalizeCrawlUrl } from '../src/utils/url-utils.js';
 
 test('HtmlProcessor disables unmapped navigation targets while preserving safe protocols', () => {
   const html = [
@@ -485,6 +484,365 @@ test('HtmlProcessor rewrites render-critical inline runtime calls to local api p
 
   assert.match(output, /fetch\("\/api\/bootstrap"\)/);
   assert.match(output, /open\("GET", "\/api\/widget-data"\)/);
+});
+
+// --- Hidden Navigation 3차 확장: partial literal matching ---
+
+test('HtmlProcessor rewrites partial literal prefix + variable suffix when fallback is unambiguous', () => {
+  const html = '<html><body><button id="partial" onclick="location.href=\'/board/list.do?menuNo=\' + menuNo">Go</button></body></html>';
+  const processor = new HtmlProcessor('https://example.com', {
+    useBaseHref: true,
+    pageRouteIndex: {
+      exactUrlMap: new Map(),
+      normalizedIdentityMap: new Map(),
+      fallbackMap: new Map([
+        ['example.com/board/list.do', {
+          savedPath: 'board__s_list.do__q_menuNo-1003.html',
+          replayRoute: '/board__s_list.do__q_menuNo-1003',
+          replayable: true,
+        }],
+      ]),
+    },
+  });
+  const output = processor.process(html, new Map(), 'index.html');
+  const $ = cheerio.load(output);
+
+  assert.equal($('#partial').attr('onclick'), "location.href='/board__s_list.do__q_menuNo-1003'");
+  assert.equal($('#partial').attr('data-hidden-navigation-localized'), 'true');
+  assert.equal($('#partial').attr('data-hidden-navigation-class'), 'partial-literal-match');
+});
+
+test('HtmlProcessor rewrites wrapper function with partial literal prefix + variable', () => {
+  const html = '<html><body><button id="wp" onclick="goPage(\'/portal/contents.do?menuNo=\' + no)">Go</button></body></html>';
+  const processor = new HtmlProcessor('https://example.com', {
+    useBaseHref: true,
+    pageRouteIndex: {
+      exactUrlMap: new Map(),
+      normalizedIdentityMap: new Map(),
+      fallbackMap: new Map([
+        ['example.com/portal/contents.do', {
+          savedPath: 'portal__s_contents.do__q_menuNo-1003.html',
+          replayRoute: '/portal__s_contents.do__q_menuNo-1003',
+          replayable: true,
+        }],
+      ]),
+    },
+  });
+  const output = processor.process(html, new Map(), 'index.html');
+  const $ = cheerio.load(output);
+
+  assert.equal($('#wp').attr('onclick'), "goPage('/portal__s_contents.do__q_menuNo-1003')");
+  assert.equal($('#wp').attr('data-hidden-navigation-localized'), 'true');
+  assert.equal($('#wp').attr('data-hidden-navigation-class'), 'partial-literal-match');
+});
+
+test('HtmlProcessor does not rewrite partial literal prefix when fallback is ambiguous', () => {
+  const html = '<html><body><button id="ambiguous" onclick="location.href=\'/multi/page.do?id=\' + id">Go</button></body></html>';
+  const processor = new HtmlProcessor('https://example.com', {
+    useBaseHref: true,
+    pageRouteIndex: {
+      exactUrlMap: new Map(),
+      normalizedIdentityMap: new Map(),
+      fallbackMap: new Map(),
+    },
+  });
+  const output = processor.process(html, new Map(), 'index.html');
+  const $ = cheerio.load(output);
+
+  assert.equal($('#ambiguous').attr('onclick'), "location.href='/multi/page.do?id=' + id");
+  assert.equal($('#ambiguous').attr('data-hidden-navigation-localized'), undefined);
+});
+
+test('HtmlProcessor rewrites window.open with partial literal prefix', () => {
+  const html = '<html><body><button id="popup" onclick="window.open(\'/popup/view.do?seq=\' + seq)">View</button></body></html>';
+  const processor = new HtmlProcessor('https://example.com', {
+    useBaseHref: true,
+    pageRouteIndex: {
+      exactUrlMap: new Map(),
+      normalizedIdentityMap: new Map(),
+      fallbackMap: new Map([
+        ['example.com/popup/view.do', {
+          savedPath: 'popup__s_view.do__q_seq-1.html',
+          replayRoute: '/popup__s_view.do__q_seq-1',
+          replayable: true,
+        }],
+      ]),
+    },
+  });
+  const output = processor.process(html, new Map(), 'index.html');
+  const $ = cheerio.load(output);
+
+  assert.match($('#popup').attr('onclick'), /window\.open\('\/popup__s_view\.do__q_seq-1'\)/);
+  assert.equal($('#popup').attr('data-hidden-navigation-localized'), 'true');
+});
+
+test('HtmlProcessor rewrites variable prefix + literal suffix via fallback match', () => {
+  const html = '<html><body><button id="vp" onclick="location.href = baseUrl + \'/page.do\'">Go</button></body></html>';
+  const processor = new HtmlProcessor('https://example.com', {
+    useBaseHref: true,
+    pageRouteIndex: {
+      exactUrlMap: new Map(),
+      normalizedIdentityMap: new Map(),
+      fallbackMap: new Map([
+        ['example.com/page.do', {
+          savedPath: 'page.do.html',
+          replayRoute: '/page.do',
+          replayable: true,
+        }],
+      ]),
+    },
+  });
+  const output = processor.process(html, new Map(), 'index.html');
+  const $ = cheerio.load(output);
+
+  assert.equal($('#vp').attr('onclick'), "location.href = '/page.do'");
+  assert.equal($('#vp').attr('data-hidden-navigation-localized'), 'true');
+  assert.equal($('#vp').attr('data-hidden-navigation-class'), 'partial-literal-match');
+});
+
+// --- Hidden Navigation 3차 확장: form GET reconstruction ---
+
+test('HtmlProcessor rewrites form GET with hidden inputs to matched local route', () => {
+  const html = [
+    '<html><body>',
+    '<form id="search" method="get" action="/search.do">',
+    '<input type="hidden" name="menuNo" value="1003">',
+    '<input type="text" name="q">',
+    '<button type="submit">Search</button>',
+    '</form>',
+    '</body></html>',
+  ].join('');
+  const processor = new HtmlProcessor('https://example.com', {
+    useBaseHref: true,
+    pageRouteIndex: {
+      exactUrlMap: new Map(),
+      normalizedIdentityMap: new Map([
+        ['https://example.com/search.do?menuNo=1003', {
+          savedPath: 'search.do__q_menuNo-1003.html',
+          replayRoute: '/search.do__q_menuNo-1003',
+          replayable: true,
+        }],
+      ]),
+      fallbackMap: new Map(),
+    },
+  });
+  const output = processor.process(html, new Map(), 'index.html');
+  const $ = cheerio.load(output);
+
+  assert.equal($('#search').attr('action'), '/search.do__q_menuNo-1003');
+  assert.equal($('#search').attr('data-hidden-navigation-localized'), 'true');
+  assert.equal($('#search').attr('data-hidden-navigation-class'), 'form-get-reconstruction');
+  assert.equal($('#search input[type="hidden"]').length, 0);
+  assert.equal($('#search input[type="text"]').length, 1);
+});
+
+test('HtmlProcessor rewrites form GET via pathname fallback when exact reconstruction fails', () => {
+  const html = [
+    '<html><body>',
+    '<form id="nav-form" method="get" action="/board/list.do">',
+    '<input type="hidden" name="menuNo" value="5001">',
+    '</form>',
+    '</body></html>',
+  ].join('');
+  const processor = new HtmlProcessor('https://example.com', {
+    useBaseHref: true,
+    pageRouteIndex: {
+      exactUrlMap: new Map(),
+      normalizedIdentityMap: new Map(),
+      fallbackMap: new Map([
+        ['example.com/board/list.do', {
+          savedPath: 'board__s_list.do__q_menuNo-1003.html',
+          replayRoute: '/board__s_list.do__q_menuNo-1003',
+          replayable: true,
+        }],
+      ]),
+    },
+  });
+  const output = processor.process(html, new Map(), 'index.html');
+  const $ = cheerio.load(output);
+
+  assert.equal($('#nav-form').attr('action'), '/board__s_list.do__q_menuNo-1003');
+  assert.equal($('#nav-form').attr('data-hidden-navigation-localized'), 'true');
+  assert.equal($('#nav-form').attr('data-hidden-navigation-class'), 'form-get-reconstruction');
+});
+
+test('HtmlProcessor does not reconstruct form POST action from hidden inputs', () => {
+  const html = [
+    '<html><body>',
+    '<form id="post-form" method="post" action="/submit.do">',
+    '<input type="hidden" name="menuNo" value="1003">',
+    '</form>',
+    '</body></html>',
+  ].join('');
+  const processor = new HtmlProcessor('https://example.com', {
+    useBaseHref: true,
+    pageRouteIndex: {
+      exactUrlMap: new Map(),
+      normalizedIdentityMap: new Map([
+        ['https://example.com/submit.do?menuNo=1003', {
+          savedPath: 'submit.do__q_menuNo-1003.html',
+          replayRoute: '/submit.do__q_menuNo-1003',
+          replayable: true,
+        }],
+      ]),
+      fallbackMap: new Map(),
+    },
+  });
+  const output = processor.process(html, new Map(), 'index.html');
+  const $ = cheerio.load(output);
+
+  assert.equal($('#post-form').attr('data-hidden-navigation-localized'), undefined);
+  assert.equal($('#post-form').attr('data-hidden-navigation-class'), undefined);
+  assert.equal($('#post-form input[type="hidden"]').length, 1);
+});
+
+// --- Hidden Navigation 4차 확장: variable prefix + literal suffix & template literals ---
+
+test('HtmlProcessor rewrites variable prefix + literal suffix via wrapper function', () => {
+  const html = '<html><body><button id="wp" onclick="goPage(prefix + \'/portal/contents.do\')">Go</button></body></html>';
+  const processor = new HtmlProcessor('https://example.com', {
+    useBaseHref: true,
+    pageRouteIndex: {
+      exactUrlMap: new Map(),
+      normalizedIdentityMap: new Map(),
+      fallbackMap: new Map([
+        ['example.com/portal/contents.do', {
+          savedPath: 'portal__s_contents.do.html',
+          replayRoute: '/portal__s_contents.do',
+          replayable: true,
+        }],
+      ]),
+    },
+  });
+  const output = processor.process(html, new Map(), 'index.html');
+  const $ = cheerio.load(output);
+
+  assert.equal($('#wp').attr('onclick'), "goPage('/portal__s_contents.do')");
+  assert.equal($('#wp').attr('data-hidden-navigation-localized'), 'true');
+  assert.equal($('#wp').attr('data-hidden-navigation-class'), 'partial-literal-match');
+});
+
+test('HtmlProcessor rewrites variable prefix + literal suffix via window.open', () => {
+  const html = '<html><body><button id="wo" onclick="window.open(base + \'/popup/view.do\')">View</button></body></html>';
+  const processor = new HtmlProcessor('https://example.com', {
+    useBaseHref: true,
+    pageRouteIndex: {
+      exactUrlMap: new Map(),
+      normalizedIdentityMap: new Map(),
+      fallbackMap: new Map([
+        ['example.com/popup/view.do', {
+          savedPath: 'popup__s_view.do.html',
+          replayRoute: '/popup__s_view.do',
+          replayable: true,
+        }],
+      ]),
+    },
+  });
+  const output = processor.process(html, new Map(), 'index.html');
+  const $ = cheerio.load(output);
+
+  assert.match($('#wo').attr('onclick'), /window\.open\('\/popup__s_view\.do'\)/);
+  assert.equal($('#wo').attr('data-hidden-navigation-localized'), 'true');
+});
+
+test('HtmlProcessor does not rewrite variable prefix + literal suffix without fallback', () => {
+  const html = '<html><body><button id="nf" onclick="location.href = baseUrl + \'/unknown.do\'">Go</button></body></html>';
+  const processor = new HtmlProcessor('https://example.com', {
+    useBaseHref: true,
+    pageRouteIndex: {
+      exactUrlMap: new Map(),
+      normalizedIdentityMap: new Map(),
+      fallbackMap: new Map(),
+    },
+  });
+  const output = processor.process(html, new Map(), 'index.html');
+  const $ = cheerio.load(output);
+
+  assert.match($('#nf').attr('onclick'), /baseUrl/);
+  assert.equal($('#nf').attr('data-hidden-navigation-localized'), undefined);
+});
+
+test('HtmlProcessor rewrites template literal with static suffix via location.href', () => {
+  const html = '<html><body><button id="tl" onclick="location.href = `${baseUrl}/page.do`">Go</button></body></html>';
+  const processor = new HtmlProcessor('https://example.com', {
+    useBaseHref: true,
+    pageRouteIndex: {
+      exactUrlMap: new Map(),
+      normalizedIdentityMap: new Map(),
+      fallbackMap: new Map([
+        ['example.com/page.do', {
+          savedPath: 'page.do.html',
+          replayRoute: '/page.do',
+          replayable: true,
+        }],
+      ]),
+    },
+  });
+  const output = processor.process(html, new Map(), 'index.html');
+  const $ = cheerio.load(output);
+
+  assert.equal($('#tl').attr('onclick'), "location.href = '/page.do'");
+  assert.equal($('#tl').attr('data-hidden-navigation-localized'), 'true');
+  assert.equal($('#tl').attr('data-hidden-navigation-class'), 'partial-literal-match');
+});
+
+test('HtmlProcessor rewrites template literal with static suffix via wrapper function', () => {
+  const html = '<html><body><button id="tlw" onclick="goPage(`${prefix}/portal/contents.do`)">Go</button></body></html>';
+  const processor = new HtmlProcessor('https://example.com', {
+    useBaseHref: true,
+    pageRouteIndex: {
+      exactUrlMap: new Map(),
+      normalizedIdentityMap: new Map(),
+      fallbackMap: new Map([
+        ['example.com/portal/contents.do', {
+          savedPath: 'portal__s_contents.do.html',
+          replayRoute: '/portal__s_contents.do',
+          replayable: true,
+        }],
+      ]),
+    },
+  });
+  const output = processor.process(html, new Map(), 'index.html');
+  const $ = cheerio.load(output);
+
+  assert.equal($('#tlw').attr('onclick'), "goPage('/portal__s_contents.do')");
+  assert.equal($('#tlw').attr('data-hidden-navigation-localized'), 'true');
+});
+
+test('HtmlProcessor does not rewrite template literal without fallback', () => {
+  const html = '<html><body><button id="tlnf" onclick="location.href = `${baseUrl}/unknown.do`">Go</button></body></html>';
+  const processor = new HtmlProcessor('https://example.com', {
+    useBaseHref: true,
+    pageRouteIndex: {
+      exactUrlMap: new Map(),
+      normalizedIdentityMap: new Map(),
+      fallbackMap: new Map(),
+    },
+  });
+  const output = processor.process(html, new Map(), 'index.html');
+  const $ = cheerio.load(output);
+
+  assert.match($('#tlnf').attr('onclick'), /\$\{baseUrl\}/);
+  assert.equal($('#tlnf').attr('data-hidden-navigation-localized'), undefined);
+});
+
+test('HtmlProcessor does not rewrite pure variable template literal without static suffix', () => {
+  const html = '<html><body><button id="pv" onclick="location.href = `${fullUrl}`">Go</button></body></html>';
+  const processor = new HtmlProcessor('https://example.com', {
+    useBaseHref: true,
+    pageRouteIndex: {
+      exactUrlMap: new Map(),
+      normalizedIdentityMap: new Map(),
+      fallbackMap: new Map([
+        ['example.com/page.do', { savedPath: 'page.do.html', replayRoute: '/page.do', replayable: true }],
+      ]),
+    },
+  });
+  const output = processor.process(html, new Map(), 'index.html');
+  const $ = cheerio.load(output);
+
+  assert.match($('#pv').attr('onclick'), /\$\{fullUrl\}/);
+  assert.equal($('#pv').attr('data-hidden-navigation-localized'), undefined);
 });
 
 test('extractPageReplaySignals detects inline framework bootstrap and streaming hydration hints', () => {

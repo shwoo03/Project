@@ -81,6 +81,10 @@ export function createUIServerApp({ cloneRunner = cloneFrontend } = {}) {
     const job = jobs.get(activeJobId);
     if (!job) return;
 
+    if (entry.type === 'progress' && entry.progressData) {
+      job.progress = entry.progressData;
+    }
+
     const normalizedEntry = recordJobLog(job, entry);
     broadcast(job, normalizedEntry);
   }
@@ -118,7 +122,7 @@ export function createUIServerApp({ cloneRunner = cloneFrontend } = {}) {
       id: jobId,
       url: parsedUrl.href,
       status: 'queued',
-      progress: 'Queued',
+      progress: { stage: 'queued', current: 0, total: 0, label: 'Queued', detail: '' },
       outputDir: null,
       error: null,
       verificationWarnings: [],

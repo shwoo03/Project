@@ -40,6 +40,16 @@ export const LENGTH_DRIFT_FLOOR = 0.2; // min length drift for noise classificat
 export const MAX_GUARD_EXCEPTIONS = 100;
 export const MAX_GUARD_RESOURCE_ERRORS = 200;
 
+// Concurrency limits for parallel processing
+export const ASSET_DOWNLOAD_CONCURRENCY = 10;
+export const CSS_PROCESSING_CONCURRENCY = 6;
+export const JS_PROCESSING_CONCURRENCY = 8;
+export const PAGE_PROCESSING_CONCURRENCY = 4;
+
+// Mock sanitizer
+export const SANITIZER_MAX_DEPTH = 20;
+export const SANITIZER_MAX_FIELDS = 200;
+
 // Playwright runtime
 export const PLAYWRIGHT_VERSION = '1.58.2';
 export const PLAYWRIGHT_DOCKER_IMAGE = `mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble`;

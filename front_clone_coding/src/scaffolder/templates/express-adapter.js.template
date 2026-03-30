@@ -1,0 +1,282 @@
+import crypto from 'crypto';
+import net from 'net';
+import express from 'express';
+import cors from 'cors';
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const ROOT = path.resolve(__dirname, '..', '..', '..');
+
+export async function startExpressAdapter({ port = process.env.PORT || 3000, maxPort } = {}) {
+  const app = express();
+  const manifest = await readJson(path.join(ROOT, 'server', 'mocks', 'http-manifest.json'), []);
+  const pageRouteManifest = await readJson(path.join(ROOT, 'server', 'spec', 'page-route-manifest.json'), { routes: [] });
+  const routeLookup = buildPageRouteLookup(pageRouteManifest);
+  const staticOptions = {
+    index: false,
+    etag: true,
+    lastModified: true,
+    maxAge: '1h',
+    immutable: false,
+    setHeaders(res) {
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+    },
+  };
+
+  app.use(cors());
+  app.use(express.json({ limit: '20mb' }));
+  app.use(express.urlencoded({ extended: true }));
+  app.all('/__front_clone_noop__', (_req, res) => res.status(204).end());
+  app.use(express.static(path.join(ROOT, 'public'), staticOptions));
+  app.use('/public', express.static(path.join(ROOT, 'public'), staticOptions));
+
+  app.use('/api', async (req, res, next) => {
+    try {
+      const pathname = req.path.replace(/^\/api/, '') || '/';
+      const search = buildSearch(req.query || {});
+      const bodyHash = hashValue(req.body);
+      const graphQLBody = typeof req.body === 'object' && req.body ? req.body : {};
+      const operationName = typeof graphQLBody.operationName === 'string' ? graphQLBody.operationName : null;
+      const variablesHash = hashValue(graphQLBody.variables ?? null);
+      const documentHash = hashValue(typeof graphQLBody.query === 'string' ? graphQLBody.query : null);
+      const extensionsHash = hashValue(graphQLBody.extensions ?? null);
+
+      const match = findHttpMockMatch(manifest, {
+        method: req.method,
+        path: pathname,
+        search,
+        bodyHash,
+        operationName,
+        documentHash,
+        variablesHash,
+        extensionsHash,
+      }) || manifest.find((item) => item.method === req.method && item.path === pathname);
+
+      if (!match) return next();
+
+      const body = await readJson(path.join(ROOT, 'server', match.bodyFile), null);
+      res.type(match.responseMimeType || 'application/json');
+      res.status(match.status || 200);
+      return res.send(body);
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.use('/api', (req, res, next) => {
+    if (isNonCriticalApiRequest(req.path)) {
+      return res.status(204).end();
+    }
+    return next();
+  });
+
+  app.use(async (req, res, next) => {
+    try {
+      for (const viewFile of resolveViewCandidates(req.path, routeLookup)) {
+        try {
+          await fs.access(viewFile);
+          res.setHeader('Cache-Control', 'no-cache');
+          const html = await fs.readFile(viewFile, 'utf-8');
+          res.type('html');
+          return res.send(html);
+        } catch {
+          // Try the next candidate.
+        }
+      }
+      return next();
+    } catch {
+      return next();
+    }
+  });
+
+  app.use((_req, res) => {
+    res.status(404).send('Not Found');
+  });
+
+  const preferredPort = normalizePort(port, 3000);
+  const fallbackMaxPort = normalizePort(maxPort, preferredPort + 20);
+  const resolvedPort = await findAvailablePort(preferredPort, Math.max(preferredPort, fallbackMaxPort));
+
+  if (resolvedPort !== preferredPort) {
+    console.warn('Preferred port ' + preferredPort + ' is busy. Using http://localhost:' + resolvedPort + ' instead.');
+  }
+
+  const server = app.listen(resolvedPort, () => {
+    console.log('Replay adapter is running on http://localhost:' + resolvedPort);
+    console.log('Entry page: {{ENTRY_REPLAY_ROUTE}}');
+  });
+
+  return { app, server, port: resolvedPort };
+}
+
+function resolveViewCandidates(routePath, routeLookup = new Map()) {
+  const normalizedRoutePath = normalizeRoutePath(routePath);
+  const mappedRoute = routeLookup.get(normalizedRoutePath);
+  if (mappedRoute?.savedPath) {
+    return [path.join(ROOT, 'views', mappedRoute.savedPath)];
+  }
+
+  if (normalizedRoutePath === '/') return [path.join(ROOT, 'views', '{{ENTRY_PAGE_PATH}}')];
+  const withoutLeadingSlash = normalizedRoutePath.replace(/^\//, '');
+  return [
+    path.join(ROOT, 'views', withoutLeadingSlash + '.html'),
+    path.join(ROOT, 'views', withoutLeadingSlash, 'index.html'),
+  ];
+}
+
+function buildPageRouteLookup(pageRouteManifest = { routes: [] }) {
+  const lookup = new Map();
+
+  for (const route of pageRouteManifest.routes || []) {
+    if (!route.replayable || !route.savedPath) continue;
+    for (const routePath of [route.replayRoute, ...(route.routeAliases || [])]) {
+      const normalizedRoutePath = normalizeRoutePath(routePath);
+      if (!normalizedRoutePath) continue;
+      lookup.set(normalizedRoutePath, route);
+    }
+  }
+
+  return lookup;
+}
+
+function normalizeRoutePath(value) {
+  const normalized = String(value || '/').replace(/\\/g, '/').replace(/\/+$/, '');
+  return normalized || '/';
+}
+
+function isNonCriticalApiRequest(value) {
+  const lower = String(value || '').toLowerCase();
+  return /(telemetry|tracking|metrics|analytic|analytics|beacon|logger|logging|impress|exposure|clicklog|nlog|veta|adtech|ads|conversion|pixel|collect|\blogs?\b|recaptcha|captcha|challenge|shield|bot)/.test(lower);
+}
+
+function findHttpMockMatch(manifest, requestMeta) {
+  const normalizedSearch = normalizeSearch(requestMeta.search || '');
+
+  const strictMatch = manifest.find((item) => {
+    if (item.method !== requestMeta.method) return false;
+    if (item.path !== requestMeta.path) return false;
+    if ((item.normalizedSearch || normalizeSearch(item.search || '')) !== normalizedSearch) return false;
+
+    if (item.matchStrategy === 'graphql-operation' || item.graphQL) {
+      const details = item.graphQLDetails || {};
+      const itemVariablesHash = details.variablesHash || item.graphQLVariablesHash || 'no-body';
+      const itemDocumentHash = details.documentHash || 'no-body';
+      return (details.operationName || item.graphQLOperationName || null) === (requestMeta.operationName || null)
+        && itemVariablesHash === (requestMeta.variablesHash || 'no-body')
+        && (
+          (itemDocumentHash === (requestMeta.documentHash || 'no-body') && itemDocumentHash !== 'no-body')
+          || (itemDocumentHash === 'no-body' && hashValue(details.extensions || null) === (requestMeta.extensionsHash || 'no-body'))
+        );
+    }
+
+    return (item.bodyHash || 'no-body') === (requestMeta.bodyHash || 'no-body');
+  });
+
+  if (strictMatch) return strictMatch;
+
+  return manifest.find((item) => {
+    if (item.replayRole !== 'render-critical') return false;
+    if (item.method !== requestMeta.method) return false;
+    if (item.path !== requestMeta.path) return false;
+    if ((item.normalizedSearch || normalizeSearch(item.search || '')) !== normalizedSearch) return false;
+    if (!(item.matchStrategy === 'graphql-operation' || item.graphQL)) return false;
+
+    const details = item.graphQLDetails || {};
+    return (details.operationName || item.graphQLOperationName || null) === (requestMeta.operationName || null)
+      && (details.variablesHash || item.graphQLVariablesHash || 'no-body') === (requestMeta.variablesHash || 'no-body');
+  }) || null;
+}
+
+async function readJson(filePath, fallback) {
+  try {
+    const raw = await fs.readFile(filePath, 'utf-8');
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function buildSearch(query) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query || {})) {
+    if (Array.isArray(value)) {
+      for (const item of value) params.append(key, item);
+    } else if (value !== undefined && value !== null) {
+      params.append(key, String(value));
+    }
+  }
+  return normalizeSearch(params.toString() ? '?' + params.toString() : '');
+}
+
+function normalizeSearch(search) {
+  const params = new URLSearchParams(String(search || '').replace(/^\?/, ''));
+  const ignored = new Set(['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'utm_id', 'gclid', 'fbclid', 'msclkid', '_ga', '_gl', 'ref', 'ref_src']);
+  const entries = [];
+
+  for (const [key, value] of params.entries()) {
+    if (ignored.has(key.toLowerCase())) continue;
+    entries.push([key, value]);
+  }
+
+  entries.sort(([leftKey, leftValue], [rightKey, rightValue]) => {
+    if (leftKey === rightKey) return leftValue.localeCompare(rightValue);
+    return leftKey.localeCompare(rightKey);
+  });
+
+  const normalized = new URLSearchParams();
+  for (const [key, value] of entries) {
+    normalized.append(key, value);
+  }
+
+  const rendered = normalized.toString();
+  return rendered ? '?' + rendered : '';
+}
+
+function hashValue(value) {
+  if (value === null || value === undefined || value === '' || (typeof value === 'object' && Object.keys(value || {}).length === 0)) {
+    return 'no-body';
+  }
+  return crypto.createHash('sha1').update(stableSerialize(value)).digest('hex').slice(0, 12);
+}
+
+function stableSerialize(value) {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return '[' + value.map((item) => stableSerialize(item)).join(',') + ']';
+  if (value && typeof value === 'object') {
+    return '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + stableSerialize(value[key])).join(',') + '}';
+  }
+  return JSON.stringify(value);
+}
+
+function normalizePort(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 65535) {
+    return fallback;
+  }
+  return parsed;
+}
+
+async function findAvailablePort(startPort, maxPort) {
+  for (let current = startPort; current <= maxPort; current += 1) {
+    const available = await canListenOnPort(current);
+    if (available) return current;
+  }
+
+  throw new Error('No available port found between ' + startPort + ' and ' + maxPort + '. Set PORT to an open port and retry.');
+}
+
+function canListenOnPort(port) {
+  return new Promise((resolve) => {
+    const tester = net.createServer();
+
+    tester.once('error', () => resolve(false));
+    tester.once('listening', () => {
+      tester.close(() => resolve(true));
+    });
+
+    tester.listen(port);
+  });
+}

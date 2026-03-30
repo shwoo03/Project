@@ -3,23 +3,17 @@ import path from 'path';
 
 import express from 'express';
 import { chromium } from 'playwright';
-import { load as loadHtml } from 'cheerio';
-
 import { ensureDir, pathExists, saveFile } from '../utils/file-utils.js';
 import logger from '../utils/logger.js';
-import {
-  extractTextMarkers,
-  looksLikeEncodingNoise,
-  normalizeComparisonText,
-} from '../utils/encoding-utils.js';
 import { classifyExternalRuntime, isNonCriticalRuntime } from '../utils/external-runtime-utils.js';
+import { assessContentComparison } from './content-comparison.js';
 import {
-  CONTENT_GAP_CEILING,
-  PARTIAL_MATCH_CEILING,
-  BOILERPLATE_DOMINANCE_RATIO,
-  HEADING_MAIN_OVERLAP_FLOOR,
-  LENGTH_DRIFT_FLOOR,
-} from '../utils/constants.js';
+  buildRuntimeDiagnostics,
+  assessRuntimeFailureState,
+  classifyRuntimeConsoleMessage,
+  summarizeRuntimeErrors,
+  summarizeExternalRequests,
+} from './runtime-diagnostics.js';
 import {
   buildSearch,
   findHttpMockMatch,
@@ -329,6 +323,15 @@ export async function runReplayVerification({
         contentComparison.contentDriftAssessment = 'runtime-induced-content-gap';
       }
 
+      // When sanitized mocks are present, reclassify runtime-induced-partial-match to mock-driven-sanitized-replay.
+      const pageUrl = pageInfo.finalUrl || pageInfo.url || '';
+      const hasSanitizedMocks = manifest.some(
+        (item) => item.sanitized && normalizeCrawlUrl(item.pageUrl) === normalizeCrawlUrl(pageUrl),
+      );
+      if (hasSanitizedMocks && contentComparison.contentDriftAssessment === 'runtime-induced-partial-match') {
+        contentComparison.contentDriftAssessment = 'mock-driven-sanitized-replay';
+      }
+
       // Determine whether soft runtime failures should be notes (informational) or warnings (actionable).
       // When the page shell is intact and content comparison is positive, soft failures are notes.
       const contentIsGood = contentComparison.contentDriftAssessment === 'content-match'
@@ -345,6 +348,7 @@ export async function runReplayVerification({
       if (contentComparison.contentDriftAssessment === 'high-confidence-content-gap') pageWarningSet.push('content-drift');
       if (contentComparison.contentDriftAssessment === 'runtime-induced-content-gap') pageWarningSet.push('runtime-induced-content-gap');
       if (contentComparison.contentDriftAssessment === 'runtime-induced-partial-match') pageNoteSet.push('runtime-induced-partial-match');
+      if (contentComparison.contentDriftAssessment === 'mock-driven-sanitized-replay') pageNoteSet.push('mock-driven-sanitized-replay');
       if (contentComparison.contentDriftAssessment === 'comparison-noise-likely') pageWarningSet.push('comparison-noise-likely');
       if (verificationMeta.serviceWorkerAttempts.length > 0) pageWarningSet.push('service-worker-attempted');
       if (contentComparison.titleComparison.shouldWarn) pageWarningSet.push('title-drift');
@@ -717,199 +721,6 @@ function analyzeReplayRoute({ responseStatus, actualTitle, bodyText, criticalLoc
   return { routeReached: true, warningCode: null };
 }
 
-function computeMarkerOverlap(pageInfo, bodyText) {
-  const expectedMarkers = getExpectedMarkers(pageInfo);
-  if (expectedMarkers.length === 0) return 1;
-
-  const actualTokens = new Set(extractTextMarkers(bodyText, 120).map((token) => token.toLowerCase()));
-  const hits = expectedMarkers.filter((token) => actualTokens.has(token.toLowerCase())).length;
-  return hits / expectedMarkers.length;
-}
-
-function getExpectedMarkers(pageInfo) {
-  const html = pageInfo.processedHtml || pageInfo.decodedDocumentHtml || pageInfo.html || '';
-  if (!html) {
-    return extractTextMarkers(pageInfo.title || '', 20);
-  }
-
-  const $ = loadHtml(html);
-  $('script, style, noscript').remove();
-  const text = $('body').text() || $.root().text() || '';
-  return extractTextMarkers(`${pageInfo.title || ''} ${text}`, 80);
-}
-
-export function assessContentComparison(pageInfo, actualProfile = {}) {
-  const expectedProfile = buildExpectedContentProfile(pageInfo);
-  const actualMarkers = {
-    heading: extractTextMarkers(actualProfile.headingText || '', 24),
-    main: extractTextMarkers(actualProfile.mainText || actualProfile.bodyText || '', 80),
-    body: extractTextMarkers(actualProfile.bodyText || '', 120),
-  };
-  const overlap = {
-    heading: computeTokenOverlap(expectedProfile.markers.heading, actualMarkers.heading),
-    main: computeTokenOverlap(expectedProfile.markers.main, actualMarkers.main),
-    body: computeTokenOverlap(expectedProfile.markers.body, actualMarkers.body),
-  };
-  const markerOverlapRatio = computeWeightedOverlap(overlap, expectedProfile.markers);
-  const expectedBodyLength = expectedProfile.lengths.body;
-  const boilerplateBytes = (actualProfile.navTextLength || 0) + (actualProfile.footerTextLength || 0);
-  const actualBodyLength = String(actualProfile.bodyText || '').length;
-  const boilerplateDominanceLikely = actualBodyLength > 0
-    && boilerplateBytes / actualBodyLength >= BOILERPLATE_DOMINANCE_RATIO
-    && overlap.main >= CONTENT_GAP_CEILING;
-
-  let contentDriftAssessment = 'content-match';
-  if (
-    boilerplateDominanceLikely
-    && (overlap.heading >= HEADING_MAIN_OVERLAP_FLOOR || overlap.main >= HEADING_MAIN_OVERLAP_FLOOR)
-    && (
-      overlap.body + LENGTH_DRIFT_FLOOR < overlap.main
-      || computeLengthDrift(expectedBodyLength, actualBodyLength) >= LENGTH_DRIFT_FLOOR
-    )
-  ) {
-    contentDriftAssessment = 'comparison-noise-likely';
-  } else if (markerOverlapRatio < CONTENT_GAP_CEILING && overlap.main < CONTENT_GAP_CEILING && overlap.heading < CONTENT_GAP_CEILING) {
-    contentDriftAssessment = 'high-confidence-content-gap';
-  } else if (markerOverlapRatio < PARTIAL_MATCH_CEILING) {
-    contentDriftAssessment = 'partial-content-match';
-  }
-
-  const contentComparisonConfidence = boilerplateDominanceLikely
-    ? 'medium'
-    : (expectedProfile.markers.main.length === 0 && expectedProfile.markers.heading.length === 0)
-      ? 'low'
-      : 'high';
-  const titleComparison = assessTitleComparison(pageInfo.title || '', actualProfile.title || '');
-
-  return {
-    markerOverlapRatio,
-    contentDriftAssessment,
-    contentComparisonConfidence,
-    boilerplateDominanceLikely,
-    titleComparison,
-    markerExtractionProfile: {
-      expected: {
-        headingMarkers: expectedProfile.markers.heading.length,
-        mainMarkers: expectedProfile.markers.main.length,
-        bodyMarkers: expectedProfile.markers.body.length,
-      },
-      actual: {
-        headingMarkers: actualMarkers.heading.length,
-        mainMarkers: actualMarkers.main.length,
-        bodyMarkers: actualMarkers.body.length,
-      },
-      overlap,
-      sourcesUsed: buildMarkerSourceList(expectedProfile),
-    },
-  };
-}
-
-function buildExpectedContentProfile(pageInfo) {
-  const html = pageInfo.processedHtml || pageInfo.decodedDocumentHtml || pageInfo.html || '';
-  if (!html) {
-    const title = pageInfo.title || '';
-    return {
-      markers: {
-        heading: extractTextMarkers(title, 20),
-        main: extractTextMarkers(title, 40),
-        body: extractTextMarkers(title, 60),
-      },
-      lengths: {
-        body: String(title).length,
-      },
-      sourcesUsed: ['title-fallback'],
-    };
-  }
-
-  const $ = loadHtml(html, { decodeEntities: false });
-  $('script, style, noscript').remove();
-  const getTexts = (selectors, limit = 8) => selectors
-    .flatMap((selector) => $(selector).slice(0, limit).toArray())
-    .map((node) => $(node).text())
-    .map((text) => text.replace(/\s+/g, ' ').trim())
-    .filter(Boolean);
-  const pickLongest = (selectors) => {
-    const values = getTexts(selectors, 20).sort((left, right) => right.length - left.length);
-    return values[0] || '';
-  };
-
-  const bodyText = ($('body').text() || $.root().text() || '').replace(/\s+/g, ' ').trim();
-  const headingText = getTexts(['h1', 'h2', 'h3'], 8).join(' ');
-  const mainText = pickLongest(['main', '[role="main"]', 'article', 'section']);
-
-  return {
-    markers: {
-      heading: extractTextMarkers(`${pageInfo.title || ''} ${headingText}`, 24),
-      main: extractTextMarkers(mainText || bodyText, 80),
-      body: extractTextMarkers(`${pageInfo.title || ''} ${bodyText}`, 120),
-    },
-    lengths: {
-      body: bodyText.length,
-    },
-    sourcesUsed: buildMarkerSourceList({
-      headingText,
-      mainText,
-      bodyText,
-    }),
-  };
-}
-
-function buildMarkerSourceList(profile = {}) {
-  const sources = [];
-  if (profile.headingText || profile.markers?.heading?.length) sources.push('headings');
-  if (profile.mainText || profile.markers?.main?.length) sources.push('main-content');
-  if (profile.bodyText || profile.markers?.body?.length) sources.push('body-text');
-  return sources.length > 0 ? sources : ['title-fallback'];
-}
-
-export function computeTokenOverlap(expected = [], actual = []) {
-  if ((expected || []).length === 0) return 1;
-  const actualSet = new Set((actual || []).map((token) => String(token).toLowerCase()));
-  const hits = (expected || []).filter((token) => actualSet.has(String(token).toLowerCase())).length;
-  return hits / expected.length;
-}
-
-function computeWeightedOverlap(overlap = {}, markers = {}) {
-  const weights = [
-    ['heading', 0.3],
-    ['main', 0.5],
-    ['body', 0.2],
-  ];
-  let totalWeight = 0;
-  let score = 0;
-  for (const [key, weight] of weights) {
-    if ((markers[key] || []).length === 0) continue;
-    totalWeight += weight;
-    score += (overlap[key] || 0) * weight;
-  }
-  if (totalWeight === 0) return 1;
-  return score / totalWeight;
-}
-
-function computeLengthDrift(expectedLength = 0, actualLength = 0) {
-  if (!expectedLength) return 0;
-  return Math.abs(actualLength - expectedLength) / expectedLength;
-}
-
-export function assessTitleComparison(expectedTitle = '', actualTitle = '') {
-  const expectedNormalized = normalizeTitleForComparison(expectedTitle);
-  const actualNormalized = normalizeTitleForComparison(actualTitle);
-  const expectedNoise = looksLikeEncodingNoise(expectedTitle);
-  const actualNoise = looksLikeEncodingNoise(actualTitle);
-  const mismatchLikelyEncodingNoise = expectedNormalized !== actualNormalized && expectedNoise && actualNoise;
-
-  return {
-    normalizedExpected: expectedNormalized,
-    normalizedActual: actualNormalized,
-    confidence: mismatchLikelyEncodingNoise ? 'low' : (expectedNoise || actualNoise ? 'medium' : 'high'),
-    mismatchLikelyEncodingNoise,
-    shouldWarn: Boolean(expectedNormalized && actualNormalized && expectedNormalized !== actualNormalized && !mismatchLikelyEncodingNoise),
-  };
-}
-
-function normalizeTitleForComparison(value = '') {
-  return normalizeComparisonText(String(value || '')).toLowerCase();
-}
 
 function isCriticalAssetRequest(value) {
   return /\.(css|js|woff2?|ttf|svg|png|jpe?g|gif|webp)$/i.test(value || '');
@@ -1085,301 +896,6 @@ function safeParseJson(value) {
   }
 }
 
-function summarizeExternalRequests(detailMap) {
-  const summary = {
-    'render-critical-asset': 0,
-    'render-critical-runtime': 0,
-    'non-critical-runtime': 0,
-    'anti-abuse': 0,
-  };
-
-  for (const detail of detailMap.values()) {
-    summary[detail.category] = (summary[detail.category] || 0) + 1;
-  }
-
-  return summary;
-}
-
-function summarizeRuntimeErrors(pageResults = []) {
-  return pageResults.reduce((summary, page) => {
-    summary.consoleErrors += page.runtimeErrorSummary?.consoleErrors || 0;
-    summary.runtimeExceptions += page.runtimeErrorSummary?.runtimeExceptions || 0;
-    summary.failedRuntimeRequests += page.runtimeErrorSummary?.failedRuntimeRequests || 0;
-    for (const [failureClass, count] of Object.entries(page.runtimeFailureClasses || {})) {
-      summary.failureClasses[failureClass] = (summary.failureClasses[failureClass] || 0) + count;
-    }
-    if ((page.runtimeErrorSummary?.total || 0) > 0) {
-      summary.pagesWithRuntimeErrors += 1;
-    }
-    if (page.runtimeFailureSeverity === 'soft') {
-      summary.pagesWithSoftRuntimeDegrade += 1;
-    }
-    summary.total += page.runtimeErrorSummary?.total || 0;
-    return summary;
-  }, {
-    consoleErrors: 0,
-    runtimeExceptions: 0,
-    failedRuntimeRequests: 0,
-    pagesWithRuntimeErrors: 0,
-    pagesWithSoftRuntimeDegrade: 0,
-    total: 0,
-    failureClasses: {},
-  });
-}
-
-export function classifyRuntimeConsoleMessage(text, runtimeOrigin) {
-  const normalized = String(text || '').trim();
-  if (!normalized) {
-    return { category: 'unknown', warningEligible: false };
-  }
-
-  const lower = normalized.toLowerCase();
-  const hasExternalUrl = /https?:\/\//i.test(normalized) && !normalized.includes(runtimeOrigin);
-  if ((/failed to load resource|net::err_|blocked by client|access to fetch/i.test(lower)) && hasExternalUrl) {
-    return { category: 'external-runtime-noise', warningEligible: false };
-  }
-
-  if (/hydrat/i.test(lower)) {
-    return { category: 'hydration-failure', warningEligible: true };
-  }
-  if (/chunk|loading chunk|importing a module script failed|module script/i.test(lower)) {
-    return { category: 'chunk-load-failure', warningEligible: true };
-  }
-
-  return { category: 'runtime-console-error', warningEligible: true };
-}
-
-function buildRuntimeDiagnostics({
-  consoleErrors = [],
-  runtimeExceptions = [],
-  failedRuntimeRequests = [],
-  runtimeGuardState = null,
-  runtimeOrigin = '',
-}) {
-  const sameOriginRuntimeExceptions = dedupeRuntimeExceptions([
-    ...runtimeExceptions.map((entry) => ({
-      ...entry,
-      source: entry.source || 'pageerror',
-      sameOrigin: true,
-      failureClass: classifySameOriginRuntimeException(entry),
-    })),
-    ...((runtimeGuardState?.exceptions || []).map((entry) => ({
-      ...entry,
-      sameOrigin: entry.sameOrigin !== false,
-      failureClass: entry.failureClass || classifySameOriginRuntimeException(entry),
-    }))),
-  ]);
-
-  const sameOriginRuntimeMisses = dedupeRuntimeRequests([
-    ...failedRuntimeRequests.map((entry) => classifyRuntimeRequestFailure(entry, runtimeOrigin)),
-    ...((runtimeGuardState?.resourceErrors || []).map((entry) => classifyRuntimeRequestFailure(entry, runtimeOrigin))),
-  ].filter((entry) => entry.sameOrigin));
-
-  const failureClasses = summarizeRuntimeFailureClasses(sameOriginRuntimeExceptions, sameOriginRuntimeMisses);
-  const summary = {
-    consoleErrors: consoleErrors.length,
-    runtimeExceptions: sameOriginRuntimeExceptions.length,
-    failedRuntimeRequests: sameOriginRuntimeMisses.length,
-    total: consoleErrors.length + sameOriginRuntimeExceptions.length + sameOriginRuntimeMisses.length,
-  };
-  const warningCodes = [];
-
-  if (consoleErrors.some((entry) => entry.warningEligible !== false)) {
-    warningCodes.push('runtime-console-error');
-  }
-  if (sameOriginRuntimeExceptions.length > 0) {
-    warningCodes.push('runtime-exception');
-  }
-  if (sameOriginRuntimeMisses.some((entry) => entry.failureClass === 'runtime-script-failed')) {
-    warningCodes.push('runtime-script-failed');
-  } else if (sameOriginRuntimeMisses.some((entry) => entry.failureClass === 'runtime-style-failed')) {
-    warningCodes.push('runtime-style-failed');
-  } else if (sameOriginRuntimeMisses.some((entry) => entry.failureClass !== 'runtime-resource-missing')) {
-    warningCodes.push('runtime-request-failed');
-  }
-
-  return {
-    consoleErrors,
-    runtimeExceptions: sameOriginRuntimeExceptions,
-    failedRuntimeRequests: sameOriginRuntimeMisses,
-    sameOriginRuntimeExceptions,
-    sameOriginRuntimeMisses,
-    failureClasses,
-    summary,
-    warningCodes,
-  };
-}
-
-export function classifySameOriginRuntimeException(entry = {}) {
-  const lower = String(entry?.message || '').toLowerCase();
-  if (/(cannot (set|read) properties of null|cannot (set|read) properties of undefined|null is not an object|undefined is not an object|appendchild|removechild|insertbefore|queryselector)/.test(lower)) {
-    return 'runtime-dom-assumption';
-  }
-  if (/chunk|module script|loading chunk|importing a module script failed/.test(lower)) {
-    return 'runtime-script-failed';
-  }
-  return 'runtime-exception';
-}
-
-export function classifyRuntimeRequestFailure(entry = {}, runtimeOrigin = '') {
-  const url = String(entry.url || '');
-  const parsed = safeParseUrl(url);
-  const sameOrigin = entry.sameOrigin ?? Boolean(parsed && parsed.origin === runtimeOrigin);
-  const resourceType = String(entry.resourceType || '').toLowerCase();
-  const mimeHint = String(entry.mimeType || entry.responseMimeType || '').toLowerCase();
-  const pathLower = parsed ? parsed.pathname.toLowerCase() : '';
-
-  let failureClass = entry.failureClass || 'runtime-resource-missing';
-  if (sameOrigin) {
-    if (resourceType === 'script' || resourceType === 'module') {
-      failureClass = 'runtime-script-failed';
-    } else if (resourceType === 'stylesheet' || resourceType === 'style') {
-      failureClass = 'runtime-style-failed';
-    } else if (resourceType === 'fetch' || resourceType === 'xhr' || mimeHint.includes('json') || mimeHint.includes('xml') || /\.(json|xml|api)\b/.test(pathLower)) {
-      failureClass = 'runtime-data-miss';
-    } else if (resourceType === 'image' || resourceType === 'font' || /\.(png|jpe?g|gif|svg|webp|ico|woff2?|ttf|eot|otf)\b/.test(pathLower)) {
-      failureClass = 'runtime-asset-miss';
-    } else if (!entry.failureClass) {
-      failureClass = 'runtime-resource-missing';
-    }
-  }
-
-  return {
-    ...entry,
-    url,
-    sameOrigin,
-    resourceType: resourceType || 'resource',
-    failureClass,
-  };
-}
-
-function summarizeRuntimeFailureClasses(runtimeExceptions = [], runtimeMisses = []) {
-  const summary = {};
-  for (const entry of [...runtimeExceptions, ...runtimeMisses]) {
-    const failureClass = String(entry.failureClass || '').trim();
-    if (!failureClass) continue;
-    summary[failureClass] = (summary[failureClass] || 0) + 1;
-  }
-  return summary;
-}
-
-function dedupeRuntimeRequests(requests = []) {
-  const seen = new Set();
-  const deduped = [];
-  for (const request of requests) {
-    const key = `${request.resourceType || ''}|${request.status || ''}|${request.url || ''}|${request.failureText || ''}|${request.failureClass || ''}|${request.sameOrigin ? 'same' : 'cross'}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(request);
-  }
-  return deduped;
-}
-
-function dedupeRuntimeExceptions(exceptions = []) {
-  const seen = new Set();
-  const deduped = [];
-  for (const entry of exceptions) {
-    const key = `${entry.name || ''}|${entry.message || ''}|${entry.source || ''}|${entry.failureClass || ''}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(entry);
-  }
-  return deduped;
-}
-
-export function assessRuntimeFailureState({
-  routeReached = false,
-  criticalLocatorPresent = false,
-  expectedRenderCritical = [],
-  runtimeDiagnostics = {},
-}) {
-  const hasStrictDependencies = (expectedRenderCritical || []).length > 0;
-  const exceptionClasses = new Set((runtimeDiagnostics.sameOriginRuntimeExceptions || []).map((entry) => entry.failureClass));
-  const missClasses = new Set((runtimeDiagnostics.sameOriginRuntimeMisses || []).map((entry) => entry.failureClass));
-  const hasDomAssumption = exceptionClasses.has('runtime-dom-assumption');
-  const hasScriptFailure = exceptionClasses.has('runtime-script-failed') || missClasses.has('runtime-script-failed');
-  const hasStyleFailure = missClasses.has('runtime-style-failed');
-  const hasResourceMiss = missClasses.has('runtime-resource-missing');
-  const hasDataMiss = missClasses.has('runtime-data-miss');
-  const hasAssetMiss = missClasses.has('runtime-asset-miss');
-  const hasOnlySoftMisses = !hasResourceMiss && !hasScriptFailure && !hasStyleFailure && (hasDataMiss || hasAssetMiss);
-
-  if (!routeReached) {
-    return {
-      assessment: 'route-failed',
-      severity: 'high',
-      scope: 'page',
-      suspectedFailureChain: 'route-unreachable',
-    };
-  }
-
-  if (hasScriptFailure) {
-    return {
-      assessment: 'runtime-script-degraded',
-      severity: 'high',
-      scope: 'page',
-      suspectedFailureChain: hasDomAssumption ? 'script-led-runtime-failure' : 'script-runtime-failure',
-    };
-  }
-
-  if (hasStyleFailure) {
-    return {
-      assessment: 'runtime-style-degraded',
-      severity: criticalLocatorPresent ? 'medium' : 'high',
-      scope: criticalLocatorPresent ? 'widget' : 'page',
-      suspectedFailureChain: 'style-runtime-failure',
-    };
-  }
-
-  if (hasDomAssumption) {
-    const softEligible = criticalLocatorPresent && !hasStrictDependencies;
-    const dataOrAssetLed = hasOnlySoftMisses && !hasResourceMiss;
-    return {
-      assessment: softEligible ? 'runtime-widget-soft-fail' : 'runtime-page-degraded',
-      severity: softEligible ? 'soft' : 'high',
-      scope: softEligible ? 'widget' : 'page',
-      suspectedFailureChain: hasResourceMiss
-        ? 'resource-led-dom-assumption'
-        : dataOrAssetLed
-          ? 'data-or-asset-led-dom-assumption'
-          : 'isolated-dom-assumption',
-    };
-  }
-
-  if (hasResourceMiss) {
-    return {
-      assessment: 'runtime-resource-soft-miss',
-      severity: 'soft',
-      scope: 'widget',
-      suspectedFailureChain: 'resource-soft-miss',
-    };
-  }
-
-  if (hasDataMiss || hasAssetMiss) {
-    return {
-      assessment: 'runtime-resource-soft-miss',
-      severity: 'soft',
-      scope: 'widget',
-      suspectedFailureChain: hasDataMiss ? 'data-soft-miss' : 'asset-soft-miss',
-    };
-  }
-
-  if ((runtimeDiagnostics.summary?.total || 0) > 0) {
-    return {
-      assessment: 'runtime-warning-only',
-      severity: 'low',
-      scope: 'unknown',
-      suspectedFailureChain: 'warning-only',
-    };
-  }
-
-  return {
-    assessment: 'runtime-clean',
-    severity: 'none',
-    scope: 'none',
-    suspectedFailureChain: 'none',
-  };
-}
 
 function buildPageRouteLookup(pageRouteManifest = { routes: [] }) {
   const lookup = new Map();
@@ -1417,3 +933,7 @@ async function readJson(filePath, fallback) {
     return fallback;
   }
 }
+
+// Re-export for backwards compatibility
+export { assessContentComparison, computeTokenOverlap, assessTitleComparison } from './content-comparison.js';
+export { classifyRuntimeConsoleMessage, classifySameOriginRuntimeException, classifyRuntimeRequestFailure, assessRuntimeFailureState } from './runtime-diagnostics.js';

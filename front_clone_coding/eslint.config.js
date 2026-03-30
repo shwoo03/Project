@@ -46,6 +46,17 @@ export default [
     },
   },
   {
-    ignores: ['output/**', 'research/**', 'node_modules/**', '.codex/**'],
+    files: ['tests/**/*.js'],
+    languageOptions: {
+      globals: {
+        global: 'writable',
+        Response: 'readonly',
+        Headers: 'readonly',
+        TextDecoder: 'readonly',
+      },
+    },
+  },
+  {
+    ignores: ['output/**', 'research/**', 'node_modules/**', '.codex/**', 'src/scaffolder/templates/**'],
   },
 ];

@@ -7,6 +7,8 @@ import { resolveUrl, getRelativePath, getAssetPathFromUrl } from '../utils/url-u
 import { saveFile, deduplicateFilename } from '../utils/file-utils.js';
 import logger from '../utils/logger.js';
 import { classifyExternalRuntime } from '../utils/external-runtime-utils.js';
+import { batchParallel } from '../utils/concurrency-utils.js';
+import { CSS_PROCESSING_CONCURRENCY } from '../utils/constants.js';
 
 const CSS_ASSET_ROOT_SEGMENTS = new Set([
   'img',
@@ -41,6 +43,7 @@ export default class CssProcessor {
     this.cssFiles = new Map();
     this._usedNames = new Set();
     this.cssRecoveryRecords = new Map();
+    this._pendingSaves = new Map();
   }
 
   async processAll() {
@@ -60,10 +63,14 @@ export default class CssProcessor {
 
     logger.update(`Analyzing ${cssFiles.length} CSS files`);
 
-    for (const { url, localPath, ownerPageUrl } of cssFiles) {
-      const result = await this._processCssFile(url, localPath, { ownerPageUrl, finalPass: false });
-      additionalAssets += result.additionalAssets;
-      importChains += result.importChains;
+    const results = await batchParallel(cssFiles, CSS_PROCESSING_CONCURRENCY, async ({ url, localPath, ownerPageUrl }) => {
+      return this._processCssFile(url, localPath, { ownerPageUrl, finalPass: false });
+    });
+    for (const entry of results) {
+      if (entry.status === 'fulfilled' && entry.value) {
+        additionalAssets += entry.value.additionalAssets;
+        importChains += entry.value.importChains;
+      }
     }
 
     const finalPass = await this._finalizeProcessedCssFiles();
@@ -412,6 +419,19 @@ export default class CssProcessor {
   }
 
   async _saveAdditionalAsset(url, response, options = {}) {
+    if (this._pendingSaves.has(url)) {
+      return this._pendingSaves.get(url);
+    }
+    const promise = this._doSaveAdditionalAsset(url, response, options);
+    this._pendingSaves.set(url, promise);
+    try {
+      return await promise;
+    } finally {
+      this._pendingSaves.delete(url);
+    }
+  }
+
+  async _doSaveAdditionalAsset(url, response, options = {}) {
     const proposedPath = getAssetPathFromUrl(url, this.baseUrl, response.mimeType, response.type);
     if (!proposedPath) return null;
 
@@ -626,12 +646,9 @@ export default class CssProcessor {
       return null;
     }
 
-    let candidatePath = '';
-    if (normalizedUrl.startsWith('/')) {
-      candidatePath = normalizedUrl.replace(/^\/+/, '');
-    } else {
-      candidatePath = path.posix.normalize(path.posix.join(path.posix.dirname(cssLocalPath), normalizedUrl));
-    }
+    const candidatePath = normalizedUrl.startsWith('/')
+      ? normalizedUrl.replace(/^\/+/, '')
+      : path.posix.normalize(path.posix.join(path.posix.dirname(cssLocalPath), normalizedUrl));
 
     if (!candidatePath || candidatePath.startsWith('..')) {
       return null;

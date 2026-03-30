@@ -5,7 +5,6 @@ import os from 'os';
 import path from 'path';
 
 import ApiProcessor from '../src/processor/api-processor.js';
-import { ensureDir, saveFile } from '../src/utils/file-utils.js';
 import { normalizeCrawlUrl } from '../src/utils/url-utils.js';
 
 test('ApiProcessor preserves GraphQL request details and writes schema artifacts', async () => {
@@ -294,6 +293,79 @@ test('ApiProcessor classifies logging envelope POST bodies as non-critical even 
     assert.equal(loggingRequest.expectedForReplay, false);
     assert.equal(result.renderCriticalCandidates.some((item) => item.path === '/cl2'), false);
     assert.equal(bootstrapRequest.renderCriticalKind, 'render-critical-bootstrap');
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('ApiProcessor sanitizes render-supporting mock bodies and tags manifest entries', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'front-clone-api-sanitize-'));
+  try {
+    const pageSignals = new Map([
+      [normalizeCrawlUrl('https://example.com'), {
+        hasInlineBootstrapState: true,
+        hasUserInfoModel: true,
+        hasMembershipStatusFallback: true,
+        hasSessionStateFallback: false,
+      }],
+    ]);
+    const processor = new ApiProcessor(tempRoot, 'https://example.com', 'registrable-domain', pageSignals);
+    const result = await processor.generateArtifacts([
+      {
+        method: 'POST',
+        url: 'https://example.com/graphql',
+        pageUrl: 'https://example.com',
+        resourceType: 'fetch',
+        postData: JSON.stringify({
+          operationName: 'MembershipStatus',
+          variables: {},
+          extensions: { persistedQuery: { version: 1, sha256Hash: 'abc' } },
+        }),
+        headers: { 'content-type': 'application/json' },
+        responseStatus: 200,
+        responseMimeType: 'application/json',
+        responseBody: JSON.stringify({ data: { userId: 99999, email: 'test@live.com', membershipStatus: 'ACTIVE' } }),
+      },
+    ], [], []);
+
+    const manifestEntry = result.httpManifest[0];
+    assert.equal(manifestEntry.sanitized, true);
+    assert.ok(manifestEntry.sanitizedFields.length > 0);
+
+    const mockFilePath = path.join(tempRoot, 'server', manifestEntry.bodyFile);
+    const mockContent = JSON.parse(await fs.readFile(mockFilePath, 'utf8'));
+    assert.equal(mockContent.data.userId, 0);
+    assert.equal(mockContent.data.email, 'user@example.com');
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('ApiProcessor does NOT sanitize render-critical mock bodies', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'front-clone-api-no-sanitize-'));
+  try {
+    const processor = new ApiProcessor(tempRoot, 'https://example.com');
+    const result = await processor.generateArtifacts([
+      {
+        method: 'POST',
+        url: 'https://example.com/bootstrap',
+        pageUrl: 'https://example.com',
+        resourceType: 'fetch',
+        postData: JSON.stringify({ init: true }),
+        headers: { 'content-type': 'application/json' },
+        responseStatus: 200,
+        responseMimeType: 'application/json',
+        responseBody: JSON.stringify({ userId: 99999, email: 'test@live.com' }),
+      },
+    ], [], []);
+
+    const manifestEntry = result.httpManifest[0];
+    assert.equal(manifestEntry.sanitized, false);
+
+    const mockFilePath = path.join(tempRoot, 'server', manifestEntry.bodyFile);
+    const mockContent = JSON.parse(await fs.readFile(mockFilePath, 'utf8'));
+    assert.equal(mockContent.userId, 99999);
+    assert.equal(mockContent.email, 'test@live.com');
   } finally {
     await fs.rm(tempRoot, { recursive: true, force: true });
   }

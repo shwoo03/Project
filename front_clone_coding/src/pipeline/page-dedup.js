@@ -151,18 +151,6 @@ function endsWithDirectoryStylePath(value) {
   }
 }
 
-function preferCanonicalSavedPath(existingPath, nextPath) {
-  const existingScore = scoreSavedPathShape(existingPath);
-  const nextScore = scoreSavedPathShape(nextPath);
-  return nextScore > existingScore ? nextPath : existingPath;
-}
-
-function scoreSavedPathShape(savedPath = '') {
-  if (String(savedPath).endsWith('/index.html')) return 2;
-  if (String(savedPath).endsWith('.html')) return 1;
-  return 0;
-}
-
 function mergeCapturedPage(target, incoming) {
   target.linkCandidates = mergeUniqueObjects(target.linkCandidates, incoming.linkCandidates, (item) => `${item?.url || ''}|${item?.sourceKind || ''}|${item?.domOrder ?? ''}`);
   target.captureWarnings = mergeUniqueStrings(target.captureWarnings, incoming.captureWarnings);

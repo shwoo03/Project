@@ -8,6 +8,7 @@ import {
   buildRenderCriticalCandidates,
   normalizeSearch,
 } from '../utils/replay-mock-utils.js';
+import { sanitizeResponseBody } from '../utils/mock-sanitizer.js';
 
 const STATIC_EXTENSIONS = [
   '.css',
@@ -348,9 +349,14 @@ export default class ApiProcessor {
         ]);
         const relativeBodyFile = path.posix.join('mocks', 'http', `${fileId}.json`);
 
+        const sanitizationResult = sanitizeResponseBody(variant.responseEnvelope, {
+          replayRole: variant.replayRole,
+        });
+        const bodyToWrite = sanitizationResult.body;
+
         await saveFile(
           path.join(httpMockDir, `${fileId}.json`),
-          JSON.stringify(variant.responseEnvelope !== undefined ? variant.responseEnvelope : null, null, 2),
+          JSON.stringify(bodyToWrite !== undefined ? bodyToWrite : null, null, 2),
         );
 
         manifest.push({
@@ -382,6 +388,8 @@ export default class ApiProcessor {
           renderCriticalKind: variant.renderCriticalKind,
           expectedForReplay: variant.expectedForReplay !== false,
           bodyFile: relativeBodyFile,
+          sanitized: sanitizationResult.sanitized,
+          sanitizedFields: sanitizationResult.sanitized ? sanitizationResult.sanitizedFields : [],
         });
       }
     }

@@ -76,8 +76,8 @@ export async function downloadExternalImages(
     const batch = urls.slice(i, i + CONCURRENCY);
     const results = await Promise.allSettled(
       batch.map(async (url) => {
-        let body = null;
-        let mimeType = 'image/jpeg';
+        let body;
+        let mimeType;
         const cached = interceptor.getLatestResponse(url);
 
         if (cached?.body) {

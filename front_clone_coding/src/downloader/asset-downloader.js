@@ -6,6 +6,8 @@ import { saveFile, deduplicateFilename } from '../utils/file-utils.js';
 import { getAssetPathFromUrl, isInDomainScope } from '../utils/url-utils.js';
 import logger from '../utils/logger.js';
 import { classifyResource } from '../utils/crawl-config.js';
+import { batchParallel } from '../utils/concurrency-utils.js';
+import { ASSET_DOWNLOAD_CONCURRENCY } from '../utils/constants.js';
 
 const RECOVERY_TRACKER_PATTERNS = [
   'doubleclick.net',
@@ -44,11 +46,11 @@ export default class AssetDownloader {
   async downloadAll(interceptor) {
     const assets = interceptor.getAssets();
     const total = assets.size;
-    let saved = 0;
     let skipped = 0;
 
     logger.start(`Asset download start: ${total} items`);
 
+    const writeTasks = [];
     for (const [, data] of assets) {
       try {
         if (!data.body || data.body.length === 0) {
@@ -75,10 +77,8 @@ export default class AssetDownloader {
         const uniqueFilename = deduplicateFilename(this._usedNames, relativeDir, filename);
         const relativePath = path.posix.join(relativeDir, uniqueFilename);
         const absolutePath = path.join(this.outputDir, 'public', relativePath);
-
-        await saveFile(absolutePath, data.body);
-
         const normalizedPath = relativePath.replace(/\\/g, '/');
+
         this.savedHashes.set(hash, normalizedPath);
         this.urlToRelativePath.set(data.url, normalizedPath);
         this._recordResourceEntry({
@@ -98,17 +98,29 @@ export default class AssetDownloader {
           encodingEvidence: data.encodingEvidence || {},
         });
 
-        saved += 1;
-        if (saved % 10 === 0) {
-          logger.update(`Asset download progress: ${saved}/${total}`);
-        }
+        writeTasks.push({ absolutePath, body: data.body, url: data.url });
       } catch (err) {
         logger.debug(`Asset download failed: ${data.url} - ${err.message}`);
         skipped += 1;
       }
     }
 
-    logger.succeed(`Asset download done: saved ${saved}, skipped ${skipped}`);
+    let completed = 0;
+    const totalTasks = writeTasks.length;
+    await batchParallel(writeTasks, ASSET_DOWNLOAD_CONCURRENCY, async (task) => {
+      await saveFile(task.absolutePath, task.body);
+      completed += 1;
+      if (completed % 50 === 0 || completed === totalTasks) {
+        logger.progress({
+          stage: 'download',
+          current: completed,
+          total: totalTasks,
+          label: `Downloading assets: ${completed} / ${totalTasks}`,
+        });
+      }
+    });
+
+    logger.succeed(`Asset download done: saved ${writeTasks.length}, skipped ${skipped}`);
     return this.urlToRelativePath;
   }
 
